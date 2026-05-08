@@ -171,8 +171,9 @@ function openLocalArtifact(target) {
     return true;
   }
 
-  const openTarget = parsed.hash ? `${pathToFileURL(artifactPath).href}${parsed.hash}` : artifactPath;
-  const openPromise = parsed.hash || artifactPath.endsWith(".html")
+  const isHtml = artifactPath.toLowerCase().endsWith(".html") || artifactPath.toLowerCase().endsWith(".htm");
+  const openTarget = parsed.hash || isHtml ? `${pathToFileURL(artifactPath).href}${parsed.hash}` : artifactPath;
+  const openPromise = parsed.hash || isHtml
     ? shell.openExternal(openTarget)
     : shell.openPath(artifactPath);
   void Promise.resolve(openPromise).then((error) => {

@@ -714,6 +714,7 @@
 .ci-inline {
   display: grid;
   gap: 7px;
+  min-width: 0;
   padding: 10px;
   border: 1px solid #e0e6e8;
   border-left: 4px solid #89979a;
@@ -744,6 +745,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
+}
+
+.ci-check > div:first-child strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .ci-check p,
@@ -751,15 +759,26 @@
 .ci-inline span {
   color: #536164;
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ci-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.ci-actions .button-like,
+.ci-actions button {
+  max-width: 100%;
 }
 
 .ci-check pre {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   max-height: 320px;
   margin: 8px 0 0;
   overflow: auto;
@@ -767,11 +786,13 @@
 }
 
 .ci-explanation {
+  min-width: 0;
   padding: 9px 10px;
   border: 1px solid #cfdfe3;
   border-left: 4px solid #1f6f78;
   border-radius: 7px;
   background: #f2f8f9;
+  overflow-wrap: anywhere;
 }
 
 .ci-explanation.error-text {

@@ -406,23 +406,31 @@ export async function getCiChecks(owner: string, repo: string, number: number): 
     token
   );
   const raw = JSON.parse(result.stdout) as GhCiCheck[];
+  const checkRuns = shouldEnrichCheckRuns(raw)
+    ? await fetchCheckRunDetails(token, owner, repo, number).catch(() => new Map<string, EnrichedCheckRun>())
+    : new Map<string, EnrichedCheckRun>();
   return raw.map((check) => ({
     name: check.name ?? "",
     workflow: check.workflow ?? "",
     state: check.state ?? "",
     bucket: check.bucket ?? "",
-    description: check.description ?? "",
-    link: check.link ?? "",
+    description: checkRunDescription(check, checkRuns.get(check.name ?? "")),
+    details: checkRunDetails(checkRuns.get(check.name ?? "")),
+    link: checkRunLink(owner, repo, number, check, checkRuns.get(check.name ?? "")),
     startedAt: check.startedAt ?? "",
     completedAt: check.completedAt ?? "",
-    canFetchLog: parseActionsJobLink(check.link ?? "") !== undefined
+    canFetchLog: parseActionsJobLink(check.link ?? "") !== undefined || Boolean(checkRuns.get(check.name ?? "")?.id)
   }));
 }
 
 export async function getCiLog(owner: string, repo: string, link: string): Promise<string> {
   const token = await requireToken();
   const ids = parseActionsJobLink(link);
-  if (!ids) throw new Error("Logs can only be fetched for GitHub Actions job links.");
+  const checkRunId = parseCheckRunLink(link);
+  if (checkRunId && !ids) {
+    return fetchCheckRunOutput(token, owner, repo, checkRunId);
+  }
+  if (!ids) throw new Error("Logs can only be fetched for GitHub Actions job links or GitHub check-run details.");
   const result = await runGh(["run", "view", ids.runId, "-R", `${owner}/${repo}`, "--job", ids.jobId, "--log"], token);
   return result.stdout;
 }
@@ -1372,6 +1380,169 @@ interface GhCiCheck {
   link?: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+interface GhCheckRunList {
+  check_runs?: GhCheckRun[];
+}
+
+interface GhCheckRun {
+  id?: number;
+  name?: string;
+  html_url?: string;
+  details_url?: string;
+  output?: {
+    title?: string | null;
+    summary?: string | null;
+    text?: string | null;
+    annotations_count?: number;
+    annotations_url?: string | null;
+  };
+}
+
+interface GhCheckRunAnnotation {
+  path?: string;
+  start_line?: number;
+  end_line?: number;
+  annotation_level?: string;
+  title?: string;
+  message?: string;
+  raw_details?: string | null;
+}
+
+interface EnrichedCheckRun {
+  id: number;
+  htmlUrl: string;
+  detailsUrl: string;
+  title: string;
+  summary: string;
+  text: string;
+  annotations: GhCheckRunAnnotation[];
+}
+
+function shouldEnrichCheckRuns(checks: GhCiCheck[]): boolean {
+  return checks.some((check) => {
+    const text = `${check.name ?? ""} ${check.workflow ?? ""} ${check.description ?? ""} ${check.link ?? ""}`.toLowerCase();
+    const failed = check.bucket === "fail" || /fail|error|cancel/i.test(check.state ?? "");
+    return failed && !parseActionsJobLink(check.link ?? "") && (text.includes("sonar") || text.includes("quality") || isGenericExternalCheckLink(check.link ?? ""));
+  });
+}
+
+async function fetchCheckRunDetails(token: string, owner: string, repo: string, number: number): Promise<Map<string, EnrichedCheckRun>> {
+  const repoName = `${owner}/${repo}`;
+  const pr = await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefOid"], token);
+  const headRefOid = (JSON.parse(pr.stdout) as { headRefOid?: string }).headRefOid;
+  if (!headRefOid) return new Map();
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/commits/${headRefOid}/check-runs`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  const raw = JSON.parse(result.stdout) as GhCheckRunList;
+  const entries = await Promise.all((raw.check_runs ?? []).map(async (checkRun) => enrichCheckRun(token, owner, repo, checkRun)));
+  return new Map(entries.flatMap((item) => (item ? [[item.name, item.run] as const] : [])));
+}
+
+async function enrichCheckRun(token: string, owner: string, repo: string, checkRun: GhCheckRun): Promise<{ name: string; run: EnrichedCheckRun } | undefined> {
+  const id = checkRun.id;
+  const name = checkRun.name;
+  if (!id || !name) return undefined;
+  const annotationsCount = checkRun.output?.annotations_count ?? 0;
+  const annotations = annotationsCount > 0 ? await fetchCheckRunAnnotations(token, owner, repo, id).catch(() => []) : [];
+  return {
+    name,
+    run: {
+      id,
+      htmlUrl: checkRun.html_url ?? "",
+      detailsUrl: checkRun.details_url ?? "",
+      title: checkRun.output?.title ?? "",
+      summary: checkRun.output?.summary ?? "",
+      text: checkRun.output?.text ?? "",
+      annotations
+    }
+  };
+}
+
+async function fetchCheckRunAnnotations(token: string, owner: string, repo: string, id: number): Promise<GhCheckRunAnnotation[]> {
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  return JSON.parse(result.stdout) as GhCheckRunAnnotation[];
+}
+
+async function fetchCheckRunOutput(token: string, owner: string, repo: string, id: string): Promise<string> {
+  const [run, annotations] = await Promise.all([
+    runGh(["api", `repos/${owner}/${repo}/check-runs/${id}`, "--hostname", "github.com"], token),
+    runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", "github.com"], token).catch(() => ({ stdout: "[]" }))
+  ]);
+  const checkRun = JSON.parse(run.stdout) as GhCheckRun;
+  const checkAnnotations = JSON.parse(annotations.stdout) as GhCheckRunAnnotation[];
+  return [
+    `${checkRun.name ?? "Check run"}${checkRun.output?.title ? `: ${checkRun.output.title}` : ""}`,
+    checkRun.output?.summary ? markdownToPlainText(checkRun.output.summary) : "",
+    checkRun.output?.text ? markdownToPlainText(checkRun.output.text) : "",
+    formatCheckAnnotations(checkAnnotations)
+  ].filter(Boolean).join("\n\n");
+}
+
+function checkRunDescription(check: GhCiCheck, run: EnrichedCheckRun | undefined): string {
+  const parts = [check.description ?? ""];
+  if (run?.title) parts.push(run.title);
+  const summary = run?.summary ? markdownToPlainText(run.summary) : "";
+  if (summary) parts.push(summary);
+  const annotations = run?.annotations ? formatCheckAnnotations(run.annotations) : "";
+  if (annotations) parts.push(annotations);
+  return truncate(parts.filter(Boolean).join("\n\n"), 1200);
+}
+
+function checkRunDetails(run: EnrichedCheckRun | undefined): string | undefined {
+  if (!run) return undefined;
+  return truncate([
+    run.title,
+    markdownToPlainText(run.summary),
+    markdownToPlainText(run.text),
+    formatCheckAnnotations(run.annotations)
+  ].filter(Boolean).join("\n\n"), 12_000) || undefined;
+}
+
+function checkRunLink(owner: string, repo: string, number: number, check: GhCiCheck, run: EnrichedCheckRun | undefined): string {
+  if (run?.id) return `https://github.com/${owner}/${repo}/pull/${number}/checks?check_run_id=${run.id}`;
+  return check.link ?? "";
+}
+
+function parseCheckRunLink(link: string): string | undefined {
+  return /[?&]check_run_id=(\d+)/.exec(link)?.[1] ?? /\/runs\/(\d+)(?:\b|\/|\?)/.exec(link)?.[1];
+}
+
+function isGenericExternalCheckLink(link: string): boolean {
+  if (!link) return false;
+  try {
+    const url = new URL(link);
+    return !url.hostname.endsWith("github.com");
+  } catch {
+    return false;
+  }
+}
+
+function formatCheckAnnotations(annotations: GhCheckRunAnnotation[]): string {
+  return annotations.map((annotation) => {
+    const location = [annotation.path, annotation.start_line ? `line ${annotation.start_line}` : ""].filter(Boolean).join(":");
+    return [
+      location ? `Annotation at ${location}` : "Annotation",
+      annotation.annotation_level ? `(${annotation.annotation_level})` : "",
+      annotation.title,
+      annotation.message ? markdownToPlainText(annotation.message) : "",
+      annotation.raw_details ?? ""
+    ].filter(Boolean).join(" ");
+  }).join("\n");
+}
+
+function markdownToPlainText(value: string): string {
+  return value
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)]\(([^)]+)\)/g, "$1 ($2)")
+    .replace(/[*`>#]/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}\n\n[Output truncated from ${value.length} characters.]` : value;
 }
 
 function parseActionsJobLink(link: string): { runId: string; jobId: string } | undefined {

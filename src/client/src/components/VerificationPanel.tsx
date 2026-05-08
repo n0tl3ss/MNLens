@@ -212,7 +212,7 @@ export function CiStatusSection({
                   {check.canFetchLog && (
                     <button disabled={loading[check.link]} onClick={() => onFetchLog(check)}>
                       {loading[check.link] ? <Loader2 size={16} className="spin" /> : <FileSearch size={16} />}
-                      Fetch logs
+                      {checkRunDetailsAvailable(check) ? "Fetch details" : "Fetch logs"}
                     </button>
                   )}
                   {failed && (
@@ -221,7 +221,19 @@ export function CiStatusSection({
                         {ciAnswerLoading[key] ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
                         Explain failure
                       </button>
-                      <button onClick={() => onStartFix(buildCiFixInstructions(check, log), undefined, `Overview / CI Status / ${check.name}`)}>
+                      <button
+                        onClick={() =>
+                          onStartFix(
+                            buildCiFixInstructions(check, {
+                              fetchedDetails: log,
+                              explanation: ciAnswers[key],
+                              explanationError: ciAnswerErrors[key]
+                            }),
+                            undefined,
+                            `Overview / CI Status / ${check.name}`
+                          )
+                        }
+                      >
                         <GitPullRequest size={16} />
                         Address with Codex
                       </button>
@@ -232,6 +244,9 @@ export function CiStatusSection({
                   <div className={`ci-explanation ${ciAnswerErrors[key] ? "error-text" : ""}`}>
                     <MarkdownBody body={ciAnswerErrors[key] || ciAnswers[key]} />
                   </div>
+                )}
+                {!check.canFetchLog && failed && (
+                  <p className="muted">{ciLogUnavailableReason(check)}</p>
                 )}
                 {log && (
                   <details open>
@@ -443,8 +458,23 @@ ${item}
 Add or update the smallest appropriate automated test, integration test, or TCK-style module/check that proves this behavior. Prefer project conventions and existing test infrastructure. If this truly cannot be automated locally, explain why and add the closest practical automated guard.`;
 }
 
-function buildCiFixInstructions(check: CiCheck, log?: string): string {
-  const excerpt = log?.trim() ? cleanConsoleOutput(log).slice(-12_000) : "No CI log fetched in the app yet. Fetch logs first if exact failure context is needed.";
+function buildCiFixInstructions(
+  check: CiCheck,
+  context: { fetchedDetails?: string; explanation?: string; explanationError?: string } = {}
+): string {
+  const fetchedDetails = context.fetchedDetails?.trim()
+    ? cleanConsoleOutput(context.fetchedDetails).slice(-18_000)
+    : check.details?.trim()
+      ? cleanConsoleOutput(check.details).slice(-18_000)
+      : "";
+  const detailLabel = context.fetchedDetails?.trim() ? "Fetched CI/check details" : check.details?.trim() ? "Loaded CI/check details" : "CI/check details";
+  const explanation = context.explanation?.trim()
+    ? context.explanation.trim()
+    : context.explanationError?.trim()
+      ? `Explain failure was attempted but failed in MNLens:\n${context.explanationError.trim()}`
+      : "";
+  const detailBlock = fetchedDetails || "No CI log/check details were fetched in the app yet. Use the check metadata and link if exact provider output is needed.";
+  const explanationBlock = explanation || "No prior MNLens explanation was generated for this check.";
   const vulnerabilityGuidance = isVulnerabilityAuditCheck(check)
     ? `\nVulnerability Audit dependency policy:\n- First identify the vulnerable module and the dependency path that brings it in. Use dependency insight/tree tasks where possible.\n- Prefer updating the root dependency that owns the vulnerable transitive dependency. For example, if a Netty CVE is introduced through Micronaut Core, first try updating the Micronaut Core/Micronaut platform version.\n- Do not add a direct forced version or dependency constraint just because it makes the audit pass.\n- Only introduce a direct fixed version/constraint as a last resort, and explain why the root dependency cannot be updated safely in this PR.\n`
     : "";
@@ -457,11 +487,26 @@ CI check:
 - Description: ${check.description || "none"}
 - Link: ${check.link || "none"}
 
-Use the CI log excerpt below to identify the failure. If the failure is unrelated or flaky, do not make speculative code changes; leave a concise explanation in the fix session log.
+Use the CI/check context below to identify the failure. It includes any details fetched in MNLens and any prior Explain failure answer. If the failure is unrelated or flaky, do not make speculative code changes; leave a concise explanation in the fix session log.
 ${vulnerabilityGuidance}
 
-CI log excerpt:
-${excerpt}`;
+${detailLabel}:
+${detailBlock}
+
+Prior MNLens explanation:
+${explanationBlock}`;
+}
+
+function ciLogUnavailableReason(check: CiCheck): string {
+  const text = `${check.name} ${check.workflow} ${check.description} ${check.link}`.toLowerCase();
+  if (text.includes("sonar")) {
+    return "SonarCloud is an external check, not a GitHub Actions job, so MNLens cannot download an Actions log for it. Open the check or use Explain failure; Codex will reason from the SonarCloud metadata/link unless Sonar details are available in the browser.";
+  }
+  return "Logs are only downloadable for GitHub Actions job links. This check appears to be external or summary-only, so open the check for provider-specific output.";
+}
+
+function checkRunDetailsAvailable(check: CiCheck): boolean {
+  return /[?&]check_run_id=\d+/.test(check.link) || /\/runs\/\d+/.test(check.link);
 }
 
 function artifactActionLabel(kind: NonNullable<VerificationJob["artifacts"]>[number]["kind"]): string {

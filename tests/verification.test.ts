@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   closestGradleProject,
+  explicitAnchorsFromAsciiDoc,
+  htmlAnchorOffset,
   isAllowedExecutable,
   manualVerificationCommand,
   normalizeVerificationCommand,
@@ -35,5 +37,20 @@ describe("verification command parsing", () => {
 
   it("formats manual verification command ids", () => {
     expect(manualVerificationCommand("docs-1")).toBe("codex-manual-check docs-1");
+  });
+
+  it("does not treat code snippet attributes as rendered docs anchors", () => {
+    expect(explicitAnchorsFromAsciiDoc('<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">')).toEqual([]);
+    expect(explicitAnchorsFromAsciiDoc("[[logback-mdc]]\n[#mdc]\n[id=\"otelMdc\"]")).toEqual(["logback-mdc", "mdc", "otelMdc"]);
+  });
+
+  it("matches only real HTML id/name anchors, not escaped code snippets or links", () => {
+    const html = `
+      <a href="#mdc">Logback MDC</a>
+      <code>&lt;appender name="CONSOLE"&gt;</code>
+      <h2 id="mdc">Logback MDC</h2>
+    `;
+    expect(htmlAnchorOffset(html, "CONSOLE")).toBe(-1);
+    expect(htmlAnchorOffset(html, "mdc")).toBeGreaterThan(0);
   });
 });

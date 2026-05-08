@@ -398,6 +398,7 @@ export interface CiCheck {
   bucket: string;
   description: string;
   link: string;
+  details?: string;
   startedAt: string;
   completedAt: string;
   canFetchLog: boolean;

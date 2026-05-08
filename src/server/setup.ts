@@ -55,7 +55,11 @@ function dependencySpecs(): DependencySpec[] {
       required: true,
       command: "codex",
       args: ["--version"],
-      installHint: "Install the Codex CLI and make sure `codex` is on PATH. Then verify it can authenticate before analyzing or fixing PRs."
+      installHint: platformHint({
+        darwin: "Install the Codex CLI, for example with Homebrew (`brew install codex`) or npm, and make sure `codex` is on PATH. Then verify it can authenticate before analyzing or fixing PRs.",
+        win32: "Install the Codex CLI with npm or your preferred package manager, then reopen MNLens so `codex` is on PATH. Then verify it can authenticate before analyzing or fixing PRs.",
+        linux: "Install the Codex CLI with npm, Homebrew/Linuxbrew, or your preferred package manager, and make sure `codex` is on PATH. Then verify it can authenticate before analyzing or fixing PRs."
+      })
     },
     {
       id: "codex-auth",
@@ -96,6 +100,18 @@ function dependencySpecs(): DependencySpec[] {
       command: "mvn",
       args: ["--version"],
       installHint: "Optional when a repo has `./mvnw`. Install Maven with SDKMAN, Homebrew, Winget, or your package manager if you review Maven repos without wrappers."
+    },
+    {
+      id: "agent-browser",
+      name: "Agent Browser CLI",
+      required: false,
+      command: "agent-browser",
+      args: ["--version"],
+      installHint: platformHint({
+        darwin: "Install with npm: `npm install -g agent-browser`. Required for Build docs + screenshot artifacts.",
+        win32: "Install with npm: `npm install -g agent-browser`. Required for Build docs + screenshot artifacts.",
+        linux: "Install with npm: `npm install -g agent-browser`. Required for Build docs + screenshot artifacts."
+      })
     }
   ];
 }

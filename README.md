@@ -56,9 +56,19 @@ Recommended for verification workflows:
 - Java/JDK
 - Gradle or project Gradle wrappers
 - Maven or project Maven wrappers
-- Browser tooling used by project-specific docs/screenshots
+- Agent Browser CLI (`agent-browser`) for **Build docs + screenshot** artifacts
 
-The first-run setup screen checks required tools and displays install hints.
+The first-run setup screen checks required tools and displays install hints. MNLens does not bundle Codex or browser-agent tooling because those CLIs change frequently and need their own authentication/runtime setup. Install them separately and keep them on your PATH.
+
+Useful one-time checks:
+
+```sh
+brew install codex
+codex --version
+codex --ask-for-approval never exec --skip-git-repo-check --sandbox read-only - <<< "Reply with exactly: OK"
+npm install -g agent-browser
+agent-browser --version
+```
 
 ## GitHub Token Permissions
 

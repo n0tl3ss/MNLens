@@ -304,8 +304,8 @@ async function runDocRenderVerification(job: VerificationJob, pr: PrRef, repoDir
     timeoutMs: 20 * 60_000,
     redact: [token]
   });
-  const target = await findDocHtmlTarget(repoDir, item, pr);
-  if (!target) {
+  const targets = await findDocHtmlTargets(repoDir, item, pr);
+  if (targets.length === 0) {
     updateVerificationJob(job, {
       artifacts: [],
       stdout: trimLog(`${build.stdout}\n\nDocs build completed, but MNLens could not find generated HTML to screenshot.`)
@@ -314,21 +314,39 @@ async function runDocRenderVerification(job: VerificationJob, pr: PrRef, repoDir
   }
   const artifactsDir = join(cacheDir, "artifacts", job.id);
   await mkdir(artifactsDir, { recursive: true });
-  const shot = await captureDocScreenshot(job, repoDir, target.url, artifactsDir);
-  const screenshot = shot.screenshot;
-  const artifacts: VerificationArtifact[] = [
-    { label: target.label, path: target.html, kind: "html", url: `/api/artifacts?path=${encodeURIComponent(target.html)}${target.anchor ? `#${encodeURIComponent(target.anchor)}` : ""}` }
-  ];
-  if (screenshot) {
-    artifacts.unshift({ label: "Rendered docs screenshot", path: screenshot, kind: "screenshot", url: `/api/artifacts/${encodeURIComponent(job.id)}/${encodeURIComponent(basename(screenshot))}` });
+  const artifacts: VerificationArtifact[] = [];
+  const screenshotLogs: string[] = [];
+  const screenshotErrors: string[] = [];
+  for (const target of targets) {
+    const shot = await captureDocScreenshot(job, repoDir, target.url, artifactsDir);
+    screenshotLogs.push(shot.stdout);
+    screenshotErrors.push(shot.stderr);
+    if (shot.screenshot) {
+      artifacts.push({
+        label: target.anchor ? `Rendered docs screenshot: #${target.anchor}` : "Rendered docs screenshot",
+        path: shot.screenshot,
+        kind: "screenshot",
+        url: `/api/artifacts/${encodeURIComponent(job.id)}/${encodeURIComponent(basename(shot.screenshot))}`
+      });
+    }
+    artifacts.push({
+      label: target.label,
+      path: target.html,
+      kind: "html",
+      url: `/api/artifacts?path=${encodeURIComponent(target.html)}${target.anchor ? `#${encodeURIComponent(target.anchor)}` : ""}`
+    });
   }
   updateVerificationJob(job, {
     artifacts,
-    statusMessage: screenshot ? "Docs built and screenshot captured." : "Docs built; screenshot capture did not produce a file."
+    statusMessage: artifacts.some((artifact) => artifact.kind === "screenshot")
+      ? targets.length > 1
+        ? `Docs built and ${targets.length} section screenshots captured.`
+        : "Docs built and screenshot captured."
+      : "Docs built; screenshot capture did not produce a file."
   });
   return {
-    stdout: trimLog(`${build.stdout}\n\n${shot.stdout}`),
-    stderr: trimLog(`${build.stderr}\n\n${shot.stderr}`),
+    stdout: trimLog(`${build.stdout}\n\n${screenshotLogs.filter(Boolean).join("\n\n")}`),
+    stderr: trimLog(`${build.stderr}\n\n${screenshotErrors.filter(Boolean).join("\n\n")}`),
     exitCode: build.exitCode
   };
 }
@@ -344,6 +362,14 @@ async function captureDocScreenshot(
       cwd: repoDir,
       timeoutMs: 30_000
     });
+    const anchor = anchorFromUrl(url);
+    const scroll = anchor
+      ? await runStreamingCommand(job, "agent-browser", ["eval", "--stdin"], {
+          cwd: repoDir,
+          input: scrollToAnchorScript(anchor),
+          timeoutMs: 10_000
+        })
+      : { stdout: "", stderr: "", exitCode: 0 };
     const wait = await runStreamingCommand(job, "agent-browser", ["wait", "1000"], {
       cwd: repoDir,
       timeoutMs: 5_000
@@ -354,8 +380,8 @@ async function captureDocScreenshot(
     });
     const screenshot = screenshotPathFromOutput(shot.stdout) ?? (await newestFile(artifactsDir));
     return {
-      stdout: trimLog(`${open.stdout}\n\n${wait.stdout}\n\n${shot.stdout}`),
-      stderr: trimLog(`${open.stderr}\n\n${wait.stderr}\n\n${shot.stderr}`),
+      stdout: trimLog(`${open.stdout}\n\n${scroll.stdout}\n\n${wait.stdout}\n\n${shot.stdout}`),
+      stderr: trimLog(`${open.stderr}\n\n${scroll.stderr}\n\n${wait.stderr}\n\n${shot.stderr}`),
       screenshot
     };
   } catch (error) {
@@ -373,6 +399,36 @@ async function captureDocScreenshot(
   }
 }
 
+function anchorFromUrl(url: string): string | undefined {
+  try {
+    const hash = new URL(url).hash;
+    return hash ? decodeURIComponent(hash.slice(1)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function scrollToAnchorScript(anchor: string): string {
+  return `(() => {
+  const anchor = ${JSON.stringify(anchor)};
+  if (!anchor) return "no anchor";
+  if (location.hash !== "#" + encodeURIComponent(anchor)) {
+    location.hash = anchor;
+  }
+  const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(anchor) : anchor.replace(/["\\\\]/g, "\\\\$&");
+  const target =
+    document.getElementById(anchor) ||
+    document.querySelector("[name=\\"" + escaped + "\\"]") ||
+    document.querySelector("[id$=\\"" + escaped + "\\"]");
+  if (!target) {
+    return "anchor not found: " + anchor + " at " + location.href;
+  }
+  target.scrollIntoView({ block: "start", inline: "nearest" });
+  window.scrollBy(0, -24);
+  return "scrolled to " + anchor + " y=" + Math.round(window.scrollY);
+})()`;
+}
+
 function docBuildCommand(repoDir: string): { command: string; args: string[] } {
   if (existsSync(join(repoDir, "gradlew"))) return { command: "./gradlew", args: ["docs"] };
   if (existsSync(join(repoDir, "mvnw"))) return { command: "./mvnw", args: ["site"] };
@@ -380,48 +436,53 @@ function docBuildCommand(repoDir: string): { command: string; args: string[] } {
   return { command: "gradle", args: ["docs"] };
 }
 
-async function findDocHtmlTarget(repoDir: string, item: string, pr: PrRef): Promise<{ html: string; url: string; label: string; anchor?: string } | undefined> {
-  const adoc = /([\w./-]+)\.adoc\b/i.exec(item)?.[1] ?? (await firstChangedDocPath(pr));
-  const docStem = adoc ? basename(adoc).replace(/\.(adoc|md|html?)$/i, "") : undefined;
+type DocHtmlTarget = { html: string; url: string; label: string; anchor?: string; anchorOffset?: number };
+
+async function findDocHtmlTargets(repoDir: string, item: string, pr: PrRef): Promise<DocHtmlTarget[]> {
+  const detail = await readPrDetail(prKey(pr.owner, pr.repo, pr.number));
+  const itemDoc = /([\w./-]+)\.(?:adoc|md|html?)\b/i.exec(item)?.[0];
+  const changedDocs = detail?.files.map((file) => file.path).filter(isDocsSourcePath) ?? [];
+  const docPaths = uniqueStrings([itemDoc, ...changedDocs].filter(Boolean) as string[]);
+  const docStem = docPaths[0] ? basename(docPaths[0]).replace(/\.(adoc|md|html?)$/i, "") : undefined;
   const preferredName = docStem ? `${docStem}.html` : undefined;
-  const anchor = docStem;
   const roots = ["build", "target", "docs", "site"].map((part) => join(repoDir, part)).filter((path) => existsSync(path));
   const htmlFiles: string[] = [];
   for (const root of roots) htmlFiles.push(...(await collectFiles(root, (path) => path.endsWith(".html"))));
-  if (anchor) {
-    const indexWithAnchor = await firstHtmlContainingAnchor(rankDocHtmlFiles(htmlFiles.filter((path) => /index\.html$/i.test(path))), anchor);
-    if (indexWithAnchor) {
-      return {
-        html: indexWithAnchor,
-        url: `${pathToFileURL(indexWithAnchor).href}#${encodeURIComponent(anchor)}`,
-        label: `Rendered docs guide: ${basename(indexWithAnchor)}#${anchor}`,
-        anchor
-      };
+
+  const targets: DocHtmlTarget[] = [];
+  const anchorCandidates = await docAnchorCandidates(repoDir, item, docPaths, detail?.diff ?? "");
+  for (const anchor of anchorCandidates) {
+    const matched = await firstHtmlContainingAnchor(rankDocHtmlFiles(htmlFiles.filter((path) => /index\.html$/i.test(path))), anchor);
+    if (matched && !hasNearbyDocTarget(targets, matched.html, matched.offset)) {
+      targets.push({
+        html: matched.html,
+        url: `${pathToFileURL(matched.html).href}#${encodeURIComponent(anchor)}`,
+        label: `Rendered docs guide: ${basename(matched.html)}#${anchor}`,
+        anchor,
+        anchorOffset: matched.offset
+      });
     }
   }
+  if (targets.length > 0) return targets.slice(0, 4);
+
   if (preferredName) {
     const exact = rankDocHtmlFiles(htmlFiles.filter((path) => basename(path).toLowerCase() === preferredName.toLowerCase()))[0];
     if (exact) {
-      return {
+      return [{
         html: exact,
         url: pathToFileURL(exact).href,
         label: `Rendered docs HTML: ${basename(exact)}`
-      };
+      }];
     }
   }
   const fallback = rankDocHtmlFiles(htmlFiles.filter((path) => /index\.html$/i.test(path)))[0] ?? rankDocHtmlFiles(htmlFiles)[0];
   return fallback
-    ? {
+    ? [{
         html: fallback,
         url: pathToFileURL(fallback).href,
         label: `Rendered docs HTML: ${basename(fallback)}`
-      }
-    : undefined;
-}
-
-async function firstChangedDocPath(pr: PrRef): Promise<string | undefined> {
-  const detail = await readPrDetail(prKey(pr.owner, pr.repo, pr.number));
-  return detail?.files.find((file) => isDocsSourcePath(file.path))?.path;
+      }]
+    : [];
 }
 
 function isDocsSourcePath(path: string): boolean {
@@ -429,13 +490,124 @@ function isDocsSourcePath(path: string): boolean {
   return normalized.startsWith("src/main/docs/") || normalized.startsWith("docs/") || normalized.endsWith(".adoc") || normalized.endsWith(".md");
 }
 
-async function firstHtmlContainingAnchor(files: string[], anchor: string): Promise<string | undefined> {
-  const patterns = [`id="${anchor}"`, `id='${anchor}'`, `href="#${anchor}"`, `href='#${anchor}'`];
+async function firstHtmlContainingAnchor(files: string[], anchor: string): Promise<{ html: string; offset: number } | undefined> {
   for (const file of files) {
     const html = await readFile(file, "utf8").catch(() => "");
-    if (patterns.some((pattern) => html.includes(pattern))) return file;
+    const offset = htmlAnchorOffset(html, anchor);
+    if (offset >= 0) return { html: file, offset };
   }
   return undefined;
+}
+
+export function htmlAnchorOffset(html: string, anchor: string): number {
+  const escaped = escapeRegExp(anchor);
+  const pattern = new RegExp(`<[^>]+(?:id|name)=["']${escaped}["'][^>]*>`, "i");
+  const match = pattern.exec(html);
+  return match?.index ?? -1;
+}
+
+function hasNearbyDocTarget(targets: DocHtmlTarget[], html: string, offset: number): boolean {
+  const nearbyThreshold = 5000;
+  return targets.some((target) => target.html === html && typeof target.anchorOffset === "number" && Math.abs(target.anchorOffset - offset) <= nearbyThreshold);
+}
+
+async function docAnchorCandidates(repoDir: string, item: string, docPaths: string[], diff: string): Promise<string[]> {
+  const anchors: string[] = [];
+  const explicitAnchor = /#([A-Za-z][\w.-]*)/.exec(item)?.[1];
+  if (explicitAnchor) anchors.push(explicitAnchor);
+  for (const title of changedDocTitlesFromDiff(diff, docPaths)) anchors.push(...anchorVariants(title));
+  for (const docPath of docPaths) {
+    const stem = basename(docPath).replace(/\.(adoc|md|html?)$/i, "");
+    anchors.push(stem, ...anchorVariants(stem));
+    const content = await readFile(join(repoDir, docPath), "utf8").catch(() => "");
+    for (const anchor of explicitAnchorsFromAsciiDoc(content)) anchors.push(anchor);
+    for (const title of docTitles(content).slice(0, 6)) anchors.push(...anchorVariants(title));
+  }
+  return uniqueStrings(anchors.filter(Boolean)).slice(0, 24);
+}
+
+function changedDocTitlesFromDiff(diff: string, docPaths: string[]): string[] {
+  const wanted = new Set(docPaths.map((path) => path.replace(/\\/g, "/")));
+  const titles: string[] = [];
+  let currentPath = "";
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+      currentPath = match?.[2] ?? "";
+      continue;
+    }
+    if (!wanted.has(currentPath) || !line.startsWith("+") || line.startsWith("+++")) continue;
+    const title = docTitleFromLine(line.slice(1));
+    if (title) titles.push(title);
+    titles.push(...explicitAnchorsFromAsciiDoc(line.slice(1)));
+  }
+  return titles;
+}
+
+function docTitles(content: string): string[] {
+  return content.split(/\r?\n/).map(docTitleFromLine).filter(Boolean) as string[];
+}
+
+function docTitleFromLine(line: string): string | undefined {
+  const adoc = /^(={1,6})\s+(.+?)\s*$/.exec(line.trim());
+  if (adoc) return cleanDocTitle(adoc[2]);
+  const md = /^(#{1,6})\s+(.+?)\s*$/.exec(line.trim());
+  return md ? cleanDocTitle(md[2]) : undefined;
+}
+
+export function explicitAnchorsFromAsciiDoc(content: string): string[] {
+  const anchors: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const block = /^\[\[([A-Za-z][\w.-]*)\]\]$/.exec(trimmed);
+    const shorthand = /^\[#([A-Za-z][\w.-]*)\]$/.exec(trimmed);
+    const id = /^\[id=["']?([A-Za-z][\w.-]*)["']?\]$/.exec(trimmed);
+    const anchor = block?.[1] ?? shorthand?.[1] ?? id?.[1];
+    if (anchor) anchors.push(anchor);
+  }
+  return anchors;
+}
+
+function anchorVariants(value: string): string[] {
+  const cleaned = cleanDocTitle(value);
+  if (!cleaned) return [];
+  const words = cleaned.match(/[A-Za-z0-9]+/g) ?? [];
+  if (words.length === 0) return [];
+  const camel = words.map((word, index) => {
+    const lower = word.charAt(0).toLowerCase() + word.slice(1);
+    return index === 0 ? lower : lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join("");
+  const normalizedCamel = words.map((word, index) => {
+    const lower = word.toLowerCase();
+    return index === 0 ? lower : lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join("");
+  const snake = `_${words.map((word) => word.toLowerCase()).join("_")}`;
+  const kebab = words.map((word) => word.toLowerCase()).join("-");
+  return uniqueStrings([cleaned, camel, normalizedCamel, snake, kebab]);
+}
+
+function cleanDocTitle(value: string): string {
+  return value
+    .replace(/\[\[.+?\]\]/g, "")
+    .replace(/\{.+?\}/g, "")
+    .replace(/https?:\/\/\S+\[(.+?)\]/g, "$1")
+    .replace(/[`*_#]/g, "")
+    .trim();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function rankDocHtmlFiles(files: string[]): string[] {
