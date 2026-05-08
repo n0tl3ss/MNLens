@@ -1,0 +1,1306 @@
+[data-theme="dark"] {
+  color-scheme: dark;
+  color: #dceaf0;
+  background: #08131d;
+  --mn-ink: #eef8fb;
+  --mn-muted: #9fb4bf;
+  --mn-surface: #101d28;
+  --mn-surface-soft: #132532;
+  --mn-border: #284557;
+  --mn-primary: #27b7f2;
+  --mn-primary-deep: #1c83c2;
+  --mn-teal: #19d0b8;
+  --mn-violet: #7668ff;
+  --mn-amber: #d99b2b;
+  --mn-danger: #ec6b62;
+}
+
+[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(39, 183, 242, 0.08), transparent 28%),
+    radial-gradient(circle at 88% 6%, rgba(118, 104, 255, 0.08), transparent 26%),
+    linear-gradient(135deg, #08131d, #101d28);
+}
+
+[data-theme="dark"] button,
+[data-theme="dark"] .button-like,
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  border-color: #284557;
+  background: #101d28;
+  color: #e6f2f7;
+}
+
+[data-theme="dark"] button:hover,
+[data-theme="dark"] .button-like:hover {
+  border-color: #3a8db2;
+}
+
+[data-theme="dark"] .text-button {
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+}
+
+[data-theme="dark"] .text-button:hover {
+  border-color: transparent;
+  background: transparent;
+  text-decoration: underline;
+}
+
+[data-theme="dark"] .summary-card,
+[data-theme="dark"] .commit-card,
+[data-theme="dark"] .conversation-comment,
+[data-theme="dark"] .prepared-file-tabs,
+[data-theme="dark"] .prepared-file-tabs button,
+[data-theme="dark"] .prepared-file-heading,
+[data-theme="dark"] .verification-result,
+[data-theme="dark"] .callout,
+[data-theme="dark"] .source-note {
+  border-color: #284557;
+  background: rgba(16, 29, 40, 0.96);
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .app-shell {
+  background:
+    radial-gradient(circle at 84% 0%, rgba(118, 104, 255, 0.08), transparent 28%),
+    linear-gradient(135deg, #08131d, #101d28);
+}
+
+[data-theme="dark"] .muted,
+[data-theme="dark"] .empty,
+[data-theme="dark"] .eyebrow,
+[data-theme="dark"] .prepared-file-row small,
+[data-theme="dark"] .pr-score-card em {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] .prepared-file-row strong,
+[data-theme="dark"] .pr-score-card p {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .segmented .active {
+  background: #166f93;
+  color: #fff;
+}
+
+[data-theme="dark"] .prepared-file-tabs button.active {
+  border-color: #27b7f2;
+  background: #102c42;
+  box-shadow: inset 3px 0 0 #27b7f2;
+}
+
+[data-theme="dark"] .auth.ok {
+  background: #0e332d;
+  color: #a9f5e7;
+}
+
+[data-theme="dark"] .auth.warn {
+  background: #372813;
+  color: #ffd58d;
+}
+
+[data-theme="dark"] .badge.neutral,
+[data-theme="dark"] .badge.review-needed {
+  background: #172d3b;
+  color: #c7dbe3;
+  border-color: #315268;
+}
+
+[data-theme="dark"] .badge.label {
+  background: #26224c;
+  color: #d8d1ff;
+  border-color: #5449a4;
+}
+
+[data-theme="dark"] .badge.queue {
+  background: linear-gradient(180deg, #26224c, #102c42);
+  color: #d8d1ff;
+  border-color: #5449a4;
+}
+
+[data-theme="dark"] .badge.feature {
+  background: #102f45;
+  color: #9fe0ff;
+  border: 1px solid #286486;
+}
+
+[data-theme="dark"] .badge.improvement,
+[data-theme="dark"] .badge.added {
+  background: #10352f;
+  color: #aaf4e7;
+  border: 1px solid #2c6d62;
+}
+
+[data-theme="dark"] .badge.danger {
+  background: #481f1d;
+  color: #ffc4bf;
+  border: 1px solid #87413a;
+}
+
+[data-theme="dark"] select {
+  border-color: #284557;
+  background: #101d28;
+  color: #e6f2f7;
+}
+
+[data-theme="dark"] .check-control {
+  color: #b4c8d0;
+}
+
+[data-theme="dark"] .check-control:has(input:disabled),
+[data-theme="dark"] .check-control input:disabled + * {
+  color: #6f8894;
+}
+
+[data-theme="dark"] .pr-score-card,
+[data-theme="dark"] .pr-score-card.queue,
+[data-theme="dark"] .pr-score-card.danger {
+  border-color: #315268;
+  background: #101d28;
+  color: #e6f2f7;
+}
+
+[data-theme="dark"] .pr-score-card.added {
+  border-top-color: #19d0b8;
+}
+
+[data-theme="dark"] .pr-score-card.improvement {
+  border-top-color: #27b7f2;
+}
+
+[data-theme="dark"] .pr-score-card.queue {
+  border-top-color: #7668ff;
+}
+
+[data-theme="dark"] .pr-score-card.danger {
+  border-top-color: #ec6b62;
+}
+
+[data-theme="dark"] .pr-score-card strong,
+[data-theme="dark"] .pr-score-card span,
+[data-theme="dark"] .pr-score-card small {
+  color: #e6f2f7;
+}
+
+[data-theme="dark"] .pr-score-card p,
+[data-theme="dark"] .pr-score-card em {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .readiness-card.queue,
+[data-theme="dark"] .readiness-card.danger,
+[data-theme="dark"] .verification-result.failed,
+[data-theme="dark"] .verification-result.running {
+  background: #101d28;
+}
+
+[data-theme="dark"] .final-recommendation-card,
+[data-theme="dark"] .final-recommendation-card.added,
+[data-theme="dark"] .final-recommendation-card.queue,
+[data-theme="dark"] .final-recommendation-card.improvement,
+[data-theme="dark"] .final-recommendation-card.danger {
+  background: linear-gradient(180deg, #132532 0%, #0b1722 76%);
+}
+
+[data-theme="dark"] .final-recommendation-card.added {
+  border-top-color: #19d0b8;
+}
+
+[data-theme="dark"] .final-recommendation-card.queue,
+[data-theme="dark"] .final-recommendation-card.improvement {
+  border-top-color: #e0a13a;
+}
+
+[data-theme="dark"] .final-recommendation-card.danger {
+  border-top-color: #f47b69;
+}
+
+[data-theme="dark"] .handoff-card {
+  border-top-color: #27b7f2;
+}
+
+[data-theme="dark"] .handoff-card.added {
+  border-top-color: #19d0b8;
+}
+
+[data-theme="dark"] .handoff-card.queue,
+[data-theme="dark"] .handoff-card.improvement {
+  border-top-color: #e0a13a;
+}
+
+[data-theme="dark"] .handoff-card.danger {
+  border-top-color: #f47b69;
+}
+
+[data-theme="dark"] .handoff-highlights article {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .handoff-highlights span,
+[data-theme="dark"] .handoff-highlights p {
+  color: #b6c2c6;
+}
+
+[data-theme="dark"] .review-trace-card,
+[data-theme="dark"] .commit-story-card,
+[data-theme="dark"] .fix-session-list,
+[data-theme="dark"] .research-gaps-card,
+[data-theme="dark"] .review-comment-builder {
+  border-top-color: #27b7f2;
+}
+
+[data-theme="dark"] .review-trace-list article,
+[data-theme="dark"] .commit-story-list article,
+[data-theme="dark"] .fix-session-list a {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .review-trace-list article.danger,
+[data-theme="dark"] .commit-story-list article.danger {
+  border-color: #8e403d;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .review-trace-list article.queue,
+[data-theme="dark"] .commit-story-list article.queue {
+  border-color: #6a531d;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .review-trace-list article.added,
+[data-theme="dark"] .commit-story-list article.added {
+  border-color: #276b46;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .review-trace-list strong,
+[data-theme="dark"] .commit-story-list strong,
+[data-theme="dark"] .fix-session-list strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .review-trace-list p,
+[data-theme="dark"] .commit-story-list p {
+  color: #c8d7da;
+}
+
+[data-theme="dark"] .review-trace-list em,
+[data-theme="dark"] .fix-session-list em,
+[data-theme="dark"] .fix-session-list span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .fix-session-list a.active {
+  border-color: #27b7f2;
+  background: #102c42;
+}
+
+[data-theme="dark"] .session-highlight {
+  outline-color: #27b7f2;
+}
+
+[data-theme="dark"] .comment-guidance-grid > div {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .comment-guidance-grid strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .comment-guidance-grid li {
+  color: #c8d7da;
+}
+
+[data-theme="dark"] .pr-body-card,
+[data-theme="dark"] .linked-issue-list {
+  border-color: #334047;
+  background: #132532;
+}
+
+[data-theme="dark"] .linked-issue-list article {
+  border-color: #334047;
+  border-left-color: #27b7f2;
+  background: #0b1722;
+}
+
+[data-theme="dark"] .context-subtitle,
+[data-theme="dark"] .linked-issue-list article > div {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .context-subtitle strong,
+[data-theme="dark"] .linked-issue-list article strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .linked-issue-list article p {
+  color: #c0ced2;
+}
+
+[data-theme="dark"] .linked-issue-body {
+  border-color: #334047;
+  background: #132532;
+}
+
+[data-theme="dark"] .linked-issue-body .markdown-body p {
+  color: #c0ced2;
+}
+
+[data-theme="dark"] .context-subtitle a,
+[data-theme="dark"] .linked-issue-list a {
+  color: #8fe1ea;
+}
+
+[data-theme="dark"] .handoff-highlights strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .recommendation-meta,
+[data-theme="dark"] .recommendation-grid h4,
+[data-theme="dark"] .recommendation-evidence p,
+[data-theme="dark"] .recommendation-blockers,
+[data-theme="dark"] .recommendation-draft p,
+[data-theme="dark"] .score-explanation > div:first-child p,
+[data-theme="dark"] .score-actions,
+[data-theme="dark"] .score-adjustments article p {
+  color: #b6c2c6;
+}
+
+[data-theme="dark"] .recommendation-evidence article,
+[data-theme="dark"] .recommendation-draft,
+[data-theme="dark"] .score-adjustments article {
+  border-color: #334047;
+  background: #20262a;
+}
+
+[data-theme="dark"] .score-explanation {
+  border-top-color: #334047;
+}
+
+[data-theme="dark"] .score-adjustments article.queue {
+  border-left-color: #e0a13a;
+}
+
+[data-theme="dark"] .score-adjustments article.danger {
+  border-left-color: #f47b69;
+}
+
+[data-theme="dark"] .score-adjustments article > strong {
+  color: #f47b69;
+}
+
+[data-theme="dark"] .score-adjustments article b {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .recommendation-evidence article.added {
+  border-left-color: #19d0b8;
+}
+
+[data-theme="dark"] .recommendation-evidence article.queue,
+[data-theme="dark"] .recommendation-evidence article.improvement {
+  border-left-color: #e0a13a;
+}
+
+[data-theme="dark"] .recommendation-evidence article.danger {
+  border-left-color: #f47b69;
+}
+
+[data-theme="dark"] .review-summary-card {
+  border-top: 4px solid #27b7f2;
+}
+
+[data-theme="dark"] .review-delta-card {
+  border-color: #284557;
+  border-top-color: #27b7f2;
+  background: #101d28;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .review-delta-card.queue {
+  border-top-color: #d39a32;
+}
+
+[data-theme="dark"] .review-delta-card.danger {
+  border-top-color: #e0665c;
+}
+
+[data-theme="dark"] .review-delta-card.added {
+  border-top-color: #19d0b8;
+}
+
+[data-theme="dark"] .delta-baseline,
+[data-theme="dark"] .delta-empty,
+[data-theme="dark"] .delta-list p,
+[data-theme="dark"] .delta-list article > span:last-child {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .delta-empty,
+[data-theme="dark"] .delta-list article {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .delta-list article.added {
+  border-color: #2c6d62;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .delta-list article.queue {
+  border-color: #735b22;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .delta-list article.danger {
+  border-color: #7c3b34;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .delta-list strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .review-replay {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .review-replay.added {
+  border-left-color: #19d0b8;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .review-replay.queue {
+  border-left-color: #d39a32;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .review-replay.danger {
+  border-left-color: #e0665c;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .review-replay p,
+[data-theme="dark"] .review-replay li {
+  color: #b6c2c6;
+}
+
+[data-theme="dark"] .callout {
+  border-color: #284557;
+  border-left-color: #27b7f2;
+  background: #142429;
+}
+
+[data-theme="dark"] .callout strong {
+  color: #9fe8ef;
+}
+
+[data-theme="dark"] .callout.before {
+  border-left-color: #d39a32;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .callout.before strong {
+  color: #ffd18a;
+}
+
+[data-theme="dark"] .callout.after {
+  border-left-color: #19d0b8;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .callout.after strong {
+  color: #aaf4e7;
+}
+
+[data-theme="dark"] .attention-card,
+[data-theme="dark"] .policy-card {
+  border-color: #284557;
+  border-top-color: #d39a32;
+  background: #101d28;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .attention-list article,
+[data-theme="dark"] .policy-list label,
+[data-theme="dark"] .fix-session-context {
+  border-color: #284557;
+  background: #132532;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .attention-list article.danger {
+  border-color: #7c3b34;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .attention-list article.queue {
+  border-color: #735b22;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .attention-list article.added {
+  border-color: #2c6d62;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .policy-list label.checked {
+  background: #0e332d;
+  border-color: #2c6d62;
+  opacity: 0.82;
+}
+
+[data-theme="dark"] .policy-list label.ignored {
+  background: #11191b;
+  opacity: 0.62;
+}
+
+[data-theme="dark"] .policy-suggestions {
+  border-top-color: #284557;
+}
+
+[data-theme="dark"] .policy-suggestions strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .policy-suggestions p {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .learning-candidates label {
+  border-color: #284557;
+  background: #0b1722;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .learning-candidates label.saved {
+  border-color: #2c6d62;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .policy-list strong,
+[data-theme="dark"] .attention-list strong,
+[data-theme="dark"] .learning-candidates strong,
+[data-theme="dark"] .fix-session-context strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .policy-list em,
+[data-theme="dark"] .attention-list p,
+[data-theme="dark"] .learning-candidates em,
+[data-theme="dark"] .fix-session-context span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .fix-session-context {
+  border-left-color: #27b7f2;
+}
+
+[data-theme="dark"] .qa-summary-box {
+  border-color: #735b22;
+  border-left-color: #d39a32;
+  background: #2b2415;
+  color: #f3d28a;
+}
+
+[data-theme="dark"] .qa-summary-box.failed {
+  border-color: #7c3b34;
+  border-left-color: #e56c61;
+  background: #2a1a1a;
+  color: #f1aaa3;
+}
+
+[data-theme="dark"] .qa-summary-box strong {
+  color: #fff2c7;
+}
+
+[data-theme="dark"] .analysis-session-row {
+  border-color: #284557;
+  border-left-color: #315268;
+  background: #101d28;
+}
+
+[data-theme="dark"] .analysis-session-row.running,
+[data-theme="dark"] .analysis-session-row.queued {
+  border-left-color: #d39a32;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .analysis-session-row.failed {
+  border-left-color: #e56c61;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .analysis-session-row strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .analysis-session-row span,
+[data-theme="dark"] .analysis-session-row p,
+[data-theme="dark"] .analysis-session-row em {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .fix-phase-status {
+  border-color: #284557;
+  border-left-color: #27b7f2;
+  background: #132532;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .fix-phase-status.running {
+  border-left-color: #d39a32;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .fix-phase-status.failed {
+  border-color: #7c3b34;
+  border-left-color: #e56c61;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .fix-phase-status.done {
+  border-left-color: #48b979;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .fix-phase-main strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .fix-phase-main span,
+[data-theme="dark"] .fix-phase-main p {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .pipeline-badge {
+  border-color: #284557;
+  background: #1b282c;
+  color: #8ea2a8;
+}
+
+[data-theme="dark"] .pipeline-badge.done {
+  border-color: #2c6d62;
+  background: #0e332d;
+  color: #9ee0b7;
+}
+
+[data-theme="dark"] .pipeline-badge.current {
+  border-color: #735b22;
+  background: #2b2415;
+  color: #f0c86e;
+}
+
+[data-theme="dark"] .pipeline-badge.failed {
+  border-color: #7c3b34;
+  background: #2a1a1a;
+  color: #f1aaa3;
+}
+
+[data-theme="dark"] .pipeline-badge.waiting {
+  border-color: #735b22;
+  background: #2d2616;
+  color: #f4d27d;
+}
+
+[data-theme="dark"] .insight-list article,
+[data-theme="dark"] .verification-item {
+  border-color: #284557;
+  border-left-color: #6f858b;
+  background: #101d28;
+}
+
+[data-theme="dark"] .insight-section.evidence .insight-list article {
+  border-left-color: #19d0b8;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .insight-section.focus .insight-list article {
+  border-left-color: #27b7f2;
+  background: #142429;
+}
+
+[data-theme="dark"] .insight-section.risk .insight-list article {
+  border-left-color: #e0665c;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .insight-section.tests .verification-item {
+  border-left-color: #aa85e8;
+  background: #211b2e;
+}
+
+[data-theme="dark"] .insight-rank,
+[data-theme="dark"] .verification-item > div:first-child > span {
+  color: #fff;
+}
+
+[data-theme="dark"] .insight-section.evidence .insight-rank {
+  background: #138c7e;
+}
+
+[data-theme="dark"] .insight-section.focus .insight-rank {
+  background: #166f93;
+}
+
+[data-theme="dark"] .insight-section.risk .insight-rank {
+  background: #a9433c;
+}
+
+[data-theme="dark"] .insight-done-check {
+  border-color: #284557;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .insight-section.tests .verification-item > div:first-child > span {
+  background: #7250a8;
+}
+
+[data-theme="dark"] .insight-list p,
+[data-theme="dark"] .verification-item p {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .insight-title strong,
+[data-theme="dark"] .test-assessment-grid strong,
+[data-theme="dark"] .recommended-tests strong {
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .reviewer-perspective,
+[data-theme="dark"] .reviewer-recommendation {
+  border-color: #284557;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+[data-theme="dark"] .reviewer-perspective b {
+  color: #9fe8ef;
+}
+
+[data-theme="dark"] .reviewer-recommendation b {
+  color: #d7c8ff;
+}
+
+[data-theme="dark"] .risk-question,
+[data-theme="dark"] .risk-answer {
+  border-color: #5c332f;
+  background: #241819;
+}
+
+[data-theme="dark"] .risk-answer.error-text {
+  color: #ffc0ba;
+}
+
+[data-theme="dark"] .manual-check {
+  border-color: #284557;
+  background: #101d28;
+}
+
+[data-theme="dark"] .manual-check.passed {
+  border-color: #2c6d62;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .manual-check.compact p {
+  color: #aebdc1;
+}
+
+[data-theme="dark"] .manual-check.failed {
+  border-color: #7c3b34;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .automation-check {
+  border-color: #315d76;
+  border-left-color: #27b7f2;
+  background: #132329;
+}
+
+[data-theme="dark"] .automation-check > div:first-child span:not(.badge),
+[data-theme="dark"] .automation-check p {
+  color: #b6c2c6;
+}
+
+[data-theme="dark"] .verification-result {
+  background: #132532;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .verification-result.ok {
+  background: #0e332d;
+  color: #aaf4e7;
+}
+
+[data-theme="dark"] .verification-result.failed {
+  background: #2a1a1a;
+  color: #ffc0ba;
+}
+
+[data-theme="dark"] .verification-artifacts {
+  border-color: #284557;
+  background: rgba(15, 23, 26, 0.72);
+}
+
+[data-theme="dark"] .verification-artifacts > strong {
+  color: #e4edef;
+}
+
+[data-theme="dark"] .artifact-link {
+  border-color: #315268;
+  background: #08131d;
+  color: #77d0dc;
+}
+
+[data-theme="dark"] .artifact-link span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .artifact-link em {
+  color: #c8d7da;
+}
+
+[data-theme="dark"] .fix-result-log {
+  border-top-color: rgba(220, 230, 232, 0.14);
+}
+
+[data-theme="dark"] .verification-result code {
+  background: #08131d;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .wizard-file-group {
+  border-top-color: #284557;
+}
+
+[data-theme="dark"] .wizard-file-group > div:first-child strong,
+[data-theme="dark"] .wizard-steps button strong,
+[data-theme="dark"] .wizard-lanes label,
+[data-theme="dark"] .assistant-card div {
+  color: #e4edef;
+}
+
+[data-theme="dark"] .wizard-lanes label,
+[data-theme="dark"] .wizard-steps button,
+[data-theme="dark"] .wizard-guidance,
+[data-theme="dark"] .assistant-card {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .wizard-lanes label.checked,
+[data-theme="dark"] .wizard-steps button.active {
+  border-color: #27b7f2;
+  background: #102c42;
+}
+
+[data-theme="dark"] .wizard-steps button span {
+  background: #26383d;
+  color: #c8d7da;
+}
+
+[data-theme="dark"] .wizard-lanes label span,
+[data-theme="dark"] .wizard-steps button.done span {
+  background: #138c7e;
+  color: #fff;
+}
+
+[data-theme="dark"] .wizard-steps button em,
+[data-theme="dark"] .step-check em,
+[data-theme="dark"] .assistant-card p {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .step-check {
+  border-bottom-color: #284557;
+}
+
+[data-theme="dark"] .assistant-card.risk {
+  background: #281d1d;
+}
+
+[data-theme="dark"] .assistant-card.test {
+  background: #17291f;
+}
+
+[data-theme="dark"] .assistant-card.research {
+  background: #211b2e;
+}
+
+[data-theme="dark"] .raw,
+[data-theme="dark"] textarea,
+[data-theme="dark"] .review-body {
+  border-color: #284557;
+  background: #0b1722;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .file-diff-card,
+[data-theme="dark"] .file-toggle {
+  border-color: #284557;
+  background: #101d28;
+}
+
+[data-theme="dark"] .file-review-strip {
+  border-bottom-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .file-review-strip .text-button {
+  color: #8fe1ea;
+}
+
+[data-theme="dark"] .file-toggle:hover {
+  background: #102c42;
+}
+
+[data-theme="dark"] .file-toggle span {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .change-counts .added {
+  background: #10352f;
+  color: #aaf4e7;
+}
+
+[data-theme="dark"] .change-counts .deleted {
+  background: #48211e;
+  color: #ffc0ba;
+}
+
+[data-theme="dark"] .diff-viewer {
+  border-color: #284557;
+  background: #0b1722;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .code-find-bar {
+  border-bottom-color: #284557;
+  background: rgba(16, 29, 40, 0.98);
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .code-find-bar input {
+  border-color: #315268;
+  background: #08131d;
+  color: #eef8fb;
+}
+
+[data-theme="dark"] .code-find-bar span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .code-find-match {
+  background: #f1c84c;
+  color: #121a1d;
+}
+
+[data-theme="dark"] .diff-file-header {
+  border-color: #284557;
+  background: #20343a;
+}
+
+[data-theme="dark"] .diff-line.add {
+  background: rgba(35, 128, 78, 0.24);
+}
+
+[data-theme="dark"] .diff-line.add code {
+  color: #c8f3d4;
+}
+
+[data-theme="dark"] .diff-line.remove {
+  background: rgba(177, 64, 52, 0.24);
+}
+
+[data-theme="dark"] .diff-line.remove code {
+  color: #ffd2cc;
+}
+
+[data-theme="dark"] .diff-line.hunk {
+  background: #152d38;
+  color: #9fd3ff;
+}
+
+[data-theme="dark"] .diff-line.meta {
+  background: #1b282c;
+  color: #afc0c4;
+}
+
+[data-theme="dark"] .diff-truncated {
+  border-top-color: #284557;
+  background: #3a2814;
+  color: #ffd18a;
+}
+
+[data-theme="dark"] .conversation-comment,
+[data-theme="dark"] .existing-inline-comment,
+[data-theme="dark"] .inline-comment,
+[data-theme="dark"] .overview-line-pin {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .conversation-reply-form {
+  border-color: #284557;
+  background: #08131d;
+}
+
+[data-theme="dark"] .conversation-reply-form label {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .overview-line-pin.danger {
+  box-shadow: inset 4px 0 0 #d16b60;
+  background: #281d1d;
+}
+
+[data-theme="dark"] .overview-line-pin.queue {
+  box-shadow: inset 4px 0 0 #d79a2b;
+  background: #2b2416;
+}
+
+[data-theme="dark"] .overview-line-pin.added {
+  box-shadow: inset 4px 0 0 #45a877;
+  background: #17291f;
+}
+
+[data-theme="dark"] .markdown-body,
+[data-theme="dark"] .markdown-body p,
+[data-theme="dark"] .conversation-comment p,
+[data-theme="dark"] .existing-inline-comment p,
+[data-theme="dark"] .overview-line-pin p,
+[data-theme="dark"] .overview-line-pin em {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .markdown-body th,
+[data-theme="dark"] .markdown-body td {
+  border-color: #284557;
+}
+
+[data-theme="dark"] .markdown-body code,
+[data-theme="dark"] .markdown-body pre {
+  background: #08131d;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .source-snippet,
+[data-theme="dark"] .raw {
+  background: #08131d;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .source-note.caveat {
+  border-color: #514170;
+  background: #1b1728;
+}
+
+[data-theme="dark"] .sources a {
+  color: #77d0dc;
+}
+
+[data-theme="dark"] .sources p {
+  color: #afc0c4;
+}
+
+[data-theme="dark"] .rich-sources li {
+  border-color: #284557;
+  border-left-color: #aa85e8;
+  background: #0b1722;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+[data-theme="dark"] .source-meta span {
+  border-color: #315268;
+  background: #203035;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .source-note {
+  border-color: #284557;
+  background: #101f23;
+}
+
+[data-theme="dark"] .source-answer {
+  border-color: #284557;
+  background: #101f23;
+}
+
+[data-theme="dark"] .snippet-source-link {
+  color: #bca7ef;
+}
+
+[data-theme="dark"] .source-note b {
+  color: #9fe8ef;
+}
+
+[data-theme="dark"] .source-note p {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] button:disabled,
+[data-theme="dark"] .button-like:disabled {
+  border-color: #26383d;
+  background: #121b1e;
+  color: #718287;
+  opacity: 0.75;
+}
+
+[data-theme="dark"] .comment-button {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .diff-line:hover .comment-button {
+  background: #203035;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .inline-comment {
+  border-top-color: #284557;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .commit-files,
+[data-theme="dark"] .commit-file-change {
+  border-color: #284557;
+}
+
+[data-theme="dark"] .commit-main > strong,
+[data-theme="dark"] .commit-file-row strong {
+  color: #e4edef;
+}
+
+[data-theme="dark"] .commit-main > span,
+[data-theme="dark"] .commit-stats,
+[data-theme="dark"] .commit-file-row small {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .commit-file-row,
+[data-theme="dark"] .commit-file-patch {
+  background: #101d28;
+}
+
+[data-theme="dark"] .commit-file-row:hover,
+[data-theme="dark"] .commit-file-row.active {
+  background: #102c42;
+}
+
+[data-theme="dark"] .commit-file-row em {
+  background: #203035;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .fix-log-followup {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .fix-conversation {
+  border-color: #284557;
+  background: #132532;
+}
+
+[data-theme="dark"] .fix-conversation article {
+  background: #08131d;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .fix-conversation span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .fix-log-followup label {
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .fix-log-followup textarea {
+  border-color: #315268;
+  background: #08131d;
+  color: #e4edef;
+}
+
+[data-theme="dark"] .fix-log-followup textarea::placeholder {
+  color: #7f9295;
+}
+
+[data-theme="dark"] .ci-section {
+  border-top-color: #3f9f74;
+}
+
+[data-theme="dark"] .ci-check,
+[data-theme="dark"] .ci-inline {
+  border-color: #284557;
+  border-left-color: #6f858b;
+  background: #101d28;
+  color: #dceaf0;
+}
+
+[data-theme="dark"] .ci-check.pass,
+[data-theme="dark"] .ci-inline.pass {
+  border-left-color: #19d0b8;
+  background: #0e332d;
+}
+
+[data-theme="dark"] .ci-check.fail,
+[data-theme="dark"] .ci-inline.fail {
+  border-left-color: #e0665c;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] .ci-check.pending,
+[data-theme="dark"] .ci-inline.pending {
+  border-left-color: #d39a32;
+  background: #2b2415;
+}
+
+[data-theme="dark"] .ci-check strong {
+  color: #e4edef;
+}
+
+[data-theme="dark"] .ci-check p,
+[data-theme="dark"] .ci-check span,
+[data-theme="dark"] .ci-inline span {
+  color: #afc0c4;
+}
+
+[data-theme="dark"] .ci-check details {
+  border: 1px solid #284557;
+  border-radius: 7px;
+  background: #0b1722;
+}
+
+[data-theme="dark"] .ci-check summary {
+  color: #e4edef;
+}
+
+[data-theme="dark"] .ci-check pre {
+  color: #dceaf0;
+  background: #08131d;
+}
+
+[data-theme="dark"] .ci-explanation {
+  border-color: #284557;
+  border-left-color: #27b7f2;
+  background: #142429;
+}
+
+[data-theme="dark"] .ci-explanation.error-text {
+  border-left-color: #e0665c;
+  background: #2a1a1a;
+}
+
+[data-theme="dark"] a {
+  color: #77d0dc;
+}

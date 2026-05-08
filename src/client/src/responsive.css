@@ -1,0 +1,116 @@
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell.has-selection {
+    display: block;
+  }
+
+  .app-shell.has-selection.mobile-queue-open .detail-pane {
+    display: none;
+  }
+
+  .panel-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pr-score-card {
+    width: 100%;
+    text-align: left;
+  }
+
+  .grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-columns,
+  .pr-context-grid,
+  .project-assignment-controls,
+  .handoff-highlights {
+    grid-template-columns: 1fr;
+  }
+
+  .recommendation-hero,
+  .recommendation-grid,
+  .score-adjustment-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .recommendation-meta {
+    align-items: flex-start;
+  }
+
+  .research-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-layout,
+  .plan-hero,
+  .wizard-layout,
+  .wizard-current,
+  .assistant-grid,
+  .prepared-diff-review {
+    grid-template-columns: 1fr;
+  }
+
+  .prepared-changes-card,
+  .prepared-diff-review {
+    min-height: 0;
+    height: auto;
+  }
+
+  .prepared-file-tabs,
+  .prepared-diff {
+    max-height: 58vh;
+  }
+
+  .fix-phase-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fix-phase-side {
+    flex-basis: auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .commit-card summary,
+  .commit-file-row {
+    grid-template-columns: 1fr;
+  }
+
+  .commit-stats {
+    justify-content: flex-start;
+  }
+
+  .wizard-current {
+    display: grid;
+  }
+
+  .wizard-actions {
+    justify-content: flex-start;
+    flex-basis: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .diff-line {
+    grid-template-columns: 42px 42px minmax(320px, 1fr) 36px;
+  }
+
+  .prepared-diff,
+  .commit-file-patch,
+  .raw {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .summary-card {
+    padding: 12px;
+  }
+
+}

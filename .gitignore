@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+out/
+build/icon.iconset/
+
+# Local MNLens data
+.pra-cache/
+.pra-screenshots/
+shots/
+artifacts/
+
+# Test output
+test-results/
+playwright-report/
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Electron Builder
+builder-debug.yml
+*.dmg
+*.dmg.blockmap
+*.AppImage
+*.deb
+*.rpm
+*.exe
+*.msi
+
+# TypeScript/Vite caches
+*.tsbuildinfo
+.vite/
+
+# Temporary files
+tmp/
+temp/
+.cache/

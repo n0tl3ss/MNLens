@@ -1,0 +1,354 @@
+.plan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 14px;
+}
+
+.plan-hero {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  align-items: center;
+  gap: 18px;
+}
+
+.plan-hero p {
+  color: #637174;
+  font-size: 13px;
+}
+
+.plan-hero progress {
+  width: 100%;
+  height: 14px;
+  accent-color: #1f6f78;
+}
+
+.review-checklist,
+.file-review-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.review-checklist label,
+.file-review-list label {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid #d3dbdd;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.review-checklist label {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.review-checklist label.checked,
+.file-review-list label.checked {
+  border-color: #7bb391;
+  background: #edf8f1;
+}
+
+.review-checklist strong,
+.file-review-list strong {
+  display: block;
+  color: #263538;
+  font-size: 13px;
+}
+
+.review-checklist em,
+.file-review-list em {
+  display: block;
+  margin-top: 2px;
+  color: #637174;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+.file-review-list b {
+  color: #536164;
+  font-size: 12px;
+}
+
+.review-notes {
+  min-height: 240px;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.wizard-layout {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.wizard-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.wizard-lanes,
+.wizard-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.wizard-file-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.wizard-file-group {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8ea;
+}
+
+.wizard-file-group > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wizard-file-group > div:first-child strong {
+  color: #263538;
+  font-size: 13px;
+}
+
+.wizard-lanes label {
+  display: grid;
+  grid-template-columns: 18px 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #d3dbdd;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #263538;
+  font-size: 12px;
+}
+
+.wizard-lanes label.checked {
+  border-color: #6faf87;
+  background: #ecf8f1;
+}
+
+.wizard-lanes label span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #203538;
+  color: #fff;
+  font-weight: 800;
+}
+
+.wizard-steps button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 8px;
+  width: 100%;
+  min-height: 0;
+  padding: 10px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.wizard-steps button span {
+  grid-row: span 2;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #edf1f2;
+  color: #465457;
+  font-weight: 800;
+}
+
+.wizard-steps button strong {
+  overflow-wrap: anywhere;
+  color: #263538;
+  font-size: 12px;
+}
+
+.wizard-steps button em {
+  color: #637174;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.wizard-steps button small {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.wizard-steps button small b {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #edf1f2;
+  color: #536164;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.wizard-steps button small b.danger {
+  background: #ffe9e5;
+  color: #9b352b;
+}
+
+.wizard-steps button small b.queue {
+  background: #fff2d5;
+  color: #7b510d;
+}
+
+.wizard-steps button small b.feature {
+  background: #e7f4ff;
+  color: #245e82;
+}
+
+.wizard-steps button small b.added {
+  background: #e6f5eb;
+  color: #28633f;
+}
+
+.wizard-steps button.active {
+  border-color: #1f6f78;
+  background: #edf8fa;
+  box-shadow: inset 3px 0 0 #1f6f78;
+}
+
+.wizard-steps button.done span {
+  background: #247448;
+  color: #fff;
+}
+
+.wizard-main {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wizard-current {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.wizard-current h3 {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 0 0 360px;
+}
+
+.wizard-guidance {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d3dbdd;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.step-check {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e8ea;
+}
+
+.step-check strong,
+.step-check em {
+  display: block;
+}
+
+.step-check em {
+  margin-top: 2px;
+  color: #637174;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.step-check.checked strong {
+  color: #1f6d42;
+}
+
+.assistant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.assistant-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-left: 4px solid #1f6f78;
+  background: #f7fafb;
+}
+
+.assistant-card div {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #263538;
+  font-size: 13px;
+}
+
+.assistant-card p {
+  color: #465457;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.assistant-card a {
+  color: #155f78;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.assistant-card.risk {
+  border-left-color: #cf4b42;
+  background: #fff6f4;
+}
+
+.assistant-card.test {
+  border-left-color: #11bfa5;
+  background: #f0faf4;
+}
+
+.assistant-card.research {
+  border-left-color: #8960c4;
+  background: #f7f2ff;
+}
+
+.wizard-notes {
+  grid-column: 1 / -1;
+}

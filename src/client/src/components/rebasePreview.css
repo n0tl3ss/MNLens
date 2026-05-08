@@ -1,0 +1,48 @@
+.rebase-preview-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rebase-preview {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #b8c9ce;
+  border-left: 4px solid #1f6f78;
+  border-radius: 8px;
+  background: #f7fbfc;
+}
+
+.rebase-preview .prepared-diff-review {
+  min-height: 460px;
+}
+
+.rebase-preview details {
+  border: 1px solid #d3dbdd;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.rebase-preview summary {
+  cursor: pointer;
+  padding: 9px 10px;
+  font-weight: 750;
+}
+
+.rebase-preview pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  border-top: 1px solid #d3dbdd;
+  font-size: 12px;
+}
+
+[data-theme="dark"] .rebase-preview,
+[data-theme="dark"] .rebase-preview details {
+  border-color: #284557;
+  background: #101d28;
+  color: #dceaf0;
+}

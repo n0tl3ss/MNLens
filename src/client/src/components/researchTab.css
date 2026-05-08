@@ -1,0 +1,143 @@
+.sources a {
+  color: #145f70;
+  font-weight: 650;
+}
+
+.sources p {
+  color: #637174;
+  font-size: 13px;
+}
+
+.sources {
+  display: grid;
+  gap: 10px;
+  padding-left: 18px;
+}
+
+.rich-sources {
+  padding-left: 0;
+  list-style: none;
+}
+
+.rich-sources li {
+  padding: 12px;
+  border: 1px solid #d6e0e2;
+  border-left: 4px solid #8960c4;
+  border-radius: 8px;
+  background: #fbfbfe;
+}
+
+.source-heading {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.source-meta span {
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid #cad6d8;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #516063;
+  font-size: 11px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.source-snippet {
+  max-height: 280px;
+  margin: 10px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #cfdadc;
+  border-radius: 7px;
+  background: #172125;
+  color: #e9f2ef;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.snippet-source-link {
+  display: inline-flex;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.source-note {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid #d5e5e8;
+  border-radius: 7px;
+  background: #f2f8f9;
+}
+
+.source-note b {
+  color: #27484f;
+  font-size: 12px;
+}
+
+.source-note p {
+  margin: 4px 0 0;
+}
+
+.source-note.caveat {
+  border-color: #ead8ac;
+  background: #fff8e8;
+}
+
+.source-ask {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.source-ask textarea {
+  min-height: 38px;
+  max-height: 90px;
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  resize: vertical;
+}
+
+.source-ask > div:first-of-type {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.source-answer {
+  padding: 8px;
+  border: 1px solid #d5e5e8;
+  border-radius: 7px;
+  background: #f6fafb;
+}
+
+.research-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.research-layout > .review-trace-card,
+.research-layout > .research-gaps-card {
+  grid-column: 1 / -1;
+}
+
+.research-column {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+}

@@ -1,0 +1,167 @@
+.detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title score"
+    "actions score";
+  align-items: flex-start;
+  column-gap: 20px;
+  row-gap: 12px;
+  margin-bottom: 14px;
+}
+
+.detail-header > div:first-child {
+  grid-area: title;
+  min-width: 0;
+}
+
+.detail-header h2 {
+  max-width: 1120px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.detail-meta,
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.detail-meta {
+  color: #637174;
+  font-size: 13px;
+}
+
+.detail-meta strong {
+  color: #263538;
+  font-weight: 800;
+}
+
+.branch-link {
+  color: #155f78;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.branch-link:hover {
+  text-decoration: underline;
+}
+
+.detail-actions {
+  display: contents;
+}
+
+.detail-action-buttons {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.detail-action-buttons button,
+.detail-action-buttons .button-like {
+  white-space: nowrap;
+}
+
+.detail-actions .pr-score-card {
+  grid-area: score;
+  align-self: start;
+  justify-self: end;
+}
+
+.detail-action-buttons button.active {
+  border-color: #80cdf0;
+  background: linear-gradient(180deg, #e8f7ff, #f0edff);
+  color: #095f91;
+  box-shadow: inset 0 0 0 1px rgba(102, 87, 255, 0.16);
+}
+
+.detail-action-buttons .deep-analyze-suggested {
+  border-color: #6657ff;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(102, 87, 255, 0.16), transparent 42%),
+    linear-gradient(180deg, #eefbff, #f3efff);
+  color: #25227e;
+  font-weight: 850;
+  box-shadow: 0 0 0 3px rgba(102, 87, 255, 0.1);
+}
+
+.status-strip {
+  margin: 10px 0 18px;
+}
+
+[data-theme="dark"] .detail-action-buttons button.active {
+  border-color: #286486;
+  background: #102c42;
+  color: #bcecff;
+}
+
+[data-theme="dark"] .detail-action-buttons .deep-analyze-suggested {
+  border-color: #7668ff;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(118, 104, 255, 0.22), transparent 42%),
+    linear-gradient(180deg, #102c42, #171d3b);
+  color: #e1ddff;
+  box-shadow: 0 0 0 3px rgba(118, 104, 255, 0.16);
+}
+
+[data-theme="dark"] .detail-meta {
+  color: #9fb4bf;
+}
+
+@media (max-width: 960px) {
+  .detail-header {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "title"
+      "score"
+      "actions";
+  }
+
+  .detail-action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: flex-start;
+  }
+
+  .detail-action-buttons button,
+  .detail-action-buttons .button-like {
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .detail-header h2 {
+    overflow-wrap: anywhere;
+    font-size: 22px;
+  }
+
+  .detail-actions .pr-score-card {
+    justify-self: stretch;
+    text-align: left;
+  }
+
+  .detail-actions .pr-score-card div {
+    justify-content: flex-start;
+  }
+
+  .detail-meta {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .detail-action-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-action-buttons button,
+  .detail-action-buttons .button-like {
+    justify-content: center;
+    width: 100%;
+  }
+}

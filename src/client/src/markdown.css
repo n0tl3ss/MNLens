@@ -1,0 +1,46 @@
+.markdown-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: #263538;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 6px;
+  border: 1px solid #d3dbdd;
+  text-align: left;
+}
+
+.markdown-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #edf1f2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.markdown-body pre {
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: #edf1f2;
+}
