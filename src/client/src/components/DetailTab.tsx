@@ -146,16 +146,6 @@ export function DetailTab({
         progress={progress}
         reviewComments={reviewComments}
         expandedFile={expandedFile}
-        trace={
-          <ReviewTraceSection
-            detail={detail}
-            analysis={analysis}
-            reviewComments={reviewComments}
-            verificationJobs={verificationJobs}
-            fixJobs={fixJobs}
-            compact
-          />
-        }
         overviewPins={allOverviewPins}
         canApproveWithoutComments={canApproveWithoutComments}
         onSaveProgress={onSaveProgress}

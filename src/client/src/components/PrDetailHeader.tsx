@@ -1,5 +1,7 @@
-import { GitPullRequest, Loader2, RefreshCw, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
-import type { AnalysisResult, Job, PrDetail, PrListItem } from "../../../shared/types";
+import { Check, GitBranch, GitPullRequest, Loader2, RefreshCw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import type { AnalysisResult, Job, PrDetail, PrListItem, RepositoryBranch } from "../../../shared/types";
 import type { ReviewReadiness, ReviewScore } from "../reviewScoring";
 import { PrScoreCard } from "./ReviewStatusCards";
 import { AuthorLink, Badge, plural, relativeDate } from "./uiBits";
@@ -16,7 +18,10 @@ export function PrDetailHeader({
   rebasing,
   reviewScore,
   selectedFixRunning,
+  targetBranches,
+  targetChanging,
   onAnalyze,
+  onChangeTargetBranch,
   onClearCache,
   onImprovePr,
   onReanalyze,
@@ -33,7 +38,10 @@ export function PrDetailHeader({
   rebasing: boolean;
   reviewScore?: ReviewScore;
   selectedFixRunning: boolean;
+  targetBranches: RepositoryBranch[];
+  targetChanging: boolean;
   onAnalyze: () => void;
+  onChangeTargetBranch: (baseRefName: string) => void;
   onClearCache: () => void;
   onImprovePr: () => void;
   onReanalyze: () => void;
@@ -41,6 +49,28 @@ export function PrDetailHeader({
   onToggleAttention: () => void;
 }) {
   const needsDeepAnalysis = !analysis && job?.mode !== "deep";
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetValue, setTargetValue] = useState(detail?.baseRefName ?? "");
+  const needsBranchWork = needsRebaseOrConflictResolution(detail?.mergeStateStatus);
+  const selectedTargetExists = targetBranches.some((branch) => branch.name === targetValue.trim());
+
+  useEffect(() => {
+    setTargetValue(detail?.baseRefName ?? "");
+    setEditingTarget(false);
+  }, [detail?.key, detail?.baseRefName]);
+
+  function submitTargetBranch(event: FormEvent) {
+    event.preventDefault();
+    const next = targetValue.trim();
+    if (!next || next === detail?.baseRefName) {
+      setEditingTarget(false);
+      return;
+    }
+    const confirmed = window.confirm(`Change PR #${pr.number} target branch from ${detail?.baseRefName || "unknown"} to ${next}?`);
+    if (!confirmed) return;
+    onChangeTargetBranch(next);
+  }
+
   return (
     <>
       <header className="detail-header">
@@ -54,14 +84,60 @@ export function PrDetailHeader({
             <span>{plural(pr.commentsCount, "comment")}</span>
             {detail && <span>{plural(detail.reviewComments.length, "line comment")}</span>}
             {detail?.baseRefName && (
-              <span>
+              <span className="target-branch-control">
                 target{" "}
                 <a className="branch-link" href={`${detail.url.split("/pull/")[0]}/tree/${encodeURIComponent(detail.baseRefName)}`} target="_blank" rel="noreferrer">
                   {detail.baseRefName}
                 </a>
+                <button type="button" className="text-button" disabled={targetChanging} onClick={() => setEditingTarget((value) => !value)}>
+                  <GitBranch size={13} />
+                  Change
+                </button>
               </span>
             )}
           </div>
+          {editingTarget && detail?.baseRefName && (
+            <form className="target-branch-editor" onSubmit={submitTargetBranch}>
+              <select
+                value={targetValue}
+                onChange={(event) => setTargetValue(event.target.value)}
+                autoFocus
+              >
+                {!selectedTargetExists && targetValue && <option value={targetValue}>{targetValue}</option>}
+                {targetBranches.map((branch) => (
+                  <option value={branch.name} key={branch.name}>
+                    {branch.name}{branch.protected ? " (protected)" : ""}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" disabled={targetChanging || !targetValue.trim() || targetValue.trim() === detail.baseRefName}>
+                {targetChanging ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
+                Save target
+              </button>
+              <button type="button" className="icon-button" disabled={targetChanging} onClick={() => setEditingTarget(false)} title="Cancel target branch change">
+                <X size={14} />
+              </button>
+              {targetBranches.length === 0 && <span className="target-branch-hint">No branch list loaded; refresh PR data and try again.</span>}
+            </form>
+          )}
+          {detail?.reviewers?.length ? (
+            <div className="reviewer-status-list" aria-label="Pull request reviewers">
+              <span>reviewers</span>
+              {detail.reviewers.map((reviewer) => (
+                <a
+                  className={`reviewer-status ${reviewerTone(reviewer.status)}`}
+                  href={reviewer.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  key={`${reviewer.login}-${reviewer.status}`}
+                  title={reviewer.submittedAt ? `${reviewer.status.replace("_", " ")} ${new Date(reviewer.submittedAt).toLocaleString()}` : reviewer.status.replace("_", " ")}
+                >
+                  <strong>{reviewer.login}</strong>
+                  <em>{reviewerLabel(reviewer.status)}</em>
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="detail-actions">
           <div className="detail-action-buttons">
@@ -84,9 +160,14 @@ export function PrDetailHeader({
               <RefreshCw size={16} />
               Deep Reanalyze
             </button>
-            <button disabled={rebasing} onClick={onRebaseDefault} title="Rebase this PR onto the repository default branch. If conflicts happen, Codex will try to resolve them in the app workspace before pushing.">
+            <button
+              className={needsBranchWork ? "branch-work-suggested" : ""}
+              disabled={rebasing}
+              onClick={onRebaseDefault}
+              title="Rebase this PR onto the repository default branch. If conflicts happen, Codex will try to resolve them in the app workspace before pushing."
+            >
               {rebasing ? <Loader2 size={16} className="spin" /> : <GitPullRequest size={16} />}
-              {rebasing ? "Rebasing" : "Rebase default"}
+              {rebasing ? "Rebasing" : needsBranchWork ? "Resolve branch" : "Rebase default"}
             </button>
             {isOwnedByCurrentUser && (
               <button
@@ -113,9 +194,30 @@ export function PrDetailHeader({
         {job && <Badge tone={job.status === "failed" ? "danger" : "neutral"}>{job.status}</Badge>}
         {pr.isDraft && <Badge>draft</Badge>}
         <Badge tone={toneForReviewDecision(detail?.reviewDecision)}>{reviewDecisionLabel(detail?.reviewDecision)}</Badge>
+        {needsBranchWork && <Badge tone="danger">needs rebase/conflict check</Badge>}
       </div>
     </>
   );
+}
+
+function needsRebaseOrConflictResolution(status?: string): boolean {
+  return /blocked|dirty|behind|unstable/i.test(status ?? "");
+}
+
+function reviewerLabel(status: string): string {
+  if (status === "APPROVED") return "approved";
+  if (status === "CHANGES_REQUESTED") return "changes";
+  if (status === "COMMENTED") return "commented";
+  if (status === "DISMISSED") return "dismissed";
+  if (status === "PENDING") return "waiting";
+  return "unknown";
+}
+
+function reviewerTone(status: string): string {
+  if (status === "APPROVED") return "approved";
+  if (status === "CHANGES_REQUESTED") return "changes";
+  if (status === "PENDING") return "waiting";
+  return "commented";
 }
 
 function toneForType(type?: string): string {

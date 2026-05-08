@@ -14,12 +14,15 @@ import type {
   PrQueue,
   PrFile,
   PrListItem,
+  PrReviewerStatus,
+  RepositoryBranch,
   QueueName,
   RebasePrResponse,
   ReplyConversationRequest,
   ReplyConversationResponse,
   SubmitReviewRequest,
-  SubmitReviewResponse
+  SubmitReviewResponse,
+  UpdatePrTargetBranchResponse
 } from "../shared/types.js";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -390,6 +393,35 @@ export async function replyToConversation(request: ReplyConversationRequest): Pr
   };
 }
 
+export async function listRepositoryBranches(owner: string, repo: string): Promise<RepositoryBranch[]> {
+  const token = await requireToken();
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/branches`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  const raw = JSON.parse(result.stdout) as Array<{ name?: string; protected?: boolean; commit?: { url?: string } }>;
+  return raw
+    .map((branch) => ({
+      name: branch.name ?? "",
+      url: branch.commit?.url,
+      protected: branch.protected
+    }))
+    .filter((branch) => branch.name)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function updatePrTargetBranch(owner: string, repo: string, number: number, baseRefName: string): Promise<UpdatePrTargetBranchResponse> {
+  const token = await requireToken();
+  const base = baseRefName.trim();
+  if (!base) throw new Error("Target branch is required.");
+  await runGh(["api", "-X", "PATCH", `repos/${owner}/${repo}/pulls/${number}`, "-f", `base=${base}`, "--hostname", "github.com"], token);
+  await getPrDetail(owner, repo, number);
+  return {
+    owner,
+    repo,
+    number,
+    baseRefName: base,
+    message: `PR #${number} now targets ${base}. Refreshing PR data.`
+  };
+}
+
 export async function getCiChecks(owner: string, repo: string, number: number): Promise<CiCheck[]> {
   const token = await requireToken();
   const repoName = `${owner}/${repo}`;
@@ -480,6 +512,7 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
     changedFiles: raw.changedFiles ?? 0,
     reviewDecision: raw.reviewDecision,
     mergeStateStatus: raw.mergeStateStatus,
+    reviewers: normalizeReviewerStatuses(raw),
     files: normalizeFiles(raw.files),
     commits,
     conversationComments,
@@ -1068,6 +1101,50 @@ function normalizeFiles(files: GhFile[] | undefined): PrFile[] {
   }));
 }
 
+function normalizeReviewerStatuses(raw: GhPrView): PrReviewerStatus[] {
+  const reviewers = new Map<string, PrReviewerStatus>();
+  for (const review of raw.latestReviews ?? []) {
+    const login = review.author?.login;
+    if (!login) continue;
+    reviewers.set(login.toLowerCase(), {
+      login,
+      url: review.author?.url ?? `https://github.com/${login}`,
+      status: normalizeReviewState(review.state),
+      source: "review",
+      submittedAt: review.submittedAt
+    });
+  }
+  for (const request of raw.reviewRequests ?? []) {
+    const login = request.login ?? request.slug ?? request.name;
+    if (!login) continue;
+    const key = login.toLowerCase();
+    if (reviewers.has(key)) continue;
+    reviewers.set(key, {
+      login,
+      url: request.url ?? (request.__typename === "User" ? `https://github.com/${login}` : undefined),
+      status: "PENDING",
+      source: "request"
+    });
+  }
+  return [...reviewers.values()].sort((left, right) => reviewerSort(left) - reviewerSort(right) || left.login.localeCompare(right.login));
+}
+
+function normalizeReviewState(state: string | undefined): PrReviewerStatus["status"] {
+  if (state === "APPROVED") return "APPROVED";
+  if (state === "CHANGES_REQUESTED") return "CHANGES_REQUESTED";
+  if (state === "COMMENTED") return "COMMENTED";
+  if (state === "DISMISSED") return "DISMISSED";
+  return "UNKNOWN";
+}
+
+function reviewerSort(item: PrReviewerStatus): number {
+  if (item.status === "CHANGES_REQUESTED") return 0;
+  if (item.status === "PENDING") return 1;
+  if (item.status === "APPROVED") return 2;
+  if (item.status === "COMMENTED") return 3;
+  return 4;
+}
+
 function normalizeLinkedIssues(issues: GhLinkedIssue[] | undefined, fallbackRepository: string): LinkedIssue[] {
   return (issues ?? [])
     .filter((issue) => issue.number !== undefined || issue.url || issue.title)
@@ -1280,8 +1357,26 @@ interface GhPrView extends GhSearchPr {
   files?: GhFile[];
   headRefName?: string;
   mergeStateStatus?: string;
+  latestReviews?: GhLatestReview[];
   reviewDecision?: string;
-  reviewRequests?: unknown[];
+  reviewRequests?: GhReviewRequest[];
+}
+
+interface GhLatestReview {
+  author?: {
+    login?: string;
+    url?: string;
+  };
+  state?: string;
+  submittedAt?: string;
+}
+
+interface GhReviewRequest {
+  __typename?: string;
+  login?: string;
+  slug?: string;
+  name?: string;
+  url?: string;
 }
 
 interface GhProjectV2 {

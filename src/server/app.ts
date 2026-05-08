@@ -28,7 +28,7 @@ import type {
   VerificationRequest
 } from "../shared/types.js";
 import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, readRepoRules, stats, writeAnalysis, writeProgress, writeRepoRules } from "./cache.js";
-import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, rebasePrOntoDefault, replyToConversation, submitReview } from "./gh.js";
+import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, rebasePrOntoDefault, replyToConversation, submitReview, updatePrTargetBranch } from "./gh.js";
 import { cancelAnalysisJob, enqueueAnalysis, getJob, jobStatusForPr, recoverAnalysisJobs } from "./jobs.js";
 import { cancelVerificationJob, enqueueManualVerification, enqueueVerification, getVerificationJob, listVerificationJobs } from "./verification.js";
 import { recoverVerificationJobs } from "./verification.js";
@@ -166,6 +166,27 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     try {
       const detail = await getPrDetail(req.params.owner, req.params.repo, Number(req.params.number));
       res.json(detail);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/repos/:owner/:repo/branches", async (req, res, next) => {
+    try {
+      res.json(await listRepositoryBranches(req.params.owner, req.params.repo));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/prs/:owner/:repo/:number/target-branch", async (req, res, next) => {
+    try {
+      const baseRefName = String(req.body?.baseRefName ?? "").trim();
+      if (!baseRefName) {
+        res.status(400).json({ error: "Target branch is required." });
+        return;
+      }
+      res.json(await updatePrTargetBranch(req.params.owner, req.params.repo, Number(req.params.number), baseRefName));
     } catch (error) {
       next(error);
     }

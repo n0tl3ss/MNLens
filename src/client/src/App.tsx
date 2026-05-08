@@ -15,6 +15,7 @@ import type {
   EditorKind,
   ReviewProgress,
   RepoReviewRule,
+  RepositoryBranch,
   VerificationJob
 } from "../../shared/types";
 import {
@@ -42,6 +43,7 @@ import {
   getPrDetail,
   getPrs,
   getProgress,
+  getRepositoryBranches,
   getRepoRules,
   getVerificationJob,
   getVerificationJobs,
@@ -54,6 +56,7 @@ import {
   pushFix,
   startFix,
   submitReview,
+  updatePrTargetBranch,
   updateRepoRule,
   updateProgress
 } from "./api";
@@ -143,6 +146,8 @@ export function App() {
   const [githubProjects, setGithubProjects] = useState<GithubProject[]>([]);
   const [githubProjectsError, setGithubProjectsError] = useState<string | undefined>();
   const [projectAttachBusy, setProjectAttachBusy] = useState(false);
+  const [targetBranches, setTargetBranches] = useState<Record<string, RepositoryBranch[]>>({});
+  const [targetChanging, setTargetChanging] = useState(false);
   const autoRefreshingRef = useRef(false);
   const {
     auth,
@@ -279,14 +284,15 @@ export function App() {
       setAnalysis(undefined);
     }
     try {
-      const [next, cachedAnalysis, savedProgress, savedVerificationJobs, savedFixJobs, nextCiChecks, savedRepoRules] = await Promise.all([
+      const [next, cachedAnalysis, savedProgress, savedVerificationJobs, savedFixJobs, nextCiChecks, savedRepoRules, nextBranches] = await Promise.all([
         getPrDetail(pr),
         getAnalysis(pr.key),
         getProgress(pr.key),
         getVerificationJobs(pr.key),
         getFixJobs(pr.key),
         getCiChecks(pr),
-        getRepoRules(pr.owner, pr.repo)
+        getRepoRules(pr.owner, pr.repo),
+        getRepositoryBranches(pr.owner, pr.repo).catch(() => [] as RepositoryBranch[])
       ]);
       const nextGithubProjects = await getGithubProjects(pr.owner).catch((error) => {
         setGithubProjectsError(messageOf(error));
@@ -297,6 +303,7 @@ export function App() {
       setProgress(savedProgress);
       setRepoRules(savedRepoRules);
       setGithubProjects(nextGithubProjects);
+      setTargetBranches((current) => ({ ...current, [next.repository]: nextBranches }));
       setCiChecks((current) => ({ ...current, [pr.key]: nextCiChecks }));
       setVerificationJobs((current) => ({
         ...current,
@@ -669,6 +676,23 @@ export function App() {
       setError(messageOf(err));
     } finally {
       setRebasing(false);
+    }
+  }
+
+  async function changeSelectedTargetBranch(baseRefName: string) {
+    if (!selected) return;
+    setError(undefined);
+    setNotice(undefined);
+    setTargetChanging(true);
+    try {
+      const response = await updatePrTargetBranch({ owner: selected.owner, repo: selected.repo, number: selected.number, baseRefName });
+      setNotice(response.message);
+      await loadDetail(selected, true);
+      await refreshPrs();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setTargetChanging(false);
     }
   }
 
@@ -1100,7 +1124,10 @@ export function App() {
               rebasing={rebasing}
               reviewScore={selectedReviewScore}
               selectedFixRunning={selectedFixRunning}
+              targetBranches={selectedDetail ? (targetBranches[selectedDetail.repository] ?? []) : []}
+              targetChanging={targetChanging}
               onAnalyze={() => void startAnalysis([selected], false, "deep")}
+              onChangeTargetBranch={(baseRefName) => void changeSelectedTargetBranch(baseRefName)}
               onClearCache={() => void clearSelectedCache()}
               onImprovePr={() => void startOwnerImprovePr()}
               onReanalyze={() => void startAnalysis([selected], true, "deep")}

@@ -101,6 +101,7 @@ export interface PrDetail extends PrListItem {
   changedFiles: number;
   reviewDecision?: string;
   mergeStateStatus?: string;
+  reviewers: PrReviewerStatus[];
   files: PrFile[];
   commits: PrCommit[];
   conversationComments: ExistingComment[];
@@ -108,6 +109,20 @@ export interface PrDetail extends PrListItem {
   reviewComments: ExistingReviewComment[];
   diff: string;
   diffHash: string;
+}
+
+export interface PrReviewerStatus {
+  login: string;
+  url?: string;
+  status: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED" | "PENDING" | "UNKNOWN";
+  source: "review" | "request";
+  submittedAt?: string;
+}
+
+export interface RepositoryBranch {
+  name: string;
+  url?: string;
+  protected?: boolean;
 }
 
 export interface AnalysisResult {
@@ -458,6 +473,15 @@ export interface RebasePrResponse {
 
 export interface RebasePrConfirmRequest {
   previewId: string;
+}
+
+export interface UpdatePrTargetBranchRequest extends PrRef {
+  baseRefName: string;
+}
+
+export interface UpdatePrTargetBranchResponse extends PrRef {
+  baseRefName: string;
+  message: string;
 }
 
 export interface CacheStats {

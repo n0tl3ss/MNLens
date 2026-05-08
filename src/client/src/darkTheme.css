@@ -952,9 +952,49 @@
   background: #101d28;
 }
 
+[data-theme="dark"] .changed-file-group {
+  border-color: #284557;
+  background:
+    linear-gradient(180deg, rgba(16, 29, 40, 0.72), rgba(15, 27, 37, 0.72)),
+    #0d1a25;
+}
+
+[data-theme="dark"] .changed-file-group-heading {
+  border-color: #284557;
+  background: #0d1a25;
+  box-shadow: 0 0 0 4px #0d1a25;
+}
+
+[data-theme="dark"] .changed-file-group-heading h4 {
+  color: #bcecff;
+}
+
+[data-theme="dark"] .changed-file-group-heading span {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .changed-file-root {
+  border-color: #284557;
+  background: #0d1a25;
+}
+
+[data-theme="dark"] .changed-file-root-label {
+  border-bottom-color: #315268;
+  background:
+    linear-gradient(90deg, rgba(40, 168, 184, 0.22), transparent 460px),
+    #102c42;
+  color: #bcecff;
+}
+
+[data-theme="dark"] .changed-file-common-prefix {
+  border-color: #315268;
+  border-left-color: #28a8b8;
+  background: #0f2634;
+  color: #c8eef5;
+}
+
 [data-theme="dark"] .file-review-strip {
-  border-bottom-color: #284557;
-  background: #132532;
+  background: transparent;
 }
 
 [data-theme="dark"] .file-review-strip .text-button {
@@ -977,6 +1017,26 @@
 [data-theme="dark"] .change-counts .deleted {
   background: #48211e;
   color: #ffc0ba;
+}
+
+[data-theme="dark"] .file-change-type.added {
+  background: #10352f;
+  color: #aaf4e7;
+}
+
+[data-theme="dark"] .file-change-type.deleted {
+  background: #48211e;
+  color: #ffc0ba;
+}
+
+[data-theme="dark"] .file-change-type.renamed {
+  background: #171d3b;
+  color: #d6d2ff;
+}
+
+[data-theme="dark"] .file-change-type.modified {
+  background: #132532;
+  color: #afc0c4;
 }
 
 [data-theme="dark"] .diff-viewer {

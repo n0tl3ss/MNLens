@@ -30,6 +30,7 @@ import type {
   PrDetail,
   PrListItem,
   PrRef,
+  RepositoryBranch,
   QueueName,
   CreateRepoReviewRuleRequest,
   RebasePrConfirmRequest,
@@ -44,6 +45,8 @@ import type {
   StoreGithubTokenRequest,
   SubmitReviewRequest,
   SubmitReviewResponse,
+  UpdatePrTargetBranchRequest,
+  UpdatePrTargetBranchResponse,
   UpdateRepoReviewRuleRequest,
   UpdateReviewProgressRequest,
   VerificationJob,
@@ -111,6 +114,17 @@ export function getPrs(queue: QueueName, includeMine = false): Promise<PrListIte
 
 export function getPrDetail(pr: PrRef): Promise<PrDetail> {
   return request<PrDetail>(`/api/prs/${pr.owner}/${pr.repo}/${pr.number}`);
+}
+
+export function getRepositoryBranches(owner: string, repo: string): Promise<RepositoryBranch[]> {
+  return request<RepositoryBranch[]>(`/api/repos/${owner}/${repo}/branches`);
+}
+
+export function updatePrTargetBranch(payload: UpdatePrTargetBranchRequest): Promise<UpdatePrTargetBranchResponse> {
+  return request<UpdatePrTargetBranchResponse>(`/api/prs/${payload.owner}/${payload.repo}/${payload.number}/target-branch`, {
+    method: "POST",
+    body: JSON.stringify({ baseRefName: payload.baseRefName })
+  });
 }
 
 export function getAnalysis(key: string): Promise<AnalysisResult | null> {
