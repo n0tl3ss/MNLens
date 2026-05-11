@@ -19,8 +19,9 @@ const queue: Array<{ job: FixJob; request: FixRequest }> = [];
 const activeProcesses = new Map<string, ChildProcess>();
 const cancelledJobs = new Set<string>();
 const root = join(cacheDir, "fix-worktrees");
-let running = false;
+let activeFixWorkers = 0;
 let recovered = false;
+const maxConcurrentFixSessions = Number(process.env.MNLENS_FIX_CONCURRENCY ?? "2");
 const fixVerificationTimeoutMs = 40 * 60_000;
 
 type FixPipelinePhase = NonNullable<FixJob["phase"]>;
@@ -594,14 +595,26 @@ export async function pushFix(id: string): Promise<FixJob> {
 }
 
 async function drainQueue(): Promise<void> {
-  if (running) return;
-  running = true;
-  while (queue.length > 0) {
-    const item = queue.shift();
-    if (!item) continue;
-    const started = Date.now();
-    update(item.job, { status: "running", phase: "preparing", startedAt: new Date(started).toISOString(), statusMessage: "Preparing fix workspace." } as Partial<FixJob>);
-    try {
+  while (activeFixWorkers < Math.max(1, maxConcurrentFixSessions)) {
+    const index = queue.findIndex((candidate) => !isPrFixRunning(candidate.job.prKey));
+    if (index < 0) return;
+    const [item] = queue.splice(index, 1);
+    activeFixWorkers += 1;
+    void runFixQueueItem(item).finally(() => {
+      activeFixWorkers = Math.max(0, activeFixWorkers - 1);
+      void drainQueue();
+    });
+  }
+}
+
+function isPrFixRunning(prKeyValue: string): boolean {
+  return [...fixJobs.values()].some((job) => job.prKey === prKeyValue && job.status === "running");
+}
+
+async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Promise<void> {
+  const started = Date.now();
+  update(item.job, { status: "running", phase: "preparing", startedAt: new Date(started).toISOString(), statusMessage: "Preparing fix workspace." } as Partial<FixJob>);
+  try {
       await ensureCodexHome();
       const token = await requireToken();
       const detail = await getPrDetail(item.request.owner, item.request.repo, item.request.number);
@@ -747,23 +760,21 @@ async function drainQueue(): Promise<void> {
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - started
       });
-    } catch (error) {
-      const cancelled = cancelledJobs.has(item.job.id);
-      const failedPhase = specialistPhase(item.job.phase);
-      update(item.job, {
-        status: "failed",
-        phase: item.job.phase,
-        pipeline: failedPhase ? markPipelineFailed(item.job, failedPhase, cancelled ? "Fix job cancelled." : "Phase failed before the preview could finish.") : item.job.pipeline,
-        statusMessage: cancelled ? "Fix job cancelled." : "Fix job failed.",
-        codexSessionId: extractCodexSessionId(item.job.stdout) ?? item.job.codexSessionId,
-        ...(cancelled ? { error: "Cancelled by reviewer." } : errorResult(error)),
-        completedAt: new Date().toISOString(),
-        durationMs: Date.now() - started
-      });
-      cancelledJobs.delete(item.job.id);
-    }
+  } catch (error) {
+    const cancelled = cancelledJobs.has(item.job.id);
+    const failedPhase = specialistPhase(item.job.phase);
+    update(item.job, {
+      status: "failed",
+      phase: item.job.phase,
+      pipeline: failedPhase ? markPipelineFailed(item.job, failedPhase, cancelled ? "Fix job cancelled." : "Phase failed before the preview could finish.") : item.job.pipeline,
+      statusMessage: cancelled ? "Fix job cancelled." : "Fix job failed.",
+      codexSessionId: extractCodexSessionId(item.job.stdout) ?? item.job.codexSessionId,
+      ...(cancelled ? { error: "Cancelled by reviewer." } : errorResult(error)),
+      completedAt: new Date().toISOString(),
+      durationMs: Date.now() - started
+    });
+    cancelledJobs.delete(item.job.id);
   }
-  running = false;
 }
 
 async function prepareWorkspace(

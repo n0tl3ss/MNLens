@@ -37,6 +37,8 @@ export interface PrListItem extends PrRef {
   changedFiles?: number;
   reviewDecision?: string;
   mergeStateStatus?: string;
+  branchBehindBy?: number;
+  branchAheadBy?: number;
   aiType?: AnalysisType;
   analysisStatus?: JobStatus;
   analysisMode?: "fast" | "deep";
@@ -101,6 +103,8 @@ export interface PrDetail extends PrListItem {
   changedFiles: number;
   reviewDecision?: string;
   mergeStateStatus?: string;
+  branchBehindBy?: number;
+  branchAheadBy?: number;
   reviewers: PrReviewerStatus[];
   files: PrFile[];
   commits: PrCommit[];
@@ -250,7 +254,7 @@ export interface Job {
   resumable?: boolean;
   recoveryMessage?: string;
   error?: string;
-  fast?: Pick<PrListItem, "aiType" | "aiRiskCount" | "aiTestsCount" | "analysisStatus" | "analysisMode" | "analysisUpdatedAt" | "changedFiles" | "reviewDecision" | "mergeStateStatus" | "fastScore" | "fastScoreLabel" | "fastScoreTone" | "fastScoreConfidence">;
+  fast?: Pick<PrListItem, "aiType" | "aiRiskCount" | "aiTestsCount" | "analysisStatus" | "analysisMode" | "analysisUpdatedAt" | "changedFiles" | "reviewDecision" | "mergeStateStatus" | "branchBehindBy" | "branchAheadBy" | "fastScore" | "fastScoreLabel" | "fastScoreTone" | "fastScoreConfidence">;
   result?: AnalysisResult;
 }
 

@@ -136,6 +136,15 @@ describe("review scoring", () => {
     expect(readiness.label).toBe("fix pushed");
   });
 
+  it("scores an otherwise clean PR lower when the target branch is ahead", () => {
+    const item = pr({ aiType: "improvement", branchBehindBy: 2 });
+    const score = reviewScoreForPr(item, { detail: detail({ branchBehindBy: 2 }), analysis: analysis({ type: "improvement" }), ciChecks: [ci("pass")] });
+    const readiness = readinessForPr(item, { detail: detail({ branchBehindBy: 2 }), analysis: analysis({ type: "improvement" }), ciChecks: [ci("pass")] });
+
+    expect(score.breakdown.adjustments.some((adjustment) => adjustment.label === "Branch behind")).toBe(true);
+    expect(readiness.label).toBe("branch behind");
+  });
+
   it("surfaces weak feature tests and automation gaps as score-raising actions", () => {
     const feature = pr({ aiType: "feature", changedFiles: 4 });
     const featureDetail = detail({

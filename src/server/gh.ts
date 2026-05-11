@@ -73,6 +73,7 @@ const viewFields = [
   "deletions",
   "files",
   "headRefName",
+  "headRefOid",
   "id",
   "isDraft",
   "labels",
@@ -94,6 +95,8 @@ const fastViewFields = [
   "comments",
   "deletions",
   "files",
+  "headRefName",
+  "headRefOid",
   "isDraft",
   "labels",
   "mergeStateStatus",
@@ -270,7 +273,9 @@ export async function listPrs(queue: QueueName, includeMine = false): Promise<Pr
             ...item,
             changedFiles: cachedDetail.changedFiles,
             reviewDecision: cachedDetail.reviewDecision,
-            mergeStateStatus: cachedDetail.mergeStateStatus
+            mergeStateStatus: cachedDetail.mergeStateStatus,
+            branchBehindBy: cachedDetail.branchBehindBy,
+            branchAheadBy: cachedDetail.branchAheadBy
           }
         : item;
       const normalizedAnalysis = analysis && cachedDetail ? normalizeAnalysisForDetail(cachedDetail, analysis) : analysis;
@@ -322,10 +327,11 @@ export async function submitReview(request: SubmitReviewRequest): Promise<Submit
   };
 }
 
-export async function getFastPrAnalysis(owner: string, repo: string, number: number): Promise<Pick<PrListItem, "aiType" | "aiRiskCount" | "aiTestsCount" | "analysisStatus" | "analysisMode" | "analysisUpdatedAt" | "changedFiles" | "reviewDecision" | "mergeStateStatus" | "fastScore" | "fastScoreLabel" | "fastScoreTone" | "fastScoreConfidence">> {
+export async function getFastPrAnalysis(owner: string, repo: string, number: number): Promise<Pick<PrListItem, "aiType" | "aiRiskCount" | "aiTestsCount" | "analysisStatus" | "analysisMode" | "analysisUpdatedAt" | "changedFiles" | "reviewDecision" | "mergeStateStatus" | "branchBehindBy" | "branchAheadBy" | "fastScore" | "fastScoreLabel" | "fastScoreTone" | "fastScoreConfidence">> {
   const token = await requireToken();
   const result = await runGh(["pr", "view", String(number), "--repo", `${owner}/${repo}`, "--json", fastViewFields], token);
   const raw = JSON.parse(result.stdout) as GhPrView;
+  const branchComparison = await comparePrBranch(token, owner, repo, raw.baseRefName, raw.headRefName, raw.headRefOid).catch((): PrBranchComparison => ({}));
   const files = normalizeFiles(raw.files);
   const additions = raw.additions ?? 0;
   const deletions = raw.deletions ?? 0;
@@ -364,6 +370,8 @@ export async function getFastPrAnalysis(owner: string, repo: string, number: num
     changedFiles,
     reviewDecision: raw.reviewDecision,
     mergeStateStatus: raw.mergeStateStatus,
+    branchBehindBy: branchComparison.behindBy,
+    branchAheadBy: branchComparison.aheadBy,
     fastScore: fastScore.score,
     fastScoreLabel: fastScore.label,
     fastScoreTone: fastScore.tone,
@@ -406,6 +414,20 @@ export async function listRepositoryBranches(owner: string, repo: string): Promi
     }))
     .filter((branch) => branch.name)
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+type PrBranchComparison = { behindBy?: number; aheadBy?: number };
+
+async function comparePrBranch(token: string, owner: string, repo: string, baseRefName?: string, headRefName?: string, headRefOid?: string): Promise<PrBranchComparison> {
+  const base = baseRefName?.trim();
+  const head = (headRefOid || headRefName)?.trim();
+  if (!base || !head) return {};
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`, "--hostname", "github.com"], token);
+  const raw = JSON.parse(result.stdout) as { behind_by?: number; ahead_by?: number };
+  return {
+    behindBy: raw.behind_by,
+    aheadBy: raw.ahead_by
+  };
 }
 
 export async function updatePrTargetBranch(owner: string, repo: string, number: number, baseRefName: string): Promise<UpdatePrTargetBranchResponse> {
@@ -488,6 +510,7 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
   ]);
 
   const raw = JSON.parse(view.stdout) as GhPrView;
+  const branchComparison = await comparePrBranch(token, owner, repo, raw.baseRefName, raw.headRefName, raw.headRefOid).catch((): PrBranchComparison => ({}));
   const linkedIssues = await enrichLinkedIssues(token, normalizeLinkedIssues(raw.closingIssuesReferences, repoName));
   const [conversationComments, reviewSummaries, reviewComments, commits] = await Promise.all([
     fetchConversationComments(token, owner, repo, number),
@@ -524,6 +547,8 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
     changedFiles: raw.changedFiles ?? 0,
     reviewDecision: raw.reviewDecision,
     mergeStateStatus: raw.mergeStateStatus,
+    branchBehindBy: branchComparison.behindBy,
+    branchAheadBy: branchComparison.aheadBy,
     reviewers: normalizeReviewerStatuses(raw),
     files: normalizeFiles(raw.files),
     commits,
@@ -1153,7 +1178,7 @@ PR context:
 ${prContext}
 
 AI review context:
-${reviewContext}
+${reviewContext === "null" ? "No cached AI review context was available. Resolve the conflict from the local files, PR context, target branch, and PR intent." : reviewContext}
 `;
 }
 
@@ -1196,7 +1221,7 @@ function compactRebaseAnalysis(analysis: unknown): unknown {
 }
 
 function boundedJson(value: unknown, limit: number): string {
-  const text = JSON.stringify(value, null, 2);
+  const text = JSON.stringify(value ?? null, null, 2) ?? "null";
   if (text.length <= limit) return text;
   return `${text.slice(0, Math.max(0, limit - 1200))}\n... truncated for Codex rebase context limit ...\n${JSON.stringify({
     note: "MNLens truncated this PR context because the PR is very large. Resolve only the currently conflicted files shown above and inspect the local files for exact code."
@@ -1686,6 +1711,7 @@ interface GhPrView extends GhSearchPr {
   deletions?: number;
   files?: GhFile[];
   headRefName?: string;
+  headRefOid?: string;
   mergeStateStatus?: string;
   latestReviews?: GhLatestReview[];
   reviewDecision?: string;

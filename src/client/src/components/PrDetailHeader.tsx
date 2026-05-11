@@ -51,7 +51,7 @@ export function PrDetailHeader({
   const needsDeepAnalysis = !analysis && job?.mode !== "deep";
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(detail?.baseRefName ?? "");
-  const needsBranchWork = needsRebaseOrConflictResolution(detail?.mergeStateStatus);
+  const needsBranchWork = needsRebaseOrConflictResolution(detail);
   const selectedTargetExists = targetBranches.some((branch) => branch.name === targetValue.trim());
 
   useEffect(() => {
@@ -167,7 +167,7 @@ export function PrDetailHeader({
               title="Prepare a branch update preview. MNLens chooses rebase for small PRs and merge for large or conflict-heavy PRs. Nothing is pushed until you approve."
             >
               {rebasing ? <Loader2 size={16} className="spin" /> : <GitBranch size={16} />}
-              {rebasing ? "Preparing update" : needsBranchWork ? "Resolve branch" : "Update branch"}
+              {rebasing ? "Preparing update" : needsBranchWork ? "Update branch" : "Update branch"}
             </button>
             {isOwnedByCurrentUser && (
               <button
@@ -194,14 +194,19 @@ export function PrDetailHeader({
         {job && <Badge tone={job.status === "failed" ? "danger" : "neutral"}>{job.status}</Badge>}
         {pr.isDraft && <Badge>draft</Badge>}
         <Badge tone={toneForReviewDecision(detail?.reviewDecision)}>{reviewDecisionLabel(detail?.reviewDecision)}</Badge>
-        {needsBranchWork && <Badge tone="danger">needs rebase/conflict check</Badge>}
+        {needsBranchWork && <Badge tone="danger">{branchWorkLabel(detail)}</Badge>}
       </div>
     </>
   );
 }
 
-function needsRebaseOrConflictResolution(status?: string): boolean {
-  return /dirty|behind/i.test(status ?? "");
+function needsRebaseOrConflictResolution(detail?: PrDetail): boolean {
+  return /dirty|behind/i.test(detail?.mergeStateStatus ?? "") || (detail?.branchBehindBy ?? 0) > 0;
+}
+
+function branchWorkLabel(detail?: PrDetail): string {
+  if ((detail?.branchBehindBy ?? 0) > 0) return `target branch updated by ${detail?.branchBehindBy} commit${detail?.branchBehindBy === 1 ? "" : "s"}`;
+  return "needs rebase/conflict check";
 }
 
 function reviewerLabel(status: string): string {

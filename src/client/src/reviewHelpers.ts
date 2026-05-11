@@ -136,6 +136,9 @@ export function triageForPr(pr: PrListItem, job?: Job, fixJobs: FixJob[] = []): 
   if (pr.mergeStateStatus && /dirty|behind/i.test(pr.mergeStateStatus)) {
     return { label: "blocked", tone: "danger", nextAction: "Update branch", reason: `Merge state is ${pr.mergeStateStatus}. Update the branch or resolve conflicts first.`, priority: 92 };
   }
+  if ((pr.branchBehindBy ?? 0) > 0) {
+    return { label: "branch behind", tone: "queue", nextAction: "Update branch", reason: `The target branch has ${pr.branchBehindBy} newer commit${pr.branchBehindBy === 1 ? "" : "s"} not in this PR branch.`, priority: 82 };
+  }
   if (pr.reviewDecision === "APPROVED") {
     return { label: "approved", tone: "added", nextAction: "Monitor merge readiness", reason: "GitHub already records an approval.", priority: 15 };
   }

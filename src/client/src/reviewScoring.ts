@@ -141,6 +141,10 @@ export function reviewScoreForPr(
   if (pushedFix?.pushed) addScore(8, "Fix pushed", "A Codex fix was pushed from this review flow.", "Review the updated diff and refresh CI.", "added");
   if (pr.reviewDecision === "APPROVED") addScore(8, "GitHub approved", "GitHub already records an approval.", undefined, "added");
   if (pr.reviewDecision === "CHANGES_REQUESTED" && !pushedFix?.pushed) addScore(-10, "Open change request", "GitHub still shows changes requested and no pushed fix is recorded in this app.", "Review author updates or push/inspect the prepared fix.", "queue");
+  if ((context.detail?.branchBehindBy ?? pr.branchBehindBy ?? 0) > 0) {
+    const behindBy = context.detail?.branchBehindBy ?? pr.branchBehindBy ?? 0;
+    addScore(-8, "Branch behind", `The target branch has ${behindBy} newer commit${behindBy === 1 ? "" : "s"} not in this PR branch.`, "Update the PR branch with the target branch, then refresh CI.", "queue");
+  }
 
   const clamped = Math.max(1, Math.min(100, Math.round(score)));
   return {
@@ -254,6 +258,11 @@ export function readinessForPr(
   if (ci.label === "running") {
     blockers.push("CI is still running.");
     return { label: "CI running", tone: "queue", summary: "Review can continue, but final approval should wait for CI.", blockers };
+  }
+  if ((context.detail?.branchBehindBy ?? pr.branchBehindBy ?? 0) > 0) {
+    const behindBy = context.detail?.branchBehindBy ?? pr.branchBehindBy ?? 0;
+    blockers.push(`Target branch is ${behindBy} commit${behindBy === 1 ? "" : "s"} ahead.`);
+    return { label: "branch behind", tone: "queue", summary: "The PR branch should be updated before final approval so CI runs against the current target branch.", blockers };
   }
   if (latestVerification.some((job) => job.status === "failed")) {
     blockers.push("At least one local verification failed.");

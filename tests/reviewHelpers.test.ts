@@ -87,6 +87,13 @@ describe("review helpers", () => {
     expect(triage.tone).toBe("queue");
   });
 
+  it("surfaces branch freshness separately from merge-state conflicts", () => {
+    const triage = triageForPr(pr({ mergeStateStatus: "CLEAN", branchBehindBy: 3 }));
+
+    expect(triage.label).toBe("branch behind");
+    expect(triage.nextAction).toBe("Update branch");
+  });
+
   it("separates source lines from tests and docs", () => {
     expect(sourceChangedLines(detail())).toBe(9);
     expect(isDocsOnlyReview(undefined, detail({ files: [{ path: "src/main/docs/guide.adoc", additions: 3, deletions: 0 }] }))).toBe(true);

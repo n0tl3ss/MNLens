@@ -102,6 +102,7 @@ export function App() {
   const [includeMine, setIncludeMine] = useState(false);
   const [prs, setPrs] = useState<PrListItem[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | undefined>();
+  const [selectedFallbackPr, setSelectedFallbackPr] = useState<PrListItem | undefined>();
   const [detail, setDetail] = useState<PrDetail | undefined>();
   const [analysis, setAnalysis] = useState<AnalysisResult | undefined>();
   const [jobs, setJobs] = useState<Record<string, Job>>({});
@@ -165,7 +166,8 @@ export function App() {
     continueSetup
   } = useSetupAuth({ onError: setError, onNotice: setNotice });
 
-  const selected = prs.find((pr) => pr.key === selectedKey);
+  const listedSelected = prs.find((pr) => pr.key === selectedKey);
+  const selected = listedSelected ?? (selectedFallbackPr?.key === selectedKey ? selectedFallbackPr : undefined);
   const selectedDetail = detail?.key === selectedKey ? detail : undefined;
   const selectedComments = selectedKey ? (reviewComments[selectedKey] ?? []) : [];
   const selectedAnalysisJobs = Object.values(jobs).filter((job) => job.prKey === selectedKey);
@@ -263,6 +265,7 @@ export function App() {
     try {
       const next = await getPrs(queue, includeMine);
       setPrs(next);
+      setSelectedFallbackPr((current) => (current && next.some((pr) => pr.key === current.key) ? undefined : current));
       setSelectedKey((current) => current ?? next[0]?.key);
       const stats = await getCacheStats();
       setCacheText(`${stats.prCount} PR snapshots, ${stats.analysisCount} analyses`);
@@ -300,6 +303,10 @@ export function App() {
       });
       if (nextGithubProjects.length > 0) setGithubProjectsError(undefined);
       setDetail(next);
+      setSelectedFallbackPr((current) => {
+        if (prs.some((item) => item.key === next.key)) return current?.key === next.key ? undefined : current;
+        return detailToListItem(next);
+      });
       setProgress(savedProgress);
       setRepoRules(savedRepoRules);
       setGithubProjects(nextGithubProjects);
@@ -330,6 +337,8 @@ export function App() {
                 changedFiles: next.changedFiles,
                 reviewDecision: next.reviewDecision,
                 mergeStateStatus: next.mergeStateStatus,
+                branchBehindBy: next.branchBehindBy,
+                branchAheadBy: next.branchAheadBy,
                 ...(cachedAnalysis
                   ? {
                       aiType: cachedAnalysis.type,
@@ -361,6 +370,7 @@ export function App() {
     try {
       const [nextPrs, stats] = await Promise.all([getPrs(queue, includeMine), getCacheStats()]);
       setPrs(nextPrs);
+      setSelectedFallbackPr((current) => (current && nextPrs.some((pr) => pr.key === current.key) ? undefined : current));
       setCacheText(`${stats.prCount} PR snapshots, ${stats.analysisCount} analyses`);
       const freshSelected = nextPrs.find((pr) => pr.key === selected.key) ?? selected;
       await loadDetail(freshSelected, true);
@@ -925,6 +935,7 @@ export function App() {
     try {
       await clearAllLocalData();
       setPrs([]);
+      setSelectedFallbackPr(undefined);
       setSelectedKey(undefined);
       setDetail(undefined);
       setAnalysis(undefined);
@@ -1086,9 +1097,22 @@ export function App() {
           setTab(item.targetTab);
           setHighlightedFixJobId(item.kind === "Codex fix" ? item.jobId : undefined);
           setMobileQueueOpen(false);
+          const pr = prs.find((candidate) => candidate.key === item.prKey);
+          if (pr) {
+            setSelectedFallbackPr(undefined);
+            void loadDetail(pr);
+          } else {
+            const ref = prRefFromKey(item.prKey);
+            if (ref) {
+              const fallback = activityPrFromRef(ref, item.title);
+              setSelectedFallbackPr(fallback);
+              void loadDetail(fallback);
+            }
+          }
         }}
         onSelectPr={(pr) => {
           if (pr.key === selectedKey) void loadDetail(pr);
+          setSelectedFallbackPr(undefined);
           setSelectedKey(pr.key);
           setTab("overview");
           setMobileQueueOpen(false);
@@ -1234,6 +1258,61 @@ export function App() {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function detailToListItem(detail: PrDetail): PrListItem {
+  return {
+    key: detail.key,
+    owner: detail.owner,
+    repo: detail.repo,
+    number: detail.number,
+    title: detail.title,
+    url: detail.url,
+    repository: detail.repository,
+    author: detail.author,
+    authorUrl: detail.authorUrl,
+    labels: detail.labels,
+    queues: detail.queues,
+    state: detail.state,
+    isDraft: detail.isDraft,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt,
+    commentsCount: detail.commentsCount,
+    changedFiles: detail.changedFiles,
+    reviewDecision: detail.reviewDecision,
+    mergeStateStatus: detail.mergeStateStatus,
+    branchBehindBy: detail.branchBehindBy,
+    branchAheadBy: detail.branchAheadBy
+  };
+}
+
+function prRefFromKey(key: string): Pick<PrListItem, "owner" | "repo" | "number" | "key" | "repository"> | undefined {
+  const match = /^(.+)__(.+)__(\d+)$/.exec(key);
+  if (!match) return undefined;
+  const [, owner, repo, number] = match;
+  return {
+    key,
+    owner,
+    repo,
+    number: Number(number),
+    repository: `${owner}/${repo}`
+  };
+}
+
+function activityPrFromRef(ref: Pick<PrListItem, "owner" | "repo" | "number" | "key" | "repository">, title: string): PrListItem {
+  return {
+    ...ref,
+    title,
+    url: `https://github.com/${ref.repository}/pull/${ref.number}`,
+    author: "unknown",
+    labels: [],
+    queues: [],
+    state: "OPEN",
+    isDraft: false,
+    createdAt: "",
+    updatedAt: new Date().toISOString(),
+    commentsCount: 0
+  };
 }
 
 function linkedIssueProjectsForDetail(detail: PrDetail, progress: ReviewProgress | undefined, project: string): Record<string, string> {
