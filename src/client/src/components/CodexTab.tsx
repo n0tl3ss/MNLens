@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, GitPullRequest, Loader2, RefreshCw, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { FixJob, Job } from "../../../shared/types";
+import type { FixJob, Job, JobStatus, VerificationJob } from "../../../shared/types";
 import { fixPipelineNode, fixProgress, fixSpecialistState } from "../fixHelpers";
 import { cleanConsoleOutput } from "../verificationHelpers";
 import { phaseLabel } from "./WorkActivityPanel";
@@ -11,6 +11,7 @@ import "./codexVerification.css";
 export function FixSection({
   jobs,
   analysisJobs,
+  verificationJobs,
   highlightedJobId,
   askingFixId,
   onStart,
@@ -22,6 +23,7 @@ export function FixSection({
 }: {
   jobs: FixJob[];
   analysisJobs?: Job[];
+  verificationJobs?: VerificationJob[];
   highlightedJobId?: string;
   askingFixId?: string;
   onStart: (instructions?: string, baseJobId?: string, source?: string) => void;
@@ -35,7 +37,10 @@ export function FixSection({
   const latest = sortedJobs[0];
   const [instructions, setInstructions] = useState("");
   const [viewedJobId, setViewedJobId] = useState<string | undefined>(highlightedJobId);
+  const [viewedHistoryKey, setViewedHistoryKey] = useState<string | undefined>();
   const visibleSession = sortedJobs.find((job) => job.id === (viewedJobId ?? highlightedJobId)) ?? latest;
+  const history = sessionHistoryItems(sortedJobs, analysisJobs ?? [], verificationJobs ?? []);
+  const visibleHistory = history.find((item) => item.key === viewedHistoryKey);
   const preparedPreview =
     visibleSession?.status === "done" && Boolean(visibleSession.diff?.trim()) && !visibleSession.committed && !visibleSession.pushed
       ? visibleSession
@@ -110,36 +115,20 @@ export function FixSection({
           />
         )}
       </section>
-      <AnalysisSessions jobs={analysisJobs ?? []} />
-      {sortedJobs.length > 1 && (
-        <section className="summary-card fix-session-list">
-          <div className="insight-heading">
-            <h3>Codex sessions</h3>
-            <Badge tone="neutral">{sortedJobs.length}</Badge>
-          </div>
-          <div>
-            {sortedJobs.map((job) => (
-              <a
-                key={job.id}
-                href={`#fix-session-${job.id}`}
-                className={job.id === visibleSession?.id ? "active" : ""}
-                onClick={(event) => {
-                  event.preventDefault();
-                  setViewedJobId(job.id);
-                  window.setTimeout(() => {
-                    document.getElementById(`fix-session-${job.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }, 20);
-                }}
-              >
-                <Badge tone={job.status === "failed" ? "danger" : job.status === "done" ? "added" : "queue"}>{job.status}</Badge>
-                <strong>{job.id.slice(0, 8)}</strong>
-                <span>{job.source ?? phaseLabel(job.phase ?? "codex")}</span>
-                <em>{relativeDate(job.updatedAt)}</em>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
+      {visibleHistory && visibleHistory.kind !== "fix" && <SessionDetail item={visibleHistory} />}
+      <SessionHistory
+        items={history}
+        activeKey={visibleHistory?.key ?? (visibleSession ? `fix:${visibleSession.id}` : undefined)}
+        onSelect={(item) => {
+          setViewedHistoryKey(item.key);
+          if (item.kind === "fix") {
+            setViewedJobId(item.id);
+            window.setTimeout(() => {
+              document.getElementById(`fix-session-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 20);
+          }
+        }}
+      />
       {livePreview?.diff?.trim() && (
         <section className="summary-card prepared-changes-card">
           <div className="panel-title">
@@ -160,41 +149,114 @@ export function FixSection({
   );
 }
 
-function AnalysisSessions({ jobs }: { jobs: Job[] }) {
-  const sorted = [...jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  if (sorted.length === 0) return null;
+type SessionHistoryItem =
+  | {
+      key: string;
+      id: string;
+      kind: "fix";
+      typeLabel: string;
+      status: JobStatus;
+      updatedAt: string;
+      title: string;
+      detail: string;
+      job: FixJob;
+    }
+  | {
+      key: string;
+      id: string;
+      kind: "analysis";
+      typeLabel: string;
+      status: JobStatus;
+      updatedAt: string;
+      title: string;
+      detail: string;
+      job: Job;
+    }
+  | {
+      key: string;
+      id: string;
+      kind: "verification";
+      typeLabel: string;
+      status: JobStatus;
+      updatedAt: string;
+      title: string;
+      detail: string;
+      job: VerificationJob;
+    };
+
+function sessionHistoryItems(fixJobs: FixJob[], analysisJobs: Job[], verificationJobs: VerificationJob[]): SessionHistoryItem[] {
+  const fixes = fixJobs.map((job): SessionHistoryItem => ({
+    key: `fix:${job.id}`,
+    id: job.id,
+    kind: "fix",
+    typeLabel: "Codex fix",
+    status: job.status,
+    updatedAt: job.updatedAt,
+    title: job.source ?? phaseLabel(job.phase ?? "codex"),
+    detail: job.statusMessage ?? job.instructions ?? "Codex fix session.",
+    job
+  }));
+  const analysis = analysisJobs.map((job): SessionHistoryItem => ({
+    key: `analysis:${job.id}`,
+    id: job.id,
+    kind: "analysis",
+    typeLabel: job.mode === "fast" ? "Fast analysis" : "Deep analysis",
+    status: job.status,
+    updatedAt: job.updatedAt,
+    title: job.result?.summary ?? job.statusMessage ?? (job.mode === "fast" ? "Fast score analysis" : "Review analysis"),
+    detail: job.error ?? job.recoveryMessage ?? analysisDetail(job),
+    job
+  }));
+  const verification = verificationJobs.map((job): SessionHistoryItem => ({
+    key: `verification:${job.id}`,
+    id: job.id,
+    kind: "verification",
+    typeLabel: job.command.startsWith("codex-manual-check") ? "Manual check" : "Local verification",
+    status: job.status,
+    updatedAt: job.updatedAt,
+    title: job.statusMessage ?? job.command,
+    detail: job.error ?? job.recoveryMessage ?? job.command,
+    job
+  }));
+  return [...fixes, ...analysis, ...verification].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function SessionHistory({
+  items,
+  activeKey,
+  onSelect
+}: {
+  items: SessionHistoryItem[];
+  activeKey?: string;
+  onSelect: (item: SessionHistoryItem) => void;
+}) {
+  if (items.length === 0) return null;
   return (
-    <section className="summary-card analysis-session-list">
+    <section className="summary-card session-history-card">
       <div className="insight-heading">
-        <h3>Analysis sessions</h3>
-        <Badge tone="neutral">{sorted.length}</Badge>
+        <h3>Session history</h3>
+        <Badge tone="neutral">{items.length}</Badge>
       </div>
-      <div className="analysis-session-grid">
-        {sorted.slice(0, 6).map((job) => {
-          const running = job.status === "queued" || job.status === "running";
+      <div className="session-history-list">
+        {items.map((item) => {
+          const running = item.status === "queued" || item.status === "running";
           return (
-            <article key={job.id} className={`analysis-session-row ${job.status}`}>
-              <div>
-                <Badge tone={job.status === "failed" ? "danger" : running ? "queue" : "added"}>{job.status}</Badge>
-                <strong>{job.id.slice(0, 8)}</strong>
-                <span>{relativeDate(job.updatedAt)}</span>
-                {job.durationMs && <em>{Math.round(job.durationMs / 1000)}s</em>}
-              </div>
-              <p>
-                {job.result?.summary ??
-                  job.error ??
-                  job.statusMessage ??
-                  job.recoveryMessage ??
-                  (running
-                    ? job.mode === "fast"
-                      ? "MNLens is estimating queue score from PR metadata."
-                      : "Codex is analyzing the PR and preparing review guidance."
-                    : job.mode === "fast"
-                      ? "Fast score analysis completed."
-                      : "Analysis completed.")}
-              </p>
-              <AnalysisJobResult job={job} />
-            </article>
+            <button
+              type="button"
+              key={item.key}
+              className={`session-history-row ${item.status} ${item.key === activeKey ? "active" : ""}`}
+              onClick={() => onSelect(item)}
+            >
+              <span>
+                <Badge tone={item.status === "failed" ? "danger" : running ? "queue" : "added"}>{item.status}</Badge>
+                <Badge tone={sessionTone(item.kind)}>{item.typeLabel}</Badge>
+                <strong>{item.id.slice(0, 8)}</strong>
+                <em>{relativeDate(item.updatedAt)}</em>
+                {durationMs(item.job) && <em>{Math.round((durationMs(item.job) ?? 0) / 1000)}s</em>}
+              </span>
+              <b>{item.title}</b>
+              <small>{item.detail}</small>
+            </button>
           );
         })}
       </div>
@@ -202,15 +264,21 @@ function AnalysisSessions({ jobs }: { jobs: Job[] }) {
   );
 }
 
-function AnalysisJobResult({ job }: { job: Job }) {
+function SessionDetail({ item }: { item: SessionHistoryItem }) {
+  if (item.kind === "analysis") return <AnalysisJobLog job={item.job} expanded />;
+  if (item.kind === "verification") return <VerificationJobResult job={item.job} />;
+  return null;
+}
+
+function AnalysisJobLog({ job, expanded }: { job: Job; expanded: boolean }) {
   const output = cleanConsoleOutput([job.error, job.stderr, job.stdout].filter(Boolean).join("\n\n"));
   const running = job.status === "queued" || job.status === "running";
   if (!output && !job.statusMessage && !job.recoveryMessage) return null;
   return (
-    <div className={`verification-result analysis-result ${job.status === "done" ? "ok" : job.status === "failed" ? "failed" : "running"}`}>
+    <div className={`verification-result analysis-result session-detail ${job.status === "done" ? "ok" : job.status === "failed" ? "failed" : "running"}`}>
       <div className="verification-result-status">
-        <strong>{job.statusMessage ?? (running ? "Analysis running" : "Analysis session")}</strong>
-        <span>{job.recoveryMessage ?? `Updated ${relativeDate(job.updatedAt)}`}</span>
+        <strong>{job.statusMessage ?? (running ? "Analysis running" : job.mode === "fast" ? "Fast analysis session" : "Deep analysis session")}</strong>
+        <span>{job.recoveryMessage ?? job.result?.summary ?? `Updated ${relativeDate(job.updatedAt)}`}</span>
       </div>
       {running && (
         <div className="verification-progress">
@@ -218,13 +286,64 @@ function AnalysisJobResult({ job }: { job: Job }) {
         </div>
       )}
       {output && (
-        <details className="fix-result-log" open={job.status === "failed" || running}>
+        <details className="fix-result-log" open={expanded || job.status === "failed" || running}>
           <summary>Analysis session log</summary>
           <pre>{output}</pre>
         </details>
       )}
     </div>
   );
+}
+
+function VerificationJobResult({ job }: { job: VerificationJob }) {
+  const output = cleanConsoleOutput([job.error, job.stderr, job.stdout].filter(Boolean).join("\n\n"));
+  const running = job.status === "queued" || job.status === "running";
+  return (
+    <div className={`verification-result session-detail ${job.status === "done" ? "ok" : job.status === "failed" ? "failed" : "running"}`}>
+      <div className="verification-result-status">
+        <strong>{job.statusMessage ?? (running ? "Verification running" : "Verification session")}</strong>
+        <span>{job.recoveryMessage ?? job.command}</span>
+        {typeof job.exitCode === "number" && <em>exit {job.exitCode}</em>}
+      </div>
+      {running && (
+        <div className="verification-progress">
+          <span style={{ width: job.status === "queued" ? "12%" : "58%" }} />
+        </div>
+      )}
+      {job.repoDir && <p className="muted">{job.repoDir}</p>}
+      {job.artifacts?.length ? (
+        <div className="session-artifacts">
+          {job.artifacts.map((artifact) => (
+            <a key={`${artifact.kind}-${artifact.path}`} href={artifact.url ?? `/api/artifacts?path=${encodeURIComponent(artifact.path)}`} target="_blank" rel="noreferrer">
+              {artifact.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {output && (
+        <details className="fix-result-log" open={job.status === "failed" || running}>
+          <summary>Verification session log</summary>
+          <pre>{output}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function analysisDetail(job: Job): string {
+  const running = job.status === "queued" || job.status === "running";
+  if (running) return job.mode === "fast" ? "MNLens is estimating queue score from PR metadata." : "Codex is analyzing the PR and preparing review guidance.";
+  return job.mode === "fast" ? "Fast score analysis completed." : "Analysis completed.";
+}
+
+function sessionTone(kind: SessionHistoryItem["kind"]): string {
+  if (kind === "fix") return "feature";
+  if (kind === "analysis") return "queue";
+  return "neutral";
+}
+
+function durationMs(job: Job | FixJob | VerificationJob): number | undefined {
+  return typeof job.durationMs === "number" ? job.durationMs : undefined;
 }
 
 function QaFailureSummary({ job }: { job: FixJob }) {

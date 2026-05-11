@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   cancelAnalysisJob: vi.fn(),
   cancelVerificationJob: vi.fn(),
   rebasePrOntoDefault: vi.fn(),
+  updatePrBranch: vi.fn(),
   confirmRebasePrOntoDefault: vi.fn(),
   enqueueVerification: vi.fn(),
   enqueueFix: vi.fn(),
@@ -27,9 +28,14 @@ vi.mock("../src/server/gh.js", () => ({
   getCiLog: vi.fn(async () => ""),
   getPrDetail: vi.fn(),
   listPrs: vi.fn(async () => []),
+  listGithubProjects: vi.fn(async () => []),
+  listRepositoryBranches: vi.fn(async () => []),
+  mergePrTargetIntoHead: vi.fn(),
   rebasePrOntoDefault: mocks.rebasePrOntoDefault,
   replyToConversation: vi.fn(),
-  submitReview: vi.fn()
+  submitReview: vi.fn(),
+  updatePrBranch: mocks.updatePrBranch,
+  updatePrTargetBranch: vi.fn()
 }));
 
 vi.mock("../src/server/verification.js", () => ({
@@ -82,9 +88,10 @@ describe("server API success routes", () => {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   });
 
-  it("prepares and confirms a rebase preview", async () => {
-    mocks.rebasePrOntoDefault.mockResolvedValueOnce({
+  it("prepares and confirms a branch update preview", async () => {
+    mocks.updatePrBranch.mockResolvedValueOnce({
       success: true,
+      strategy: "rebase",
       defaultBranch: "main",
       stdout: "preview ok",
       stderr: "",
@@ -104,7 +111,7 @@ describe("server API success routes", () => {
     const preview = await post("/api/rebase-default", { owner: "o", repo: "r", number: 1 });
     expect(preview.status).toBe(200);
     await expect(preview.json()).resolves.toMatchObject({ previewId: "preview-1", message: "Rebase preview ready." });
-    expect(mocks.rebasePrOntoDefault).toHaveBeenCalledWith("o", "r", 1);
+    expect(mocks.updatePrBranch).toHaveBeenCalledWith("o", "r", 1);
 
     const confirm = await post("/api/rebase-default/confirm", { previewId: "preview-1" });
     expect(confirm.status).toBe(200);

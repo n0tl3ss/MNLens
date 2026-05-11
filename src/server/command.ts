@@ -120,6 +120,12 @@ function runCommandAttempt(
             return;
           }
         }
+        if (isGithubCommand && shouldRetryGithubExit(result, attempt)) {
+          setTimeout(() => {
+            runCommandAttempt(command, args, options, attempt + 1).then(resolve, reject);
+          }, retryDelayMs(attempt));
+          return;
+        }
         reject(new CommandError(`${command} exited with code ${exitCode}`, result));
       }
     });
@@ -142,8 +148,30 @@ function shouldRetrySpawn(error: Error, attempt: number): boolean {
   return attempt < 2 && (error as NodeJS.ErrnoException).code === "EBADF";
 }
 
+function shouldRetryGithubExit(result: CommandResult, attempt: number): boolean {
+  if (attempt >= 2) return false;
+  const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  if (output.includes("api rate limit exceeded")) return false;
+  if (output.includes("needs the \"repo\" scope")) return false;
+  if (output.includes("bad credentials") || output.includes("requires authentication")) return false;
+  return [
+    "operation timed out",
+    "connection timed out",
+    "i/o timeout",
+    "tls handshake timeout",
+    "connection reset by peer",
+    "connection refused",
+    "temporary failure",
+    "no such host",
+    "could not resolve host",
+    "server misbehaving",
+    "unexpected eof",
+    "stream error"
+  ].some((needle) => output.includes(needle));
+}
+
 function retryDelayMs(attempt: number): number {
-  return 150 * (attempt + 1);
+  return attempt === 0 ? 500 : 1500;
 }
 
 function redact(value: string, secrets: string[] = []): string {

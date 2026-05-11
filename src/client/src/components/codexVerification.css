@@ -20,68 +20,99 @@
   margin: 10px 0;
 }
 
-.analysis-session-list {
+.session-history-card {
   display: grid;
   gap: 10px;
 }
 
-.analysis-session-grid {
+.session-history-list {
   display: grid;
   gap: 8px;
 }
 
-.analysis-session-row {
+.session-history-row {
   display: grid;
   gap: 6px;
+  width: 100%;
   padding: 10px;
   border: 1px solid #d7e1e4;
   border-left: 3px solid #8aa2aa;
   border-radius: 7px;
   background: #f8fbfc;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.analysis-session-row.running,
-.analysis-session-row.queued {
+.session-history-row.running,
+.session-history-row.queued {
   border-left-color: #b7791f;
   background: #fffaf0;
 }
 
-.analysis-session-row.failed {
+.session-history-row.failed {
   border-left-color: #c53030;
   background: #fff7f7;
 }
 
-.analysis-session-row > div {
+.session-history-row.active {
+  border-color: var(--mn-primary);
+  border-left-color: var(--mn-primary);
+  background: #e9f8ff;
+}
+
+.session-history-row > span {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
 
-.analysis-session-row strong {
+.session-history-row strong,
+.session-history-row b {
   color: #243438;
   font-size: 13px;
 }
 
-.analysis-session-row span,
-.analysis-session-row p,
-.analysis-session-row em {
+.session-history-row small,
+.session-history-row em {
   color: #5d6c70;
   font-size: 12px;
 }
 
-.analysis-session-row em {
+.session-history-row b,
+.session-history-row em {
   font-style: normal;
 }
 
-.analysis-session-row p {
+.session-history-row b,
+.session-history-row small {
   margin: 0;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
+.session-detail,
 .analysis-result {
   margin-top: 4px;
   padding: 8px;
+}
+
+.session-artifacts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-artifacts a {
+  padding: 5px 8px;
+  border: 1px solid #c8dce1;
+  border-radius: 7px;
+  background: #f4fbfc;
+  color: #1f6f78;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
 }
 
 .specialist-passes {

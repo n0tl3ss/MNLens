@@ -188,6 +188,20 @@ export function rebasePrDefault(payload: RebasePrRequest): Promise<RebasePrRespo
   });
 }
 
+export function updatePrBranch(payload: RebasePrRequest): Promise<RebasePrResponse> {
+  return request<RebasePrResponse>("/api/update-branch", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function mergePrTarget(payload: RebasePrRequest): Promise<RebasePrResponse> {
+  return request<RebasePrResponse>("/api/merge-target", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function confirmRebaseDefault(payload: RebasePrConfirmRequest): Promise<RebasePrResponse> {
   return request<RebasePrResponse>("/api/rebase-default/confirm", {
     method: "POST",

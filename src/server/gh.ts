@@ -104,6 +104,7 @@ const fastViewFields = [
 
 interface RebasePreviewState {
   id: string;
+  strategy: "rebase" | "merge";
   owner: string;
   repo: string;
   number: number;
@@ -244,7 +245,7 @@ function githubTokenScopeHint(): string {
 export async function listPrs(queue: QueueName, includeMine = false): Promise<PrListItem[]> {
   const token = await requireToken();
   const username = await getAuthenticatedUsername(token);
-  const queues: PrQueue[] = queue === "all" ? ["assigned", "review-requested"] : [queue];
+  const queues: PrQueue[] = queue === "all" ? ["assigned", "review-requested", "reviewed"] : [queue];
   if (includeMine && queue === "all") queues.push("authored");
   const batches = await Promise.all(queues.map((name) => searchQueue(name, token)));
   const byKey = new Map<string, PrListItem>();
@@ -621,7 +622,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
   const defaultBranch = (await runGh(["repo", "view", repoName, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], token)).stdout.trim();
   if (!defaultBranch) throw new Error(`Could not determine default branch for ${repoName}.`);
   const prHead = JSON.parse(
-    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefName,headRepository"], token)).stdout
+    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefName,headRepository,headRefOid"], token)).stdout
   ) as GhPrHead;
   const headRefName = prHead.headRefName;
   const headRepository = prHead.headRepository?.nameWithOwner ?? repoName;
@@ -649,7 +650,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
       redact: [token],
       timeoutMs: 15 * 60_000
     }));
-    await run("gh", ["pr", "checkout", String(number)]);
+    await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
     const originalHead = (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
     await run("git", ["fetch", "origin", defaultBranch]);
     resolvedConflicts = await rebaseWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
@@ -662,6 +663,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
     const previewId = randomUUID();
     rebasePreviews.set(previewId, {
       id: previewId,
+      strategy: "rebase",
       owner,
       repo,
       number,
@@ -675,6 +677,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
     });
     return {
       success: true,
+      strategy: "rebase",
       defaultBranch,
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
@@ -695,6 +698,148 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
     const diagnostics = await rebaseDiagnostics(repoDir).catch(() => undefined);
     return {
       success: false,
+      strategy: "rebase",
+      defaultBranch,
+      stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
+      stderr: [logs.map((item) => item.stderr).filter(Boolean).join("\n"), diagnostics].filter(Boolean).join("\n\n"),
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+export async function mergePrTargetIntoHead(owner: string, repo: string, number: number): Promise<RebasePrResponse> {
+  return prepareBranchUpdatePreview(owner, repo, number, "merge");
+}
+
+export async function updatePrBranch(owner: string, repo: string, number: number): Promise<RebasePrResponse> {
+  const decision = await chooseBranchUpdateStrategy(owner, repo, number);
+  const result = decision.strategy === "merge"
+    ? await mergePrTargetIntoHead(owner, repo, number)
+    : await rebasePrOntoDefault(owner, repo, number);
+  return {
+    ...result,
+    strategy: decision.strategy,
+    strategyReason: decision.reason,
+    message: `${result.message}\n\nMNLens chose ${decision.strategy}: ${decision.reason}`
+  };
+}
+
+async function chooseBranchUpdateStrategy(owner: string, repo: string, number: number): Promise<{ strategy: "rebase" | "merge"; reason: string }> {
+  const token = await requireToken();
+  const repoName = `${owner}/${repo}`;
+  const raw = JSON.parse(
+    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "baseRefName,changedFiles,commits,mergeStateStatus,title"], token)).stdout
+  ) as {
+    changedFiles?: number;
+    commits?: unknown[];
+    mergeStateStatus?: string;
+    title?: string;
+  };
+  const changedFiles = Number(raw.changedFiles ?? 0);
+  const commitCount = Array.isArray(raw.commits) ? raw.commits.length : 0;
+  const mergeState = raw.mergeStateStatus ?? "unknown";
+
+  if (changedFiles >= 80 || commitCount >= 25) {
+    return {
+      strategy: "merge",
+      reason: `large PR (${changedFiles || "unknown"} files, ${commitCount || "unknown"} commits); merging the target branch avoids replaying every commit and is usually easier to review for conflict-heavy branches.`
+    };
+  }
+  if (/dirty|blocked|unstable/i.test(mergeState) && (changedFiles >= 30 || commitCount >= 10)) {
+    return {
+      strategy: "merge",
+      reason: `branch state is ${mergeState} and the PR is moderately large (${changedFiles || "unknown"} files, ${commitCount || "unknown"} commits); merge preview is less likely to get stuck in repeated rebase conflicts.`
+    };
+  }
+  return {
+    strategy: "rebase",
+    reason: `small enough to keep linear history (${changedFiles || "unknown"} files, ${commitCount || "unknown"} commits, merge state ${mergeState}).`
+  };
+}
+
+async function prepareBranchUpdatePreview(owner: string, repo: string, number: number, strategy: "merge"): Promise<RebasePrResponse> {
+  const token = await requireToken();
+  const repoName = `${owner}/${repo}`;
+  const prHead = JSON.parse(
+    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "baseRefName,headRefName,headRepository,headRefOid"], token)).stdout
+  ) as GhPrHead & { baseRefName?: string; headRefOid?: string };
+  const defaultBranch = prHead.baseRefName || (await runGh(["repo", "view", repoName, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], token)).stdout.trim();
+  const headRefName = prHead.headRefName;
+  const headRepository = prHead.headRepository?.nameWithOwner ?? repoName;
+  if (!defaultBranch) throw new Error(`Could not determine target branch for ${repoName}#${number}.`);
+  if (!headRefName) throw new Error(`Could not determine PR head branch for ${repoName}#${number}.`);
+
+  const logs: CommandResult[] = [];
+  let resolvedConflicts = 0;
+  const repoDir = join(cacheDir, "merge-worktrees", prKey(owner, repo, number));
+  const run = async (command: string, args: string[], cwd = repoDir) => {
+    const result = await runCommand(command, args, {
+      cwd,
+      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
+      redact: [token],
+      timeoutMs: 15 * 60_000
+    });
+    logs.push(result);
+    return result;
+  };
+
+  try {
+    await mkdir(join(cacheDir, "merge-worktrees"), { recursive: true });
+    await rm(repoDir, { recursive: true, force: true });
+    logs.push(await runCommand("gh", ["repo", "clone", repoName, repoDir], {
+      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      redact: [token],
+      timeoutMs: 15 * 60_000
+    }));
+    await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
+    const originalHead = (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
+    await run("git", ["fetch", "origin", defaultBranch]);
+    resolvedConflicts = await mergeWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
+    const diff = await runCommand("git", ["diff", `${originalHead}..HEAD`], {
+      cwd: repoDir,
+      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
+      redact: [token],
+      timeoutMs: 5 * 60_000
+    });
+    const previewId = randomUUID();
+    rebasePreviews.set(previewId, {
+      id: previewId,
+      strategy,
+      owner,
+      repo,
+      number,
+      repoName,
+      repoDir,
+      defaultBranch,
+      headRefName,
+      headRepository,
+      conflictsResolved: resolvedConflicts,
+      createdAt: new Date().toISOString()
+    });
+    return {
+      success: true,
+      strategy,
+      defaultBranch,
+      stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
+      stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
+      previewId,
+      diff: diff.stdout,
+      repoDir,
+      headRefName,
+      headRepository,
+      conflictsResolved: resolvedConflicts,
+      message:
+        resolvedConflicts > 0
+          ? `Merge preview ready for PR #${number}. Codex resolved ${resolvedConflicts} conflict step${resolvedConflicts === 1 ? "" : "s"}. Review the preview before approving push.`
+          : `Merge preview ready for PR #${number}. Review the preview before approving push.`
+    };
+  } catch (error) {
+    const commandError = error instanceof CommandError ? error.result : undefined;
+    if (commandError) logs.push(commandError);
+    const diagnostics = await rebaseDiagnostics(repoDir).catch(() => undefined);
+    return {
+      success: false,
+      strategy,
       defaultBranch,
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: [logs.map((item) => item.stderr).filter(Boolean).join("\n"), diagnostics].filter(Boolean).join("\n\n"),
@@ -727,12 +872,17 @@ export async function confirmRebasePrOntoDefault(previewId: string): Promise<Reb
     await run("git", ["remote", "remove", "pr-head"]).catch(() => undefined);
     await run("git", ["remote", "add", "pr-head", `https://github.com/${preview.headRepository}.git`]);
     await run("git", ["fetch", "pr-head", preview.headRefName]);
-    await run("git", ["push", "--force-with-lease", "pr-head", `HEAD:${preview.headRefName}`]);
-    await run("gh", ["api", "-X", "PATCH", `repos/${preview.owner}/${preview.repo}/pulls/${preview.number}`, "-f", `base=${preview.defaultBranch}`, "--hostname", "github.com"]);
+    await run("git", preview.strategy === "merge"
+      ? ["push", "pr-head", `HEAD:${preview.headRefName}`]
+      : ["push", "--force-with-lease", "pr-head", `HEAD:${preview.headRefName}`]);
+    if (preview.strategy === "rebase") {
+      await run("gh", ["api", "-X", "PATCH", `repos/${preview.owner}/${preview.repo}/pulls/${preview.number}`, "-f", `base=${preview.defaultBranch}`, "--hostname", "github.com"]);
+    }
     await getPrDetail(preview.owner, preview.repo, preview.number);
     rebasePreviews.delete(previewId);
     return {
       success: true,
+      strategy: preview.strategy,
       defaultBranch: preview.defaultBranch,
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
@@ -742,13 +892,17 @@ export async function confirmRebasePrOntoDefault(previewId: string): Promise<Reb
       headRepository: preview.headRepository,
       conflictsResolved: preview.conflictsResolved,
       pushed: true,
-      message: `Approved rebase pushed to ${preview.headRepository}:${preview.headRefName} and PR #${preview.number} now targets ${preview.defaultBranch}.`
+      message:
+        preview.strategy === "merge"
+          ? `Approved merge pushed to ${preview.headRepository}:${preview.headRefName}. PR #${preview.number} still targets ${preview.defaultBranch}.`
+          : `Approved rebase pushed to ${preview.headRepository}:${preview.headRefName} and PR #${preview.number} now targets ${preview.defaultBranch}.`
     };
   } catch (error) {
     const commandError = error instanceof CommandError ? error.result : undefined;
     if (commandError) logs.push(commandError);
     return {
       success: false,
+      strategy: preview.strategy,
       defaultBranch: preview.defaultBranch,
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
@@ -759,6 +913,30 @@ export async function confirmRebasePrOntoDefault(previewId: string): Promise<Reb
       conflictsResolved: preview.conflictsResolved,
       message: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+async function checkoutPrHead(args: {
+  repoName: string;
+  headRepository: string;
+  headRefName: string;
+  headRefOid?: string;
+  run: (command: string, commandArgs: string[], cwd?: string) => Promise<CommandResult>;
+}): Promise<void> {
+  if (args.headRepository !== args.repoName) {
+    await args.run("git", ["remote", "remove", "pr-head"]).catch(() => undefined);
+    await args.run("git", ["remote", "add", "pr-head", `https://github.com/${args.headRepository}.git`]);
+    await args.run("git", ["fetch", "pr-head", args.headRefName]);
+    await args.run("git", ["checkout", "-B", args.headRefName, "FETCH_HEAD"]);
+    return;
+  }
+  await args.run("git", ["fetch", "origin", `refs/heads/${args.headRefName}:refs/remotes/origin/${args.headRefName}`]);
+  await args.run("git", ["checkout", "-B", args.headRefName, `origin/${args.headRefName}`]);
+  if (args.headRefOid) {
+    const actual = (await args.run("git", ["rev-parse", "HEAD"])).stdout.trim();
+    if (actual !== args.headRefOid) {
+      await args.run("git", ["checkout", "--detach", args.headRefOid]);
+    }
   }
 }
 
@@ -785,34 +963,20 @@ async function rebaseWithCodexResolution(args: {
     const conflicts = await conflictFiles(args.repoDir);
     if (conflicts.length === 0) throw new CommandError("git rebase failed without merge conflicts to resolve", result);
 
-    await ensureCodexHome();
     const detail = await getPrDetail(args.owner, args.repo, args.number);
     const analysis = await readAnalysis(detail.key);
-    const codexResult = await runCommand(
-      "codex",
-      ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"],
-      {
-        cwd: args.repoDir,
-        input: buildRebaseConflictPrompt({
-          repoName: args.repoName,
-          number: args.number,
-          defaultBranch: args.defaultBranch,
-          conflicts,
-          detail,
-          analysis
-        }),
-        env: { CODEX_HOME: codexHome, GH_TOKEN: args.token, GH_HOST: "github.com" },
-        timeoutMs: 20 * 60_000,
-        redact: [args.token]
-      }
-    );
+    const codexResult = await resolveConflictsWithCodex({ ...args, conflicts, detail, analysis, operation: "rebase" });
     args.logs.push(codexResult);
 
-    const remainingConflicts = await conflictFiles(args.repoDir);
-    if (remainingConflicts.length > 0) {
-      throw new CommandError(`Codex did not resolve all rebase conflicts: ${remainingConflicts.join(", ")}`, codexResult);
+    const remainingMarkers = await conflictMarkerFiles(args.repoDir, conflicts);
+    if (remainingMarkers.length > 0) {
+      throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
     }
     await args.run("git", ["add", "-A"]);
+    const remainingConflicts = await conflictFiles(args.repoDir);
+    if (remainingConflicts.length > 0) {
+      throw new CommandError(`Codex did not stage all rebase conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
+    }
     resolved += 1;
 
     result = await continueOrSkipEmptyRebase(args);
@@ -821,6 +985,84 @@ async function rebaseWithCodexResolution(args: {
   }
 
   throw new CommandError("Rebase still has conflicts after 6 Codex resolution attempts.", result);
+}
+
+async function mergeWithCodexResolution(args: {
+  owner: string;
+  repo: string;
+  number: number;
+  repoName: string;
+  repoDir: string;
+  defaultBranch: string;
+  token: string;
+  logs: CommandResult[];
+  run: (command: string, commandArgs: string[], cwd?: string) => Promise<CommandResult>;
+}): Promise<number> {
+  let resolved = 0;
+  const result = await args.run("git", ["merge", "--no-ff", "--no-edit", `origin/${args.defaultBranch}`]).catch((error) => {
+    if (error instanceof CommandError) return error.result;
+    throw error;
+  });
+  if (result.exitCode === 0) return resolved;
+  args.logs.push(result);
+
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const conflicts = await conflictFiles(args.repoDir);
+    if (conflicts.length === 0) throw new CommandError("git merge failed without merge conflicts to resolve", result);
+    const detail = await getPrDetail(args.owner, args.repo, args.number);
+    const analysis = await readAnalysis(detail.key);
+    const codexResult = await resolveConflictsWithCodex({ ...args, conflicts, detail, analysis, operation: "merge" });
+    args.logs.push(codexResult);
+    const remainingMarkers = await conflictMarkerFiles(args.repoDir, conflicts);
+    if (remainingMarkers.length > 0) {
+      throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
+    }
+    await args.run("git", ["add", "-A"]);
+    const remainingConflicts = await conflictFiles(args.repoDir);
+    if (remainingConflicts.length > 0) {
+      throw new CommandError(`Codex did not stage all merge conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
+    }
+    await args.run("git", ["commit", "--no-edit"]);
+    resolved += 1;
+    return resolved;
+  }
+
+  throw new CommandError("Merge still has conflicts after Codex resolution attempts.", result);
+}
+
+async function resolveConflictsWithCodex(args: {
+  repoName: string;
+  number: number;
+  repoDir: string;
+  defaultBranch: string;
+  conflicts: string[];
+  token: string;
+  operation: "rebase" | "merge";
+  detail?: unknown;
+  analysis?: unknown;
+}): Promise<CommandResult> {
+  await ensureCodexHome();
+  const detail = args.detail ?? await getPrDetail(args.repoName.split("/")[0] ?? "", args.repoName.split("/")[1] ?? "", args.number);
+  const analysis = args.analysis ?? await readAnalysis(prKey(args.repoName.split("/")[0] ?? "", args.repoName.split("/")[1] ?? "", args.number));
+  return runCommand(
+    "codex",
+    ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"],
+    {
+      cwd: args.repoDir,
+      input: buildRebaseConflictPrompt({
+        repoName: args.repoName,
+        number: args.number,
+        defaultBranch: args.defaultBranch,
+        conflicts: args.conflicts,
+        detail,
+        analysis,
+        operation: args.operation
+      }),
+      env: { CODEX_HOME: codexHome, GH_TOKEN: args.token, GH_HOST: "github.com" },
+      timeoutMs: 20 * 60_000,
+      redact: [args.token]
+    }
+  );
 }
 
 async function continueOrSkipEmptyRebase(args: {
@@ -855,6 +1097,19 @@ async function conflictFiles(repoDir: string): Promise<string[]> {
     .filter(Boolean);
 }
 
+async function conflictMarkerFiles(repoDir: string, files: string[]): Promise<string[]> {
+  const markerPattern = "^(<<<<<<<|=======|>>>>>>>)";
+  const result = await runCommand("rg", ["-n", markerPattern, ...files], { cwd: repoDir }).catch((error) => {
+    if (error instanceof CommandError) return error.result;
+    throw error;
+  });
+  if (result.exitCode === 1) return [];
+  return [...new Set(result.stdout
+    .split("\n")
+    .map((line) => line.split(":")[0]?.trim())
+    .filter(Boolean))];
+}
+
 function buildRebaseConflictPrompt(args: {
   repoName: string;
   number: number;
@@ -862,8 +1117,11 @@ function buildRebaseConflictPrompt(args: {
   conflicts: string[];
   detail: unknown;
   analysis: unknown;
+  operation: "rebase" | "merge";
 }): string {
-  return `You are resolving a Git rebase conflict for a GitHub PR inside a checked-out worktree.
+  const prContext = boundedJson(compactRebaseDetail(args.detail, args.conflicts), 70_000);
+  const reviewContext = boundedJson(compactRebaseAnalysis(args.analysis), 35_000);
+  return `You are resolving a Git ${args.operation} conflict for a GitHub PR inside a checked-out worktree.
 
 Repository: ${args.repoName}
 PR: #${args.number}
@@ -872,33 +1130,44 @@ Conflicted files:
 ${args.conflicts.map((file) => `- ${file}`).join("\n")}
 
 Rules:
-- Resolve only the current rebase conflicts.
+- Resolve only the current ${args.operation} conflicts.
 - Preserve the PR intent and all already-reviewed fixes.
 - Preserve changes from the target base branch unless they directly conflict with the PR intent.
 - Do not add unrelated refactors.
 - Remove all conflict markers.
-- Do not run git rebase, git commit, git push, or destructive git commands.
-- After editing, inspect the conflicted files and stop. The app will stage files and continue the rebase, then show a preview for human approval before any push or PR retargeting.
+- Do not run git rebase, git merge, git commit, git push, or destructive git commands.
+- After editing, inspect the conflicted files and stop. The app will stage files and ${args.operation === "merge" ? "create the merge preview commit" : "continue the rebase"}, then show a preview for human approval before any push.
 
 PR context:
-${JSON.stringify(compactRebaseDetail(args.detail), null, 2)}
+${prContext}
 
 AI review context:
-${JSON.stringify(compactRebaseAnalysis(args.analysis), null, 2)}
+${reviewContext}
 `;
 }
 
-function compactRebaseDetail(detail: unknown): unknown {
+function compactRebaseDetail(detail: unknown, conflicts: string[]): unknown {
   if (!detail || typeof detail !== "object") return detail;
   const source = detail as Record<string, unknown>;
+  const conflictSet = new Set(conflicts);
   return {
     title: source.title,
-    body: source.body,
-    linkedIssues: source.linkedIssues,
-    files: source.files,
-    reviewComments: source.reviewComments,
-    conversationComments: source.conversationComments,
-    commits: source.commits
+    body: truncateText(source.body, 6000),
+    baseRefName: source.baseRefName,
+    headRefName: source.headRefName,
+    changedFiles: source.changedFiles,
+    additions: source.additions,
+    deletions: source.deletions,
+    linkedIssues: compactArray(source.linkedIssues, 3, (issue) => compactObject(issue, ["number", "title", "url", "state", "body"], 3000)),
+    files: compactArray(source.files, 250, (file) => compactObject(file, ["path", "additions", "deletions", "changeType"])),
+    conflictingFiles: compactArray(source.files, 100, (file) => compactObject(file, ["path", "additions", "deletions", "changeType"]), (file) =>
+      conflictSet.has(String((file as Record<string, unknown>).path ?? ""))
+    ),
+    reviewComments: compactArray(source.reviewComments, 60, (comment) => compactObject(comment, ["path", "line", "body", "author"], 2500), (comment) =>
+      conflictSet.has(String((comment as Record<string, unknown>).path ?? ""))
+    ),
+    conversationComments: compactArray(source.conversationComments, 20, (comment) => compactObject(comment, ["body", "author"], 2500)),
+    commits: compactArray(source.commits, 120, (commit) => compactObject(commit, ["shortSha", "message", "author", "committedAt"]))
   };
 }
 
@@ -913,6 +1182,45 @@ function compactRebaseAnalysis(analysis: unknown): unknown {
     testsToCheck: source.testsToCheck,
     testAssessment: source.testAssessment
   };
+}
+
+function boundedJson(value: unknown, limit: number): string {
+  const text = JSON.stringify(value, null, 2);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1200))}\n... truncated for Codex rebase context limit ...\n${JSON.stringify({
+    note: "MNLens truncated this PR context because the PR is very large. Resolve only the currently conflicted files shown above and inspect the local files for exact code."
+  }, null, 2)}`;
+}
+
+function compactArray<T = unknown>(
+  value: unknown,
+  limit: number,
+  mapItem: (item: T) => unknown,
+  filterItem?: (item: T) => boolean
+): unknown[] {
+  if (!Array.isArray(value)) return [];
+  const items = filterItem ? (value as T[]).filter(filterItem) : (value as T[]);
+  return items.slice(0, limit).map(mapItem);
+}
+
+function compactObject(value: unknown, keys: string[], textLimit = 1000): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const source = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of keys) {
+    const item = source[key];
+    if (typeof item === "string") {
+      result[key] = truncateText(item, textLimit);
+    } else if (item !== undefined) {
+      result[key] = item;
+    }
+  }
+  return result;
+}
+
+function truncateText(value: unknown, limit: number): unknown {
+  if (typeof value !== "string" || value.length <= limit) return value;
+  return `${value.slice(0, limit)}... [truncated]`;
 }
 
 async function rebaseDiagnostics(repoDir: string): Promise<string> {
@@ -942,6 +1250,8 @@ async function searchQueue(queue: PrQueue, token: string): Promise<PrListItem[]>
             "--json",
             searchFields
           ]
+        : queue === "reviewed"
+          ? ["search", "prs", "--reviewed-by=@me", "--state=open", "--archived=false", "--limit=100", "--json", searchFields]
         : ["search", "prs", "--author=@me", "--state=open", "--archived=false", "--limit=100", "--json", searchFields];
   const result = await runGh(args, token);
   const raw = JSON.parse(result.stdout) as GhSearchPr[];
@@ -1242,6 +1552,7 @@ function queueMembership(raw: GhPrView): PrQueue[] {
   const queues: PrQueue[] = [];
   if ((raw.assignees ?? []).length > 0) queues.push("assigned");
   if ((raw.reviewRequests ?? []).length > 0) queues.push("review-requested");
+  if ((raw.latestReviews ?? []).length > 0) queues.push("reviewed");
   return queues;
 }
 
@@ -1432,6 +1743,7 @@ interface GhReview {
 
 interface GhPrHead {
   headRefName?: string;
+  headRefOid?: string;
   headRepository?: {
     nameWithOwner?: string;
   };

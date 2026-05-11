@@ -28,7 +28,7 @@ import type {
   VerificationRequest
 } from "../shared/types.js";
 import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, readRepoRules, stats, writeAnalysis, writeProgress, writeRepoRules } from "./cache.js";
-import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, rebasePrOntoDefault, replyToConversation, submitReview, updatePrTargetBranch } from "./gh.js";
+import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
 import { cancelAnalysisJob, enqueueAnalysis, getJob, jobStatusForPr, recoverAnalysisJobs } from "./jobs.js";
 import { cancelVerificationJob, enqueueManualVerification, enqueueVerification, getVerificationJob, listVerificationJobs } from "./verification.js";
 import { recoverVerificationJobs } from "./verification.js";
@@ -334,10 +334,46 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     try {
       const body = req.body as RebasePrRequest;
       if (!body.owner || !body.repo || !body.number) {
+        res.status(400).json({ error: "Branch update request must include owner, repo, and number." });
+        return;
+      }
+      const result = await updatePrBranch(body.owner, body.repo, Number(body.number));
+      if (!result.success) {
+        res.status(409).json({ error: result.message, ...result });
+        return;
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/rebase-default/explicit", async (req, res, next) => {
+    try {
+      const body = req.body as RebasePrRequest;
+      if (!body.owner || !body.repo || !body.number) {
         res.status(400).json({ error: "Rebase request must include owner, repo, and number." });
         return;
       }
       const result = await rebasePrOntoDefault(body.owner, body.repo, Number(body.number));
+      if (!result.success) {
+        res.status(409).json({ error: result.message, ...result });
+        return;
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/update-branch", async (req, res, next) => {
+    try {
+      const body = req.body as RebasePrRequest;
+      if (!body.owner || !body.repo || !body.number) {
+        res.status(400).json({ error: "Branch update request must include owner, repo, and number." });
+        return;
+      }
+      const result = await updatePrBranch(body.owner, body.repo, Number(body.number));
       if (!result.success) {
         res.status(409).json({ error: result.message, ...result });
         return;
@@ -356,6 +392,24 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
         return;
       }
       res.json(await confirmRebasePrOntoDefault(body.previewId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/merge-target", async (req, res, next) => {
+    try {
+      const body = req.body as RebasePrRequest;
+      if (!body.owner || !body.repo || !body.number) {
+        res.status(400).json({ error: "Merge request must include owner, repo, and number." });
+        return;
+      }
+      const result = await mergePrTargetIntoHead(body.owner, body.repo, Number(body.number));
+      if (!result.success) {
+        res.status(409).json({ error: result.message, ...result });
+        return;
+      }
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -741,7 +795,7 @@ function betaLimitations(): string[] {
 }
 
 function normalizeQueue(value: unknown): QueueName {
-  if (value === "assigned" || value === "review-requested" || value === "all") return value;
+  if (value === "assigned" || value === "review-requested" || value === "reviewed" || value === "all") return value;
   return "all";
 }
 

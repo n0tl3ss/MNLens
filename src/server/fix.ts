@@ -21,6 +21,7 @@ const cancelledJobs = new Set<string>();
 const root = join(cacheDir, "fix-worktrees");
 let running = false;
 let recovered = false;
+const fixVerificationTimeoutMs = 40 * 60_000;
 
 type FixPipelinePhase = NonNullable<FixJob["phase"]>;
 type SpecialistPhase = FixPipelineNode["phase"];
@@ -660,7 +661,7 @@ async function drainQueue(): Promise<void> {
                 await runStreaming(item.job, resolved.command, resolved.args, {
                   cwd: workspace.repoDir,
                   env: { GH_TOKEN: token, GH_HOST: "github.com" },
-                  timeoutMs: 20 * 60_000,
+                  timeoutMs: fixVerificationTimeoutMs,
                   redact: [token]
                 });
               } catch (error) {

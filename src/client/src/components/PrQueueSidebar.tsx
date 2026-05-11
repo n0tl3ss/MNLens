@@ -168,7 +168,7 @@ export function PrQueueSidebar({
       <div className="controls">
         <Segmented<QueueName>
           value={queue}
-          values={["all", "assigned", "review-requested"]}
+          values={["all", "assigned", "review-requested", "reviewed"]}
           onChange={onQueueChange}
         />
         <label className="search-box">
@@ -360,11 +360,16 @@ function Segmented<T extends string>({ value, values, onChange }: { value: T; va
     <div className="segmented">
       {values.map((item) => (
         <button key={item} className={value === item ? "active" : ""} onClick={() => onChange(item)}>
-          {item}
+          {queueLabel(item)}
         </button>
       ))}
     </div>
   );
+}
+
+function queueLabel(value: string): string {
+  if (value === "review-requested") return "review requested";
+  return value;
 }
 
 function toneForType(type?: string): string {

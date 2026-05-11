@@ -1,5 +1,5 @@
-export type QueueName = "assigned" | "review-requested" | "all";
-export type PrQueue = "assigned" | "review-requested" | "authored";
+export type QueueName = "assigned" | "review-requested" | "reviewed" | "all";
+export type PrQueue = "assigned" | "review-requested" | "reviewed" | "authored";
 
 export type AnalysisType =
   | "feature"
@@ -456,8 +456,12 @@ export interface AskResearchResponse {
 
 export interface RebasePrRequest extends PrRef {}
 
+export type BranchUpdateStrategy = "rebase" | "merge";
+
 export interface RebasePrResponse {
   success: boolean;
+  strategy?: BranchUpdateStrategy;
+  strategyReason?: string;
   defaultBranch: string;
   stdout: string;
   stderr: string;

@@ -625,31 +625,43 @@
   color: #fff2c7;
 }
 
-[data-theme="dark"] .analysis-session-row {
+[data-theme="dark"] .session-history-row {
   border-color: #284557;
   border-left-color: #315268;
   background: #101d28;
 }
 
-[data-theme="dark"] .analysis-session-row.running,
-[data-theme="dark"] .analysis-session-row.queued {
+[data-theme="dark"] .session-history-row.running,
+[data-theme="dark"] .session-history-row.queued {
   border-left-color: #d39a32;
   background: #2b2415;
 }
 
-[data-theme="dark"] .analysis-session-row.failed {
+[data-theme="dark"] .session-history-row.failed {
   border-left-color: #e56c61;
   background: #2a1a1a;
 }
 
-[data-theme="dark"] .analysis-session-row strong {
+[data-theme="dark"] .session-history-row.active {
+  border-color: #56c0d5;
+  border-left-color: #56c0d5;
+  background: #102a37;
+}
+
+[data-theme="dark"] .session-history-row strong,
+[data-theme="dark"] .session-history-row b {
   color: #eef8fb;
 }
 
-[data-theme="dark"] .analysis-session-row span,
-[data-theme="dark"] .analysis-session-row p,
-[data-theme="dark"] .analysis-session-row em {
+[data-theme="dark"] .session-history-row small,
+[data-theme="dark"] .session-history-row em {
   color: #9fb4bf;
+}
+
+[data-theme="dark"] .session-artifacts a {
+  border-color: #284557;
+  background: #102333;
+  color: #9be1e7;
 }
 
 [data-theme="dark"] .fix-phase-status {

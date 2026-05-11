@@ -1,4 +1,4 @@
-import { Check, GitBranch, GitPullRequest, Loader2, RefreshCw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { Check, GitBranch, Loader2, RefreshCw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { AnalysisResult, Job, PrDetail, PrListItem, RepositoryBranch } from "../../../shared/types";
@@ -25,7 +25,7 @@ export function PrDetailHeader({
   onClearCache,
   onImprovePr,
   onReanalyze,
-  onRebaseDefault,
+  onUpdateBranch,
   onToggleAttention
 }: {
   analysis?: AnalysisResult;
@@ -45,7 +45,7 @@ export function PrDetailHeader({
   onClearCache: () => void;
   onImprovePr: () => void;
   onReanalyze: () => void;
-  onRebaseDefault: () => void;
+  onUpdateBranch: () => void;
   onToggleAttention: () => void;
 }) {
   const needsDeepAnalysis = !analysis && job?.mode !== "deep";
@@ -163,11 +163,11 @@ export function PrDetailHeader({
             <button
               className={needsBranchWork ? "branch-work-suggested" : ""}
               disabled={rebasing}
-              onClick={onRebaseDefault}
-              title="Rebase this PR onto the repository default branch. If conflicts happen, Codex will try to resolve them in the app workspace before pushing."
+              onClick={onUpdateBranch}
+              title="Prepare a branch update preview. MNLens chooses rebase for small PRs and merge for large or conflict-heavy PRs. Nothing is pushed until you approve."
             >
-              {rebasing ? <Loader2 size={16} className="spin" /> : <GitPullRequest size={16} />}
-              {rebasing ? "Rebasing" : needsBranchWork ? "Resolve branch" : "Rebase default"}
+              {rebasing ? <Loader2 size={16} className="spin" /> : <GitBranch size={16} />}
+              {rebasing ? "Preparing update" : needsBranchWork ? "Resolve branch" : "Update branch"}
             </button>
             {isOwnedByCurrentUser && (
               <button

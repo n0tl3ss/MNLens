@@ -19,6 +19,7 @@ const verificationQueue: Array<{ job: VerificationJob; pr: PrRef; manualItem?: s
 const activeProcesses = new Map<string, ReturnType<typeof spawn>>();
 const cancelledJobs = new Set<string>();
 const worktreeRoot = join(cacheDir, "worktrees");
+const verificationCommandTimeoutMs = 40 * 60_000;
 let running = false;
 let recovered = false;
 
@@ -228,7 +229,7 @@ async function drainVerificationQueue(): Promise<void> {
         result = await runStreamingCommand(item.job, resolved.command, resolved.args, {
           cwd: repoDir,
           env: { GH_TOKEN: token, GH_HOST: "github.com" },
-          timeoutMs: 20 * 60_000,
+          timeoutMs: verificationCommandTimeoutMs,
           redact: [token]
         });
       }
@@ -301,7 +302,7 @@ async function runDocRenderVerification(job: VerificationJob, pr: PrRef, repoDir
   const build = await runStreamingCommand(job, command.command, command.args, {
     cwd: repoDir,
     env: { GH_TOKEN: token, GH_HOST: "github.com" },
-    timeoutMs: 20 * 60_000,
+    timeoutMs: verificationCommandTimeoutMs,
     redact: [token]
   });
   const targets = await findDocHtmlTargets(repoDir, item, pr);

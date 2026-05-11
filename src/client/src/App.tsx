@@ -48,7 +48,6 @@ import {
   getVerificationJob,
   getVerificationJobs,
   openEditor,
-  rebasePrDefault,
   replyConversation,
   retryFix,
   runManualVerification,
@@ -56,6 +55,7 @@ import {
   pushFix,
   startFix,
   submitReview,
+  updatePrBranch,
   updatePrTargetBranch,
   updateRepoRule,
   updateProgress
@@ -663,13 +663,13 @@ export function App() {
     }
   }
 
-  async function rebaseSelectedToDefault() {
+  async function updateSelectedBranch() {
     if (!selected) return;
     setError(undefined);
     setNotice(undefined);
     setRebasing(true);
     try {
-      const response = await rebasePrDefault({ owner: selected.owner, repo: selected.repo, number: selected.number });
+      const response = await updatePrBranch({ owner: selected.owner, repo: selected.repo, number: selected.number });
       setRebasePreview(response);
       setNotice(response.message);
     } catch (err) {
@@ -1131,7 +1131,7 @@ export function App() {
               onClearCache={() => void clearSelectedCache()}
               onImprovePr={() => void startOwnerImprovePr()}
               onReanalyze={() => void startAnalysis([selected], true, "deep")}
-              onRebaseDefault={() => void rebaseSelectedToDefault()}
+              onUpdateBranch={() => void updateSelectedBranch()}
               onToggleAttention={() => setAttentionMode((value) => !value)}
             />
 

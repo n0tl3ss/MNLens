@@ -169,6 +169,7 @@ export function DetailTab({
         <FixSection
           jobs={fixJobs}
           analysisJobs={analysisJobs}
+          verificationJobs={verificationJobs}
           highlightedJobId={highlightedFixJobId}
           askingFixId={askingFixId}
           onStart={onStartFix}
