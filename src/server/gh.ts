@@ -464,8 +464,19 @@ export async function getCiLog(owner: string, repo: string, link: string): Promi
     return fetchCheckRunOutput(token, owner, repo, checkRunId);
   }
   if (!ids) throw new Error("Logs can only be fetched for GitHub Actions job links or GitHub check-run details.");
-  const result = await runGh(["run", "view", ids.runId, "-R", `${owner}/${repo}`, "--job", ids.jobId, "--log"], token);
-  return result.stdout;
+  try {
+    const result = await runGh(["run", "view", ids.runId, "-R", `${owner}/${repo}`, "--job", ids.jobId, "--log"], token);
+    return result.stdout;
+  } catch (error) {
+    if (error instanceof CommandError && isActionsLogPending(error)) {
+      return [
+        "GitHub Actions logs are not available yet.",
+        "",
+        commandOutput(error) || "The workflow run is still in progress. Wait for the job to complete, then click Fetch details again."
+      ].join("\n");
+    }
+    throw error;
+  }
 }
 
 export async function getPrDetail(owner: string, repo: string, number: number): Promise<PrDetail> {
@@ -1617,6 +1628,14 @@ async function commandExists(command: string): Promise<boolean> {
 function commandErrorText(error: unknown): string {
   if (error instanceof CommandError) return [error.result.stderr, error.result.stdout].filter(Boolean).join("\n").trim();
   return error instanceof Error ? error.message : String(error);
+}
+
+function commandOutput(error: CommandError): string {
+  return [error.result.stderr, error.result.stdout].filter(Boolean).join("\n").trim();
+}
+
+function isActionsLogPending(error: CommandError): boolean {
+  return /run \d+ is still in progress; logs will be available when it is complete/i.test(commandOutput(error));
 }
 
 interface GhUser {

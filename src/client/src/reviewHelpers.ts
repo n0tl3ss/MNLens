@@ -133,8 +133,8 @@ export function triageForPr(pr: PrListItem, job?: Job, fixJobs: FixJob[] = []): 
     }
     return { label: "author action", tone: "danger", nextAction: "Check author update", reason: "GitHub shows changes were requested. Look for new commits or replies before spending review time.", priority: 100 };
   }
-  if (pr.mergeStateStatus && /blocked|dirty|behind|unstable/i.test(pr.mergeStateStatus)) {
-    return { label: "blocked", tone: "danger", nextAction: "Open PR status", reason: `Merge state is ${pr.mergeStateStatus}. Resolve branch, conflicts, or required checks first.`, priority: 92 };
+  if (pr.mergeStateStatus && /dirty|behind/i.test(pr.mergeStateStatus)) {
+    return { label: "blocked", tone: "danger", nextAction: "Update branch", reason: `Merge state is ${pr.mergeStateStatus}. Update the branch or resolve conflicts first.`, priority: 92 };
   }
   if (pr.reviewDecision === "APPROVED") {
     return { label: "approved", tone: "added", nextAction: "Monitor merge readiness", reason: "GitHub already records an approval.", priority: 15 };

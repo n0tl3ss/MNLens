@@ -201,7 +201,7 @@ export function PrDetailHeader({
 }
 
 function needsRebaseOrConflictResolution(status?: string): boolean {
-  return /blocked|dirty|behind|unstable/i.test(status ?? "");
+  return /dirty|behind/i.test(status ?? "");
 }
 
 function reviewerLabel(status: string): string {
