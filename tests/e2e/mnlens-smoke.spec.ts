@@ -377,7 +377,7 @@ test("shows interrupted verification and Codex sessions as resumable review stat
   await page.getByRole("button", { name: "Codex", exact: true }).click();
   await expect(page.getByText("Fix session interrupted").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry session" })).toBeVisible();
-  await expect(page.getByText("Overview / Risks / Silent telemetry failure")).toBeVisible();
+  await expect(page.locator("#fix-session-fix-interrupted-1").getByText("Overview / Risks / Silent telemetry failure")).toBeVisible();
 });
 
 test("surfaces GitHub rate-limit state and starts an explicit deep analysis", async ({ page }) => {
