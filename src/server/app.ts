@@ -40,6 +40,7 @@ import { getSetupStatus } from "./setup.js";
 import { cacheDir } from "./paths.js";
 import { enhanceCliPath } from "./envPath.js";
 import { GithubRateLimitError, githubRateLimitStatus } from "./githubRateLimit.js";
+import { CommandError } from "./command.js";
 
 const port = Number(process.env.PORT ?? 4321);
 const requestedHost = process.env.HOST ?? process.env.MNLENS_HOST ?? "127.0.0.1";
@@ -715,6 +716,11 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     const message = error instanceof Error ? error.message : String(error);
     if (error instanceof GithubRateLimitError) {
       res.status(error.status).json({ error: message, rateLimit: githubRateLimitStatus() });
+      return;
+    }
+    if (error instanceof CommandError) {
+      const details = [error.result.stderr, error.result.stdout].filter(Boolean).join("\n\n").trim();
+      res.status(500).json({ error: details ? `${message}\n\n${details}` : message });
       return;
     }
     res.status(500).json({ error: message });

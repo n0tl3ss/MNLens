@@ -265,17 +265,22 @@ ${JSON.stringify(payload, null, 2)}
 }
 
 function buildRiskQuestionPrompt(detail: PrDetail, risk: ReviewInsight | { observation: string }, question: string): string {
-  const diff =
-    detail.diff.length > maxDiffChars
-      ? `${detail.diff.slice(0, maxDiffChars)}\n\n[Diff truncated from ${detail.diff.length} characters.]`
-      : detail.diff;
+  const observation = risk.observation ?? "";
+  const mentionedPaths = pathsMentionedInText(observation, detail.files.map((file) => file.path));
+  const diff = focusedDiff(detail.diff, mentionedPaths, 35_000);
   const payload = {
     pr: {
       repository: detail.repository,
       number: detail.number,
       title: detail.title,
-      body: detail.body,
-      linkedIssues: detail.linkedIssues ?? [],
+      body: truncateText(detail.body, 5000),
+      linkedIssues: (detail.linkedIssues ?? []).slice(0, 3).map((issue) => ({
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        url: issue.url,
+        body: truncateText(issue.body, 3000)
+      })),
       author: detail.author,
       labels: detail.labels,
       baseRefName: detail.baseRefName,
@@ -286,9 +291,17 @@ function buildRiskQuestionPrompt(detail: PrDetail, risk: ReviewInsight | { obser
       reviewDecision: detail.reviewDecision,
       mergeStateStatus: detail.mergeStateStatus,
       files: detail.files,
-      commits: detail.commits
+      relevantFiles: mentionedPaths.length > 0 ? detail.files.filter((file) => mentionedPaths.includes(file.path)) : [],
+      commits: detail.commits.slice(-12).map((commit) => ({
+        shortSha: commit.shortSha,
+        message: commit.message,
+        author: commit.author,
+        committedAt: commit.committedAt,
+        files: commit.files.filter((file) => mentionedPaths.includes(file.path)).slice(0, 20)
+      }))
     },
     risk,
+    mentionedPaths,
     diff
   };
 
@@ -304,6 +317,59 @@ ${question.trim()}
 PR review-point context:
 ${JSON.stringify(payload, null, 2)}
 `;
+}
+
+function pathsMentionedInText(text: string, knownPaths: string[]): string[] {
+  const normalized = text.replace(/[`'"]/g, "");
+  const matches = knownPaths.filter((path) => {
+    const fileName = path.split("/").pop() ?? path;
+    return normalized.includes(path) || (fileName.length > 0 && normalized.includes(fileName));
+  });
+  return [...new Set(matches)].slice(0, 8);
+}
+
+function focusedDiff(diff: string, paths: string[], maxChars: number): string {
+  const sections = paths.length > 0 ? diffSectionsForPaths(diff, paths) : [];
+  const source = sections.length > 0 ? sections.join("\n") : diff;
+  if (source.length <= maxChars) return source;
+  return `${source.slice(0, maxChars)}\n\n[Focused diff truncated from ${source.length} characters.]`;
+}
+
+function diffSectionsForPaths(diff: string, paths: string[]): string[] {
+  const wanted = new Set(paths);
+  const sections: string[] = [];
+  let current: string[] = [];
+  let currentPath = "";
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      if (current.length > 0 && wanted.has(currentPath)) sections.push(current.join("\n"));
+      current = [line];
+      currentPath = diffHeaderPath(line);
+      continue;
+    }
+    current.push(line);
+    if (line.startsWith("+++ ")) {
+      currentPath = normalizeDiffPath(line.slice(4)) || currentPath;
+    }
+  }
+  if (current.length > 0 && wanted.has(currentPath)) sections.push(current.join("\n"));
+  return sections;
+}
+
+function diffHeaderPath(line: string): string {
+  const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+  return match?.[2] ?? "";
+}
+
+function normalizeDiffPath(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "/dev/null") return "";
+  return trimmed.replace(/^[ab]\//, "");
+}
+
+function truncateText(value: unknown, maxChars: number): string {
+  if (typeof value !== "string") return "";
+  return value.length > maxChars ? `${value.slice(0, maxChars)}\n\n[Text truncated from ${value.length} characters.]` : value;
 }
 
 function buildCiFailurePrompt(detail: PrDetail, check: CiCheck, log: string): string {
