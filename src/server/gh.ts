@@ -18,6 +18,7 @@ import type {
   RepositoryBranch,
   QueueName,
   RebasePrResponse,
+  ResolveReviewThreadResponse,
   ReplyConversationRequest,
   ReplyConversationResponse,
   SubmitReviewRequest,
@@ -119,6 +120,11 @@ interface RebasePreviewState {
   conflictsResolved: number;
   createdAt: string;
 }
+
+type ConflictResolutionResult = {
+  steps: number;
+  diff: string;
+};
 
 const rebasePreviews = new Map<string, RebasePreviewState>();
 let rateLimitCache: { fetchedAt: number; status: ReturnType<typeof githubRateLimitStatus> } | undefined;
@@ -459,8 +465,11 @@ export async function getCiChecks(owner: string, repo: string, number: number): 
       "name,state,link,startedAt,completedAt,workflow,bucket,description"
     ],
     token
-  );
-  const raw = JSON.parse(result.stdout) as GhCiCheck[];
+  ).catch((error) => {
+    if (isNoChecksReportedError(error)) return undefined;
+    throw error;
+  });
+  const raw = result ? JSON.parse(result.stdout) as GhCiCheck[] : await fetchCheckRunsAsCiChecks(token, owner, repo, number);
   const checkRuns = shouldEnrichCheckRuns(raw)
     ? await fetchCheckRunDetails(token, owner, repo, number).catch(() => new Map<string, EnrichedCheckRun>())
     : new Map<string, EnrichedCheckRun>();
@@ -476,6 +485,11 @@ export async function getCiChecks(owner: string, repo: string, number: number): 
     completedAt: check.completedAt ?? "",
     canFetchLog: parseActionsJobLink(check.link ?? "") !== undefined || Boolean(checkRuns.get(check.name ?? "")?.id)
   }));
+}
+
+function isNoChecksReportedError(error: unknown): boolean {
+  if (!(error instanceof CommandError)) return false;
+  return /no checks reported/i.test(commandOutput(error) || error.message || "");
 }
 
 export async function getCiLog(owner: string, repo: string, link: string): Promise<string> {
@@ -499,6 +513,25 @@ export async function getCiLog(owner: string, repo: string, link: string): Promi
     }
     throw error;
   }
+}
+
+export async function resolveReviewThread(owner: string, repo: string, number: number, threadId: string): Promise<ResolveReviewThreadResponse> {
+  const token = await requireToken();
+  const id = threadId.trim();
+  if (!id) throw new Error("Review thread id is required.");
+  const mutation = `
+    mutation($threadId: ID!) {
+      resolveReviewThread(input: {threadId: $threadId}) {
+        thread {
+          id
+          isResolved
+        }
+      }
+    }
+  `;
+  await runGh(["api", "graphql", "-f", `query=${mutation}`, "-F", `threadId=${id}`, "--hostname", "github.com"], token);
+  await getPrDetail(owner, repo, number);
+  return { owner, repo, number, threadId: id, resolved: true };
 }
 
 export async function getPrDetail(owner: string, repo: string, number: number): Promise<PrDetail> {
@@ -655,17 +688,18 @@ async function fetchPullRequestDiff(token: string, owner: string, repo: string, 
 export async function rebasePrOntoDefault(owner: string, repo: string, number: number): Promise<RebasePrResponse> {
   const token = await requireToken();
   const repoName = `${owner}/${repo}`;
-  const defaultBranch = (await runGh(["repo", "view", repoName, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], token)).stdout.trim();
-  if (!defaultBranch) throw new Error(`Could not determine default branch for ${repoName}.`);
   const prHead = JSON.parse(
-    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefName,headRepository,headRefOid"], token)).stdout
-  ) as GhPrHead;
+    (await runGh(["pr", "view", String(number), "-R", repoName, "--json", "baseRefName,headRefName,headRepository,headRefOid"], token)).stdout
+  ) as GhPrHead & { baseRefName?: string };
+  const defaultBranch = prHead.baseRefName || (await runGh(["repo", "view", repoName, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], token)).stdout.trim();
   const headRefName = prHead.headRefName;
   const headRepository = prHead.headRepository?.nameWithOwner ?? repoName;
+  if (!defaultBranch) throw new Error(`Could not determine target branch for ${repoName}#${number}.`);
   if (!headRefName) throw new Error(`Could not determine PR head branch for ${repoName}#${number}.`);
 
   const logs: CommandResult[] = [];
   let resolvedConflicts = 0;
+  let conflictResolutionDiff = "";
   const repoDir = join(cacheDir, "rebase-worktrees", prKey(owner, repo, number));
   const run = async (command: string, args: string[], cwd = repoDir) => {
     const result = await runCommand(command, args, {
@@ -687,15 +721,10 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
       timeoutMs: 15 * 60_000
     }));
     await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
-    const originalHead = (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
     await run("git", ["fetch", "origin", defaultBranch]);
-    resolvedConflicts = await rebaseWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
-    const diff = await runCommand("git", ["diff", `${originalHead}..HEAD`], {
-      cwd: repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
-      redact: [token],
-      timeoutMs: 5 * 60_000
-    });
+    const resolution = await rebaseWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
+    resolvedConflicts = resolution.steps;
+    conflictResolutionDiff = resolution.diff;
     const previewId = randomUUID();
     rebasePreviews.set(previewId, {
       id: previewId,
@@ -718,7 +747,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
       previewId,
-      diff: diff.stdout,
+      diff: conflictResolutionDiff,
       repoDir,
       headRefName,
       headRepository,
@@ -807,6 +836,7 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
 
   const logs: CommandResult[] = [];
   let resolvedConflicts = 0;
+  let conflictResolutionDiff = "";
   const repoDir = join(cacheDir, "merge-worktrees", prKey(owner, repo, number));
   const run = async (command: string, args: string[], cwd = repoDir) => {
     const result = await runCommand(command, args, {
@@ -828,15 +858,10 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
       timeoutMs: 15 * 60_000
     }));
     await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
-    const originalHead = (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
     await run("git", ["fetch", "origin", defaultBranch]);
-    resolvedConflicts = await mergeWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
-    const diff = await runCommand("git", ["diff", `${originalHead}..HEAD`], {
-      cwd: repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
-      redact: [token],
-      timeoutMs: 5 * 60_000
-    });
+    const resolution = await mergeWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
+    resolvedConflicts = resolution.steps;
+    conflictResolutionDiff = resolution.diff;
     const previewId = randomUUID();
     rebasePreviews.set(previewId, {
       id: previewId,
@@ -859,7 +884,7 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
       stdout: logs.map((item) => item.stdout).filter(Boolean).join("\n"),
       stderr: logs.map((item) => item.stderr).filter(Boolean).join("\n"),
       previewId,
-      diff: diff.stdout,
+      diff: conflictResolutionDiff,
       repoDir,
       headRefName,
       headRepository,
@@ -986,13 +1011,14 @@ async function rebaseWithCodexResolution(args: {
   token: string;
   logs: CommandResult[];
   run: (command: string, commandArgs: string[], cwd?: string) => Promise<CommandResult>;
-}): Promise<number> {
+}): Promise<ConflictResolutionResult> {
   let resolved = 0;
+  const resolutionDiffs: string[] = [];
   let result = await args.run("git", ["rebase", `origin/${args.defaultBranch}`]).catch((error) => {
     if (error instanceof CommandError) return error.result;
     throw error;
   });
-  if (result.exitCode === 0) return resolved;
+  if (result.exitCode === 0) return { steps: resolved, diff: "" };
   args.logs.push(result);
 
   for (let attempt = 1; attempt <= 6; attempt += 1) {
@@ -1008,6 +1034,8 @@ async function rebaseWithCodexResolution(args: {
     if (remainingMarkers.length > 0) {
       throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
     }
+    const resolutionDiff = await conflictResolutionDiff(args.repoDir, conflicts);
+    if (resolutionDiff.trim()) resolutionDiffs.push(resolutionDiff);
     await args.run("git", ["add", "-A"]);
     const remainingConflicts = await conflictFiles(args.repoDir);
     if (remainingConflicts.length > 0) {
@@ -1016,7 +1044,7 @@ async function rebaseWithCodexResolution(args: {
     resolved += 1;
 
     result = await continueOrSkipEmptyRebase(args);
-    if (result.exitCode === 0) return resolved;
+    if (result.exitCode === 0) return { steps: resolved, diff: resolutionDiffs.join("\n") };
     args.logs.push(result);
   }
 
@@ -1033,13 +1061,14 @@ async function mergeWithCodexResolution(args: {
   token: string;
   logs: CommandResult[];
   run: (command: string, commandArgs: string[], cwd?: string) => Promise<CommandResult>;
-}): Promise<number> {
+}): Promise<ConflictResolutionResult> {
   let resolved = 0;
+  const resolutionDiffs: string[] = [];
   const result = await args.run("git", ["merge", "--no-ff", "--no-edit", `origin/${args.defaultBranch}`]).catch((error) => {
     if (error instanceof CommandError) return error.result;
     throw error;
   });
-  if (result.exitCode === 0) return resolved;
+  if (result.exitCode === 0) return { steps: resolved, diff: "" };
   args.logs.push(result);
 
   for (let attempt = 1; attempt <= 4; attempt += 1) {
@@ -1053,6 +1082,8 @@ async function mergeWithCodexResolution(args: {
     if (remainingMarkers.length > 0) {
       throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
     }
+    const resolutionDiff = await conflictResolutionDiff(args.repoDir, conflicts);
+    if (resolutionDiff.trim()) resolutionDiffs.push(resolutionDiff);
     await args.run("git", ["add", "-A"]);
     const remainingConflicts = await conflictFiles(args.repoDir);
     if (remainingConflicts.length > 0) {
@@ -1060,7 +1091,7 @@ async function mergeWithCodexResolution(args: {
     }
     await args.run("git", ["commit", "--no-edit"]);
     resolved += 1;
-    return resolved;
+    return { steps: resolved, diff: resolutionDiffs.join("\n") };
   }
 
   throw new CommandError("Merge still has conflicts after Codex resolution attempts.", result);
@@ -1144,6 +1175,20 @@ async function conflictMarkerFiles(repoDir: string, files: string[]): Promise<st
     .split("\n")
     .map((line) => line.split(":")[0]?.trim())
     .filter(Boolean))];
+}
+
+async function conflictResolutionDiff(repoDir: string, files: string[]): Promise<string> {
+  const args = ["diff", "AUTO_MERGE", "--", ...files];
+  const result = await runCommand("git", args, { cwd: repoDir, timeoutMs: 2 * 60_000 }).catch((error) => {
+    if (error instanceof CommandError) return error.result;
+    throw error;
+  });
+  if (result.exitCode === 0) return result.stdout;
+  const fallback = await runCommand("git", ["diff", "--", ...files], { cwd: repoDir, timeoutMs: 2 * 60_000 }).catch((error) => {
+    if (error instanceof CommandError) return error.result;
+    throw error;
+  });
+  return fallback.stdout;
 }
 
 function buildRebaseConflictPrompt(args: {
@@ -1342,13 +1387,14 @@ async function fetchReviewComments(
   repo: string,
   number: number
 ): Promise<ExistingReviewComment[]> {
-  const [result, resolvedThreads] = await Promise.all([
+  const [result, reviewThreads] = await Promise.all([
     runGh(["api", `repos/${owner}/${repo}/pulls/${number}/comments`, "--hostname", "github.com"], token),
-    fetchReviewThreadResolution(token, owner, repo, number).catch(() => new Map<number, boolean>())
+    fetchReviewThreadResolution(token, owner, repo, number).catch(() => new Map<number, { threadId?: string; isResolved?: boolean }>())
   ]);
   const raw = JSON.parse(result.stdout) as GhReviewComment[];
   return raw.map((comment) => ({
     id: comment.id,
+    threadId: reviewThreads.get(comment.id)?.threadId,
     author: comment.user?.login ?? "unknown",
     authorUrl: comment.user?.html_url,
     url: comment.html_url ?? "",
@@ -1358,7 +1404,7 @@ async function fetchReviewComments(
     line: comment.line,
     originalLine: comment.original_line,
     side: comment.side,
-    isResolved: resolvedThreads.get(comment.id)
+    isResolved: reviewThreads.get(comment.id)?.isResolved
   }));
 }
 
@@ -1367,13 +1413,14 @@ async function fetchReviewThreadResolution(
   owner: string,
   repo: string,
   number: number
-): Promise<Map<number, boolean>> {
+): Promise<Map<number, { threadId?: string; isResolved?: boolean }>> {
   const query = `
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
           reviewThreads(first: 100) {
             nodes {
+              id
               isResolved
               comments(first: 50) {
                 nodes {
@@ -1396,6 +1443,7 @@ async function fetchReviewThreadResolution(
         pullRequest?: {
           reviewThreads?: {
             nodes?: Array<{
+              id?: string;
               isResolved?: boolean;
               comments?: { nodes?: Array<{ databaseId?: number }> };
             }>;
@@ -1404,10 +1452,10 @@ async function fetchReviewThreadResolution(
       };
     };
   };
-  const resolutions = new Map<number, boolean>();
+  const resolutions = new Map<number, { threadId?: string; isResolved?: boolean }>();
   for (const thread of raw.data?.repository?.pullRequest?.reviewThreads?.nodes ?? []) {
     for (const comment of thread.comments?.nodes ?? []) {
-      if (typeof comment.databaseId === "number") resolutions.set(comment.databaseId, Boolean(thread.isResolved));
+      if (typeof comment.databaseId === "number") resolutions.set(comment.databaseId, { threadId: thread.id, isResolved: Boolean(thread.isResolved) });
     }
   }
   return resolutions;
@@ -1841,8 +1889,16 @@ interface GhCheckRunList {
 interface GhCheckRun {
   id?: number;
   name?: string;
+  status?: string;
+  conclusion?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
   html_url?: string;
   details_url?: string;
+  app?: {
+    name?: string;
+    slug?: string;
+  } | null;
   output?: {
     title?: string | null;
     summary?: string | null;
@@ -1880,15 +1936,34 @@ function shouldEnrichCheckRuns(checks: GhCiCheck[]): boolean {
   });
 }
 
+async function fetchCheckRunsAsCiChecks(token: string, owner: string, repo: string, number: number): Promise<GhCiCheck[]> {
+  const runs = await fetchHeadCheckRuns(token, owner, repo, number);
+  return runs.map((run) => ({
+    name: run.name ?? "GitHub check",
+    workflow: run.app?.name ?? run.app?.slug ?? "GitHub Checks",
+    state: checkRunState(run),
+    bucket: checkRunBucket(run),
+    description: checkRunSummary(run),
+    link: run.html_url ?? "",
+    startedAt: run.started_at ?? "",
+    completedAt: run.completed_at ?? ""
+  }));
+}
+
 async function fetchCheckRunDetails(token: string, owner: string, repo: string, number: number): Promise<Map<string, EnrichedCheckRun>> {
+  const runs = await fetchHeadCheckRuns(token, owner, repo, number);
+  const entries = await Promise.all(runs.map(async (checkRun) => enrichCheckRun(token, owner, repo, checkRun)));
+  return new Map(entries.flatMap((item) => (item ? [[item.name, item.run] as const] : [])));
+}
+
+async function fetchHeadCheckRuns(token: string, owner: string, repo: string, number: number): Promise<GhCheckRun[]> {
   const repoName = `${owner}/${repo}`;
   const pr = await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefOid"], token);
   const headRefOid = (JSON.parse(pr.stdout) as { headRefOid?: string }).headRefOid;
-  if (!headRefOid) return new Map();
+  if (!headRefOid) return [];
   const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/commits/${headRefOid}/check-runs`, "-F", "per_page=100", "--hostname", "github.com"], token);
   const raw = JSON.parse(result.stdout) as GhCheckRunList;
-  const entries = await Promise.all((raw.check_runs ?? []).map(async (checkRun) => enrichCheckRun(token, owner, repo, checkRun)));
-  return new Map(entries.flatMap((item) => (item ? [[item.name, item.run] as const] : [])));
+  return raw.check_runs ?? [];
 }
 
 async function enrichCheckRun(token: string, owner: string, repo: string, checkRun: GhCheckRun): Promise<{ name: string; run: EnrichedCheckRun } | undefined> {
@@ -1909,6 +1984,29 @@ async function enrichCheckRun(token: string, owner: string, repo: string, checkR
       annotations
     }
   };
+}
+
+function checkRunState(run: GhCheckRun): string {
+  if (run.conclusion) return run.conclusion.toUpperCase();
+  if (run.status) return run.status.toUpperCase();
+  return "UNKNOWN";
+}
+
+function checkRunBucket(run: GhCheckRun): string {
+  const conclusion = (run.conclusion ?? "").toLowerCase();
+  const status = (run.status ?? "").toLowerCase();
+  if (["success", "neutral", "skipped"].includes(conclusion)) return "pass";
+  if (["failure", "timed_out", "cancelled", "action_required"].includes(conclusion)) return "fail";
+  if (["queued", "in_progress", "waiting", "requested", "pending"].includes(status)) return "pending";
+  return "";
+}
+
+function checkRunSummary(run: GhCheckRun): string {
+  return truncate([
+    run.output?.title ?? "",
+    run.output?.summary ? markdownToPlainText(run.output.summary) : "",
+    run.output?.text ? markdownToPlainText(run.output.text) : ""
+  ].filter(Boolean).join("\n\n"), 1200);
 }
 
 async function fetchCheckRunAnnotations(token: string, owner: string, repo: string, id: number): Promise<GhCheckRunAnnotation[]> {

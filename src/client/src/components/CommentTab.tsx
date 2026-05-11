@@ -1,7 +1,8 @@
-import { Clipboard, Loader2, MessageSquare, Send } from "lucide-react";
+import { CheckCircle2, Clipboard, Loader2, MessageSquare, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AnalysisResult, FixJob, PrDetail, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
+import type { AnalysisResult, ExistingReviewComment, FixJob, PrDetail, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
+import { InsightQuestionBox, InsightSection } from "./InsightSection";
 import { AuthorLink, Badge } from "./uiBits";
 
 export type DraftReviewComment = ReviewComment & { id: string };
@@ -17,10 +18,15 @@ export function CommentTab({
   openConversationReplies,
   conversationReplyDrafts,
   postingConversationReply,
+  resolvingReviewThreads,
+  onSaveProgress,
+  onStartFix,
+  onAddReviewComment,
   onToggleConversationReply,
   onUpdateConversationReplyDraft,
   onCancelConversationReply,
-  onSubmitConversationReply
+  onSubmitConversationReply,
+  onResolveReviewThread
 }: {
   detail: PrDetail;
   analysis?: AnalysisResult;
@@ -32,15 +38,23 @@ export function CommentTab({
   openConversationReplies: Record<number, boolean>;
   conversationReplyDrafts: Record<number, string>;
   postingConversationReply: Record<number, boolean>;
+  resolvingReviewThreads: Record<string, boolean>;
+  onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems">>) => void;
+  onStartFix: (instructions?: string, baseJobId?: string, source?: string) => void;
+  onAddReviewComment: (comment: ReviewComment) => void;
   onToggleConversationReply: (commentId: number) => void;
   onUpdateConversationReplyDraft: (commentId: number, body: string) => void;
   onCancelConversationReply: (commentId: number) => void;
   onSubmitConversationReply: (commentId: number) => void;
+  onResolveReviewThread: (threadId: string) => void;
 }) {
   const generatedComment = buildFinalReviewComment(detail, analysis, progress, reviewComments, verificationJobs, fixJobs, canApproveWithoutComments);
   const text = generatedComment || analysis?.draftComment || "Analyze this PR to generate a draft review comment.";
+  const lineComments = uniqueReviewComments(detail.reviewComments)
+    .filter((comment) => comment.isResolved !== true)
+    .filter((comment) => comment.path.trim().length > 0 && comment.body.trim().length > 0);
   return (
-    <div className="panel grid-two">
+    <div className="panel comment-panel">
       <ReviewCommentBuilderSection
         detail={detail}
         analysis={analysis}
@@ -50,6 +64,50 @@ export function CommentTab({
         fixJobs={fixJobs}
         canApproveWithoutComments={canApproveWithoutComments}
       />
+      {lineComments.length > 0 && (
+        <InsightSection
+          title="Line Comments"
+          tone="focus"
+          items={[]}
+          details={lineCommentInsights(lineComments)}
+          compact={false}
+          detail={detail}
+          onStartFix={onStartFix}
+          onDraftComment={(body, target) => {
+            if (target) onAddReviewComment({ ...target, body });
+          }}
+          draftCommentLabel="Draft line comment"
+          progress={progress}
+          onSaveProgress={onSaveProgress}
+        />
+      )}
+      {lineComments.length > 0 && (
+        <section className="summary-card review-summary-card">
+          <h3>Line Comment Actions</h3>
+          <div className="conversation-list">
+            {lineComments.map((comment) => {
+              const line = comment.line ?? comment.originalLine;
+              const busy = Boolean(comment.threadId && resolvingReviewThreads[comment.threadId]);
+              return (
+                <article className="conversation-comment" key={`${comment.id}-${comment.threadId ?? ""}`}>
+                  <div className="conversation-comment-meta">
+                    <AuthorLink name={comment.author} url={comment.authorUrl} />
+                    <span>{comment.path}{line ? `:${line}` : ""}</span>
+                  </div>
+                  <MarkdownBody body={comment.body} />
+                  <div className="conversation-comment-actions">
+                    <a href={comment.url} target="_blank" rel="noreferrer">Open comment</a>
+                    <button className="text-button" disabled={!comment.threadId || busy} onClick={() => comment.threadId && onResolveReviewThread(comment.threadId)}>
+                      {busy ? <Loader2 className="spin" size={14} /> : <CheckCircle2 size={14} />}
+                      Mark resolved
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <section className="summary-card review-summary-card">
         <h3>Conversation</h3>
         {detail.conversationComments.length === 0 ? (
@@ -63,6 +121,17 @@ export function CommentTab({
                   <span>{relativeDate(comment.createdAt)}</span>
                 </div>
                 <MarkdownBody body={comment.body} />
+                <InsightQuestionBox
+                  detail={detail}
+                  insight={conversationCommentInsight(comment)}
+                  tone="focus"
+                  sourceLabel={`Comment / Conversation / ${comment.author}`}
+                  onStartFix={onStartFix}
+                  onDraftComment={(body) => {
+                    onUpdateConversationReplyDraft(comment.id, body);
+                  }}
+                  draftCommentLabel="Draft reply"
+                />
                 <div className="conversation-comment-actions">
                   <a href={comment.url} target="_blank" rel="noreferrer">
                     Open comment
@@ -115,6 +184,50 @@ export function CommentTab({
       </section>
     </div>
   );
+}
+
+function conversationCommentInsight(comment: PrDetail["conversationComments"][number]): Partial<ReviewInsight> & { observation: string } {
+  return {
+    title: `Conversation comment by ${comment.author}`,
+    observation: comment.body,
+    perspective: `PR conversation comment by ${comment.author}.`,
+    recommendation: "Use Codex to explain this discussion, decide whether it needs code changes, or prepare a focused fix if the comment identifies actionable work.",
+    severity: commentSeverity(comment.body)
+  };
+}
+
+function lineCommentInsights(comments: ExistingReviewComment[]): ReviewInsight[] {
+  return comments
+    .map((comment): ReviewInsight => {
+      const line = comment.line ?? comment.originalLine;
+      const location = `${comment.path}${line ? `:${line}` : ""}`;
+      const state = comment.isResolved === false ? "Unresolved" : "Current";
+      return {
+        title: `${state} line comment: ${location}`,
+        observation: comment.body,
+        perspective: `GitHub review comment by ${comment.author}${line ? ` on ${location}` : ` on ${comment.path}`}.`,
+        recommendation: `Address this reviewer comment or prepare a clear reply explaining why no code change is needed.`,
+        severity: commentSeverity(comment.body)
+      };
+    });
+}
+
+function uniqueReviewComments(comments: PrDetail["reviewComments"]): PrDetail["reviewComments"] {
+  const seen = new Set<string>();
+  return comments.filter((comment) => {
+    const displayedLine = comment.line ?? comment.originalLine ?? "";
+    const key = [comment.path, displayedLine, comment.author, comment.body.trim()].join("\0");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function commentSeverity(body: string): ReviewInsight["severity"] {
+  const text = body.toLowerCase();
+  if (/\b(bug|broken|incorrect|fail|failing|regression|security|unsafe|must|block|leak)\b/.test(text)) return "high";
+  if (/\b(can this|should|please|remove|add|missing|test|why|verify|use)\b/.test(text)) return "medium";
+  return "low";
 }
 
 function ReviewCommentBuilderSection({

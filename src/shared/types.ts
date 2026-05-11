@@ -558,11 +558,21 @@ export interface ExistingComment {
 }
 
 export interface ExistingReviewComment extends ExistingComment {
+  threadId?: string;
   path: string;
   line?: number;
   originalLine?: number;
   side?: "LEFT" | "RIGHT";
   isResolved?: boolean;
+}
+
+export interface ResolveReviewThreadRequest extends PrRef {
+  threadId: string;
+}
+
+export interface ResolveReviewThreadResponse extends PrRef {
+  threadId: string;
+  resolved: boolean;
 }
 
 export interface ExistingReviewSummary extends ExistingComment {

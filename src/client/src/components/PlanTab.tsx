@@ -194,6 +194,7 @@ export function ReviewPlan({
             </section>
             <DiffViewer
               diff={extractFileDiff(detail.diff, activeStep.file.path)}
+              detail={detail}
               comments={comments}
               existingComments={detail.reviewComments}
               overviewPins={activeOverviewPins}

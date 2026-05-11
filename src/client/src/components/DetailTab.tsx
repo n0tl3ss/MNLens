@@ -63,6 +63,8 @@ export function DetailTab({
   onUpdateConversationReplyDraft,
   onCancelConversationReply,
   onSubmitConversationReply,
+  resolvingReviewThreads,
+  onResolveReviewThread,
   buildRecommendation,
   buildHandoffMarkdown
 }: {
@@ -115,6 +117,8 @@ export function DetailTab({
   onUpdateConversationReplyDraft: (commentId: number, body: string) => void;
   onCancelConversationReply: (commentId: number) => void;
   onSubmitConversationReply: (commentId: number) => void;
+  resolvingReviewThreads: Record<string, boolean>;
+  onResolveReviewThread: (threadId: string) => void;
   buildRecommendation: (detail: PrDetail, context: RecommendationContext) => ReviewRecommendation;
   buildHandoffMarkdown: (args: HandoffMarkdownArgs) => string;
 }) {
@@ -195,10 +199,15 @@ export function DetailTab({
         openConversationReplies={openConversationReplies}
         conversationReplyDrafts={conversationReplyDrafts}
         postingConversationReply={postingConversationReply}
+        resolvingReviewThreads={resolvingReviewThreads}
+        onSaveProgress={onSaveProgress}
+        onStartFix={onStartFix}
+        onAddReviewComment={onAddReviewComment}
         onToggleConversationReply={onToggleConversationReply}
         onUpdateConversationReplyDraft={onUpdateConversationReplyDraft}
         onCancelConversationReply={onCancelConversationReply}
         onSubmitConversationReply={onSubmitConversationReply}
+        onResolveReviewThread={onResolveReviewThread}
       />
     );
   }
@@ -271,6 +280,7 @@ export function DetailTab({
       onRunManualVerification={onRunManualVerification}
       onRunVerification={onRunVerification}
       onSaveProgress={onSaveProgress}
+      onAddReviewComment={onAddReviewComment}
       onAttachGithubProject={onAttachGithubProject}
       onSetRepoRuleEnabled={onSetRepoRuleEnabled}
       onStartFix={onStartFix}

@@ -30,6 +30,9 @@ export function RebasePreviewPanel({
               ? " Nothing has been pushed; approving will push the merge commit to the PR branch."
               : " Nothing has been pushed and the PR target has not changed yet."}
           </p>
+          {preview.conflictsResolved ? (
+            <p className="muted">Showing only the conflict-resolution patch, not the full PR diff or target-branch changes.</p>
+          ) : null}
           {preview.strategyReason && <p className="muted">MNLens chose {strategy}: {preview.strategyReason}</p>}
         </div>
         <div className="rebase-preview-actions">
@@ -46,7 +49,11 @@ export function RebasePreviewPanel({
       {preview.diff?.trim() ? (
         <PreparedDiff diff={preview.diff} />
       ) : (
-        <p className="muted">No code diff was produced by the {strategy}. Review the log before approving.</p>
+        <p className="muted">
+          {preview.conflictsResolved
+            ? "No conflict-resolution patch was captured. Review the log before approving."
+            : `No conflicts were resolved by this ${strategy}. Review the log before approving.`}
+        </p>
       )}
       {log && (
         <details>

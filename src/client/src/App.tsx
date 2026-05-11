@@ -49,6 +49,7 @@ import {
   getVerificationJobs,
   openEditor,
   replyConversation,
+  resolveReviewThread,
   retryFix,
   runManualVerification,
   runVerification,
@@ -144,6 +145,7 @@ export function App() {
   const [openConversationReplies, setOpenConversationReplies] = useState<Record<number, boolean>>({});
   const [conversationReplyDrafts, setConversationReplyDrafts] = useState<Record<number, string>>({});
   const [postingConversationReply, setPostingConversationReply] = useState<Record<number, boolean>>({});
+  const [resolvingReviewThreads, setResolvingReviewThreads] = useState<Record<string, boolean>>({});
   const [githubProjects, setGithubProjects] = useState<GithubProject[]>([]);
   const [githubProjectsError, setGithubProjectsError] = useState<string | undefined>();
   const [projectAttachBusy, setProjectAttachBusy] = useState(false);
@@ -753,7 +755,13 @@ export function App() {
       const sameLine = existing.find(
         (item) => item.path === comment.path && item.line === comment.line && item.side === comment.side
       );
-      if (sameLine) return current;
+      if (sameLine) {
+        if (!comment.body.trim() || sameLine.body.trim()) return current;
+        return {
+          ...current,
+          [selectedKey]: existing.map((item) => (item.id === sameLine.id ? { ...item, body: comment.body } : item))
+        };
+      }
       return {
         ...current,
         [selectedKey]: [...existing, { ...comment, id: crypto.randomUUID() }]
@@ -877,6 +885,28 @@ export function App() {
       setError(messageOf(err));
     } finally {
       setPostingConversationReply((current) => ({ ...current, [commentId]: false }));
+    }
+  }
+
+  async function resolveSelectedReviewThread(threadId: string) {
+    if (!selected || !selectedDetail) return;
+    setResolvingReviewThreads((current) => ({ ...current, [threadId]: true }));
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      await resolveReviewThread({ owner: selected.owner, repo: selected.repo, number: selected.number, threadId });
+      setDetail((current) => {
+        if (!current || current.key !== selected.key) return current;
+        return {
+          ...current,
+          reviewComments: current.reviewComments.map((comment) => comment.threadId === threadId ? { ...comment, isResolved: true } : comment)
+        };
+      });
+      setNotice("Review thread marked resolved.");
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setResolvingReviewThreads((current) => ({ ...current, [threadId]: false }));
     }
   }
 
@@ -1231,10 +1261,12 @@ export function App() {
               openConversationReplies={openConversationReplies}
               conversationReplyDrafts={conversationReplyDrafts}
               postingConversationReply={postingConversationReply}
+              resolvingReviewThreads={resolvingReviewThreads}
               onToggleConversationReply={toggleConversationReply}
               onUpdateConversationReplyDraft={setConversationReplyDraft}
               onCancelConversationReply={cancelConversationReply}
               onSubmitConversationReply={(commentId) => void submitConversationReply(commentId)}
+              onResolveReviewThread={(threadId) => void resolveSelectedReviewThread(threadId)}
               buildRecommendation={finalReviewRecommendation}
               buildHandoffMarkdown={buildHandoffMarkdown}
             />

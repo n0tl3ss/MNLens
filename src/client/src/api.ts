@@ -36,6 +36,8 @@ import type {
   RebasePrConfirmRequest,
   RebasePrRequest,
   RebasePrResponse,
+  ResolveReviewThreadRequest,
+  ResolveReviewThreadResponse,
   ReplyConversationRequest,
   ReplyConversationResponse,
   RepoReviewRule,
@@ -305,6 +307,13 @@ export function submitReview(payload: SubmitReviewRequest): Promise<SubmitReview
 
 export function replyConversation(payload: ReplyConversationRequest): Promise<ReplyConversationResponse> {
   return request<ReplyConversationResponse>("/api/conversation-replies", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function resolveReviewThread(payload: ResolveReviewThreadRequest): Promise<ResolveReviewThreadResponse> {
+  return request<ResolveReviewThreadResponse>("/api/review-threads/resolve", {
     method: "POST",
     body: JSON.stringify(payload)
   });

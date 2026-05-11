@@ -21,6 +21,7 @@ import type {
   QueueName,
   RebasePrConfirmRequest,
   RebasePrRequest,
+  ResolveReviewThreadRequest,
   ReplyConversationRequest,
   SubmitReviewRequest,
   UpdateRepoReviewRuleRequest,
@@ -28,7 +29,7 @@ import type {
   VerificationRequest
 } from "../shared/types.js";
 import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, readRepoRules, stats, writeAnalysis, writeProgress, writeRepoRules } from "./cache.js";
-import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
+import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, resolveReviewThread, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
 import { cancelAnalysisJob, enqueueAnalysis, getJob, jobStatusForPr, recoverAnalysisJobs } from "./jobs.js";
 import { cancelVerificationJob, enqueueManualVerification, enqueueVerification, getVerificationJob, listVerificationJobs } from "./verification.js";
 import { recoverVerificationJobs } from "./verification.js";
@@ -288,6 +289,19 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
         return;
       }
       res.json(await replyToConversation(body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/review-threads/resolve", async (req, res, next) => {
+    try {
+      const body = req.body as ResolveReviewThreadRequest;
+      if (!body.owner || !body.repo || !body.number || !body.threadId?.trim()) {
+        res.status(400).json({ error: "Resolve review thread must include owner, repo, number, and threadId." });
+        return;
+      }
+      res.json(await resolveReviewThread(body.owner, body.repo, Number(body.number), body.threadId));
     } catch (error) {
       next(error);
     }

@@ -1,11 +1,12 @@
-import { MessageSquare, X } from "lucide-react";
+import { MessageSquare, Send, X } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ExistingReviewComment, ReviewComment, ReviewInsight } from "../../../shared/types";
+import type { ExistingReviewComment, PrDetail, ReviewComment, ReviewInsight } from "../../../shared/types";
 import type { DraftReviewComment } from "./CommentTab";
 import { CodeFindBar, HighlightedCode, countMatches, matchingLineIndex } from "./CodeFind";
+import { InsightQuestionBox } from "./InsightSection";
 import { AuthorLink, Badge } from "./uiBits";
 import "./diffViewer.css";
 
@@ -56,6 +57,7 @@ export function stripPatchPreamble(diff: string): string {
 
 export function DiffViewer({
   diff,
+  detail,
   comments,
   existingComments,
   overviewPins = [],
@@ -64,6 +66,7 @@ export function DiffViewer({
   onDeleteComment
 }: {
   diff: string;
+  detail?: PrDetail;
   comments: DraftReviewComment[];
   existingComments: ExistingReviewComment[];
   overviewPins?: OverviewLinePin[];
@@ -218,8 +221,26 @@ export function DiffViewer({
                   <a href={existing.url} target="_blank" rel="noreferrer">
                     Open
                   </a>
+                  {commentTarget && !comment && (
+                    <button className="text-button" onClick={() => onAddComment({ ...commentTarget, body: replyDraft(existing.body) })}>
+                      <Send size={13} />
+                      Draft reply
+                    </button>
+                  )}
                 </div>
                 <MarkdownBody body={existing.body} />
+                {detail && commentTarget && (
+                  <InsightQuestionBox
+                    detail={detail}
+                    insight={existingReviewCommentInsight(existing, commentTarget)}
+                    tone="focus"
+                    sourceLabel={`Diff / Comment / ${existing.path}:${commentTarget.line}`}
+                    onDraftComment={(body, target) => {
+                      if (target) onAddComment({ ...target, body });
+                    }}
+                    draftCommentLabel="Draft line comment"
+                  />
+                )}
               </div>
             ))}
             {pinsForLine.map((pin) => (
@@ -310,6 +331,32 @@ function relativeDate(value: string): string {
   if (minutes < 24 * 60) return `${Math.round(minutes / 60)}h ago`;
   if (minutes < 48 * 60) return "yesterday";
   return date.toLocaleDateString();
+}
+
+function replyDraft(body: string): string {
+  const compact = body.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  return `Replying to this review comment:\n\n> ${compact.slice(0, 500)}\n\n`;
+}
+
+function existingReviewCommentInsight(
+  comment: ExistingReviewComment,
+  target: Omit<ReviewComment, "body">
+): Partial<ReviewInsight> & { observation: string } {
+  return {
+    title: `Line comment: ${target.path}:${target.line}`,
+    observation: comment.body,
+    perspective: `GitHub review comment by ${comment.author} on ${target.path}:${target.line}.`,
+    recommendation: "Use Codex to explain the comment, draft a reply, or prepare a focused review comment for this line.",
+    severity: comment.isResolved === true ? "info" : commentSeverity(comment.body)
+  };
+}
+
+function commentSeverity(body: string): ReviewInsight["severity"] {
+  const text = body.toLowerCase();
+  if (/\b(bug|broken|incorrect|fail|failing|regression|security|unsafe|must|block|leak)\b/.test(text)) return "high";
+  if (/\b(can this|should|please|remove|add|missing|test|why|verify|use)\b/.test(text)) return "medium";
+  return "low";
 }
 
 function toneForSeverity(severity?: string): string {

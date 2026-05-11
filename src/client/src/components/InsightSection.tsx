@@ -1,8 +1,8 @@
-import { Loader2, MessageSquare, Sparkles } from "lucide-react";
+import { Loader2, MessageSquare, Send, Sparkles } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AnalysisResult, PrDetail, ReviewInsight, ReviewProgress } from "../../../shared/types";
+import type { AnalysisResult, PrDetail, ReviewComment, ReviewInsight, ReviewProgress } from "../../../shared/types";
 import { askRisk } from "../api";
 import { insightScope, insightScopeLabel } from "../reviewHelpers";
 import { Badge } from "./uiBits";
@@ -15,6 +15,8 @@ export function InsightSection({
   compact,
   detail,
   onStartFix,
+  onDraftComment,
+  draftCommentLabel,
   progress,
   onSaveProgress
 }: {
@@ -25,6 +27,8 @@ export function InsightSection({
   compact: boolean;
   detail?: PrDetail;
   onStartFix?: (instructions?: string, baseJobId?: string, source?: string) => void;
+  onDraftComment?: (body: string, target?: Omit<ReviewComment, "body">) => void;
+  draftCommentLabel?: string;
   progress?: ReviewProgress;
   onSaveProgress?: (patch: Partial<Pick<ReviewProgress, "checkedItems">>) => void;
 }) {
@@ -105,13 +109,15 @@ export function InsightSection({
                           <b>Action:</b> {item.recommendation}
                         </p>
                       )}
-                      {(tone === "risk" || tone === "focus") && detail && (
+                      {detail && (
                         <InsightQuestionBox
                           detail={detail}
                           insight={item}
                           tone={tone}
-                          sourceLabel={`Overview / ${title} / ${tone === "risk" ? "Risk" : "Focus"} ${index + 1}`}
+                          sourceLabel={`Overview / ${title} / ${insightSourceKind(tone)} ${index + 1}`}
                           onStartFix={onStartFix}
+                          onDraftComment={onDraftComment}
+                          draftCommentLabel={draftCommentLabel}
                         />
                       )}
                     </>
@@ -126,24 +132,28 @@ export function InsightSection({
   );
 }
 
-function InsightQuestionBox({
+export function InsightQuestionBox({
   detail,
   insight,
   tone,
   sourceLabel,
-  onStartFix
+  onStartFix,
+  onDraftComment,
+  draftCommentLabel = "Draft comment"
 }: {
   detail: PrDetail;
   insight: Partial<ReviewInsight> & { observation: string };
-  tone: "focus" | "risk";
+  tone: "evidence" | "focus" | "risk";
   sourceLabel: string;
   onStartFix?: (instructions?: string, baseJobId?: string, source?: string) => void;
+  onDraftComment?: (body: string, target?: Omit<ReviewComment, "body">) => void;
+  draftCommentLabel?: string;
 }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const label = tone === "risk" ? "risk" : "review focus";
+  const label = insightSourceKind(tone).toLowerCase();
 
   async function ask(nextQuestion = question) {
     const trimmed = nextQuestion.trim();
@@ -189,6 +199,12 @@ function InsightQuestionBox({
           {loading ? <Loader2 size={14} className="spin" /> : <MessageSquare size={14} />}
           Ask Codex
         </button>
+        {answer && onDraftComment && (
+          <button onClick={() => onDraftComment(answer, reviewCommentTarget(insight))}>
+            <Send size={14} />
+            {draftCommentLabel}
+          </button>
+        )}
       </div>
       {error && <p className="risk-answer error-text">{error}</p>}
       {answer && (
@@ -198,6 +214,19 @@ function InsightQuestionBox({
       )}
     </div>
   );
+}
+
+function reviewCommentTarget(insight: Partial<ReviewInsight> & { observation: string }): Omit<ReviewComment, "body"> | undefined {
+  const location = `${insight.title ?? ""}\n${insight.perspective ?? ""}`;
+  const match = /([A-Za-z0-9_.@/+-]+):(\d+)/.exec(location);
+  if (!match) return undefined;
+  return { path: match[1], line: Number(match[2]), side: "RIGHT" };
+}
+
+function insightSourceKind(tone: "evidence" | "focus" | "risk"): string {
+  if (tone === "risk") return "Risk";
+  if (tone === "focus") return "Review focus";
+  return "Evidence";
 }
 
 function insightQuestionContext(insight: Partial<ReviewInsight> & { observation: string }, label: string): string {

@@ -1,6 +1,6 @@
 import { Bug, FolderKanban, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
+import type { AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
 import { fixCurrentSpecialist } from "../fixHelpers";
 import { insightScope, isDocsOnlyReview, latestPushedFix, sourceChangedLines } from "../reviewHelpers";
 import { readinessForPr } from "../reviewScoring";
@@ -48,6 +48,7 @@ export function OverviewTab({
   onRunManualVerification,
   onRunVerification,
   onSaveProgress,
+  onAddReviewComment,
   onAttachGithubProject,
   onSetRepoRuleEnabled,
   onStartFix
@@ -75,6 +76,7 @@ export function OverviewTab({
   onRunManualVerification: (item: string, id: string) => void;
   onRunVerification: (command: string) => void;
   onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems" | "reviewedFiles" | "ignoredRuleIds" | "manualChecks" | "project" | "issueProjects" | "notes" | "lastReviewedAt">>) => void;
+  onAddReviewComment: (comment: ReviewComment) => void;
   onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
   onSetRepoRuleEnabled: (id: string, enabled: boolean) => void;
   onStartFix: (instructions?: string, baseJobId?: string, source?: string) => void;
@@ -168,6 +170,9 @@ export function OverviewTab({
               compact={attentionMode}
               detail={detail}
               onStartFix={onStartFix}
+              onDraftComment={(body, target) => {
+                if (target) onAddReviewComment({ ...target, body });
+              }}
               progress={progress}
               onSaveProgress={onSaveProgress}
             />
@@ -185,6 +190,9 @@ export function OverviewTab({
               compact={attentionMode}
               detail={detail}
               onStartFix={onStartFix}
+              onDraftComment={(body, target) => {
+                if (target) onAddReviewComment({ ...target, body });
+              }}
               progress={progress}
               onSaveProgress={onSaveProgress}
             />
@@ -211,20 +219,7 @@ export function OverviewTab({
 function mergeReviewerFocusDetails(detail: PrDetail, analysis: AnalysisResult | undefined, attentionMode: boolean): ReviewInsight[] {
   const base = attentionMode ? importantInsights(analysis?.reviewerFocusDetails ?? []) : (analysis?.reviewerFocusDetails ?? []);
   const existing = new Set(base.map((item) => `${item.title ?? ""}\n${item.observation}`.toLowerCase()));
-  const comments = detail.reviewComments
-    .filter((comment) => comment.isResolved !== true)
-    .filter((comment) => comment.isResolved === false || comment.line !== undefined)
-    .map((comment): ReviewInsight => {
-      const line = comment.line ?? comment.originalLine;
-      const location = `${comment.path}${line ? `:${line}` : ""}`;
-      return {
-        title: `${comment.isResolved === false ? "Unresolved" : "Current"} line comment: ${location}`,
-        observation: comment.body,
-        perspective: `Existing GitHub review comment by ${comment.author}${line ? ` on ${location}` : ` on ${comment.path}`}.`,
-        recommendation: `Inspect the changed code at ${location}. If the reviewer suggestion is valid, address it in the smallest patch and add/update focused tests when behavior changes. If it is not valid, leave a concise explanation in the Codex session log.`,
-        severity: commentSeverity(comment.body)
-      };
-    })
+  const comments = unresolvedReviewCommentInsights(detail)
     .filter((item) => {
       const key = `${item.title ?? ""}\n${item.observation}`.toLowerCase();
       if (existing.has(key)) return false;
@@ -232,6 +227,35 @@ function mergeReviewerFocusDetails(detail: PrDetail, analysis: AnalysisResult | 
       return true;
     });
   return [...comments, ...base];
+}
+
+function unresolvedReviewCommentInsights(detail: PrDetail): ReviewInsight[] {
+  return uniqueReviewComments(detail.reviewComments)
+    .filter((comment) => comment.isResolved !== true)
+    .filter((comment) => comment.path.trim().length > 0 && comment.body.trim().length > 0)
+    .map((comment): ReviewInsight => {
+      const line = comment.line ?? comment.originalLine;
+      const location = `${comment.path}${line ? `:${line}` : ""}`;
+      const state = comment.isResolved === false ? "Unresolved" : "Current";
+      return {
+        title: `${state} line comment: ${location}`,
+        observation: comment.body,
+        perspective: `Existing GitHub review comment by ${comment.author}${line ? ` on ${location}` : ` on ${comment.path}`}.`,
+        recommendation: `Inspect the changed code at ${location}. If the reviewer suggestion is valid, address it in the smallest patch and add/update focused tests when behavior changes. If it is not valid, leave a concise explanation in the Codex session log.`,
+        severity: commentSeverity(comment.body)
+      };
+    });
+}
+
+function uniqueReviewComments(comments: PrDetail["reviewComments"]): PrDetail["reviewComments"] {
+  const seen = new Set<string>();
+  return comments.filter((comment) => {
+    const displayedLine = comment.line ?? comment.originalLine ?? "";
+    const key = [comment.path, displayedLine, comment.author, comment.body.trim()].join("\0");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function commentSeverity(body: string): ReviewInsight["severity"] {

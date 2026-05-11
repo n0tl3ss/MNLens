@@ -91,6 +91,7 @@ export function DiffTab({
                         {expandedFile === file.path && (
                           <DiffViewer
                             diff={extractFileDiff(detail.diff, file.path)}
+                            detail={detail}
                             comments={reviewComments}
                             existingComments={detail.reviewComments}
                             overviewPins={overviewPins.filter((pin) => pin.target.path === file.path)}
