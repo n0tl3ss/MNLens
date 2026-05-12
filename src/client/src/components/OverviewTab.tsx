@@ -280,9 +280,18 @@ function ProjectAssignmentSection({
   projectAttachBusy: boolean;
   onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
 }) {
-  const currentProject = progress?.project?.trim() ?? "";
+  const assignedProject = detail.githubProjects?.[0];
+  const currentProject = assignedProject?.title ?? progress?.project?.trim() ?? "";
   const [githubProjectId, setGithubProjectId] = useState("");
   const [includeLinkedIssues, setIncludeLinkedIssues] = useState(true);
+  useEffect(() => {
+    const matchedProject = assignedProject
+      ? githubProjects.find((project) => project.id === assignedProject.id || project.title === assignedProject.title)
+      : progress?.project
+        ? githubProjects.find((project) => project.title === progress.project)
+        : undefined;
+    setGithubProjectId(matchedProject?.id ?? "");
+  }, [assignedProject?.id, assignedProject?.title, githubProjects, progress?.project]);
 
   return (
     <section className="summary-card project-assignment-card">

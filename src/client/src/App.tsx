@@ -70,7 +70,7 @@ import { PrQueueSidebar, type PrTypeFilter } from "./components/PrQueueSidebar";
 import { RebasePreviewPanel } from "./components/RebasePreviewPanel";
 import { ReviewTabs } from "./components/ReviewTabs";
 import { SetupScreen } from "./components/SetupScreen";
-import { workActivityForPrs, type WorkActivityItem } from "./components/WorkActivityPanel";
+import { isLiveWorkActivity, workActivityForPrs, type WorkActivityItem } from "./components/WorkActivityPanel";
 import { buildOwnerImproveInstructions } from "./ownerImproveInstructions";
 import { isReviewPlanComplete } from "./planHelpers";
 import { buildPrQueueView } from "./prQueueView";
@@ -96,6 +96,7 @@ import { useJobPolling } from "./useJobPolling";
 import { useSetupAuth } from "./useSetupAuth";
 
 type Theme = "light" | "dark";
+type BulkAnalyzeMode = "fast" | "deep";
 const backgroundPrRefreshMs = 2 * 60_000;
 
 export function App() {
@@ -139,6 +140,7 @@ export function App() {
   const [openingEditor, setOpeningEditor] = useState<EditorKind | undefined>();
   const [askingFixId, setAskingFixId] = useState<string | undefined>();
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("pra-theme") === "light" ? "light" : "dark"));
+  const [bulkAnalyzeMode, setBulkAnalyzeMode] = useState<BulkAnalyzeMode>(() => (localStorage.getItem("mnlens-bulk-analyze-mode") === "deep" ? "deep" : "fast"));
   const [attentionMode, setAttentionMode] = useState(() => localStorage.getItem("pra-attention-mode") === "true");
   const [mobileQueueOpen, setMobileQueueOpen] = useState(false);
   const [highlightedFixJobId, setHighlightedFixJobId] = useState<string | undefined>();
@@ -179,6 +181,7 @@ export function App() {
   const selectedIsOwnedByCurrentUser = Boolean(selected && auth?.username && selected.author.toLowerCase() === auth.username.toLowerCase());
   const selectedFixRunning = selectedFixJobs.some((job) => job.status === "queued" || job.status === "running");
   const workActivity = workActivityForPrs(prs, Object.values(jobs), Object.values(verificationJobs), Object.values(fixJobs));
+  const activeWorkActivity = workActivity.filter(isLiveWorkActivity);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -188,6 +191,10 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("pra-attention-mode", attentionMode ? "true" : "false");
   }, [attentionMode]);
+
+  useEffect(() => {
+    localStorage.setItem("mnlens-bulk-analyze-mode", bulkAnalyzeMode);
+  }, [bulkAnalyzeMode]);
 
   useEffect(() => {
     localStorage.setItem("mnlens-pr-sort-field", sortField);
@@ -804,10 +811,6 @@ export function App() {
       setError("Add at least one non-empty diff comment before requesting changes.");
       return;
     }
-    if (comments.length === 0 && event === "APPROVE" && !canApproveWithoutComments) {
-      setError("Complete the review wizard before approving without comments.");
-      return;
-    }
     setSubmittingReview(true);
     setError(undefined);
     setNotice(undefined);
@@ -1104,12 +1107,14 @@ export function App() {
         theme={theme}
         typeFilter={typeFilter}
         unanalyzedVisibleCount={unanalyzedVisibleCount}
+        bulkAnalyzeMode={bulkAnalyzeMode}
         visibleAnalysisBatch={visibleAnalysisBatch}
         visiblePrGroups={visiblePrGroups}
         visiblePrs={visiblePrs}
         workActivity={workActivity}
         latestJobForPr={latestJobForPr}
-        onAnalyzeVisible={() => void startAnalysis(visibleAnalysisBatch, false, "fast")}
+        onAnalyzeVisible={() => void startAnalysis(visibleAnalysisBatch, false, bulkAnalyzeMode)}
+        onBulkAnalyzeModeChange={setBulkAnalyzeMode}
         onCloseMobile={() => setMobileQueueOpen(false)}
         onIncludeMineChange={setIncludeMine}
         onQueryChange={setQuery}
@@ -1159,7 +1164,7 @@ export function App() {
       />
 
       <DetailPaneChrome
-        activeWorkCount={workActivity.length}
+        activeWorkCount={activeWorkActivity.length}
         error={error}
         hasSelection={Boolean(selected)}
         notice={notice}

@@ -31,7 +31,7 @@ export function ReviewDialog({
                 ? `${commentsCount} line comments will be posted to GitHub.`
                 : canApproveWithoutComments
                   ? "No line comments drafted. The completed review plan can be approved."
-                  : "Add comments or complete the review plan before approving."}
+                  : "No line comments drafted. You can still approve with an optional summary."}
             </p>
           </div>
           <button className="icon-button" onClick={onClose} title="Close">
@@ -48,7 +48,7 @@ export function ReviewDialog({
           <button disabled={submitting} onClick={() => onSubmit("REQUEST_CHANGES")}>
             PR owner needs to address comments
           </button>
-          <button disabled={submitting || (commentsCount === 0 && !canApproveWithoutComments)} onClick={() => onSubmit("APPROVE")}>
+          <button disabled={submitting} onClick={() => onSubmit("APPROVE")}>
             {commentsCount > 0 ? "Approve with comments" : "Approve"}
           </button>
         </div>

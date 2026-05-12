@@ -26,6 +26,7 @@ const sortDirections: SortDirection[] = ["desc", "asc"];
 const typeLabels = ["all", "feature", "bug", "improvement", "refactor", "docs", "test", "chore", "unknown"] as const;
 
 export type PrTypeFilter = (typeof typeLabels)[number];
+export type BulkAnalyzeMode = "fast" | "deep";
 
 export function PrQueueSidebar({
   auth,
@@ -49,12 +50,14 @@ export function PrQueueSidebar({
   theme,
   typeFilter,
   unanalyzedVisibleCount,
+  bulkAnalyzeMode,
   visibleAnalysisBatch,
   visiblePrGroups,
   visiblePrs,
   workActivity,
   latestJobForPr,
   onAnalyzeVisible,
+  onBulkAnalyzeModeChange,
   onCloseMobile,
   onIncludeMineChange,
   onQueryChange,
@@ -100,12 +103,14 @@ export function PrQueueSidebar({
   theme: "light" | "dark";
   typeFilter: PrTypeFilter;
   unanalyzedVisibleCount: number;
+  bulkAnalyzeMode: BulkAnalyzeMode;
   visibleAnalysisBatch: PrListItem[];
   visiblePrGroups: PrRepositoryGroup[];
   visiblePrs: PrListItem[];
   workActivity: WorkActivityItem[];
   latestJobForPr: (key: string) => Job | undefined;
   onAnalyzeVisible: () => void;
+  onBulkAnalyzeModeChange: (mode: BulkAnalyzeMode) => void;
   onCloseMobile: () => void;
   onIncludeMineChange: (include: boolean) => void;
   onQueryChange: (query: string) => void;
@@ -212,9 +217,17 @@ export function PrQueueSidebar({
       </div>
 
       <div className="bulk-actions">
+        <div className="analyze-mode-switch" role="group" aria-label="Visible analysis depth">
+          <button type="button" className={bulkAnalyzeMode === "fast" ? "active" : ""} onClick={() => onBulkAnalyzeModeChange("fast")}>
+            Fast
+          </button>
+          <button type="button" className={bulkAnalyzeMode === "deep" ? "active" : ""} onClick={() => onBulkAnalyzeModeChange("deep")}>
+            Deep
+          </button>
+        </div>
         <button disabled={visibleAnalysisBatch.length === 0} onClick={onAnalyzeVisible}>
           <Sparkles size={16} />
-          Fast Analyze visible
+          {bulkAnalyzeMode === "deep" ? "Deep Analyze visible" : "Fast Analyze visible"}
           {unanalyzedVisibleCount > 0 && <span>{unanalyzedVisibleCount} new first</span>}
         </button>
         <button type="button" onClick={onExportData}>Export data</button>

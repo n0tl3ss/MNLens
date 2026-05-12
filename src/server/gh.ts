@@ -545,11 +545,12 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
   const raw = JSON.parse(view.stdout) as GhPrView;
   const branchComparison = await comparePrBranch(token, owner, repo, raw.baseRefName, raw.headRefName, raw.headRefOid).catch((): PrBranchComparison => ({}));
   const linkedIssues = await enrichLinkedIssues(token, normalizeLinkedIssues(raw.closingIssuesReferences, repoName));
-  const [conversationComments, reviewSummaries, reviewComments, commits] = await Promise.all([
+  const [conversationComments, reviewSummaries, reviewComments, commits, assignedGithubProjects] = await Promise.all([
     fetchConversationComments(token, owner, repo, number),
     fetchReviewSummaries(token, owner, repo, number),
     fetchReviewComments(token, owner, repo, number),
-    fetchPrCommits(token, owner, repo, number)
+    fetchPrCommits(token, owner, repo, number),
+    fetchAssignedGithubProjects(token, owner, repo, number).catch(() => [])
   ]);
   const key = prKey(owner, repo, number);
   const labels = normalizeLabels(raw.labels);
@@ -583,6 +584,7 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
     branchBehindBy: branchComparison.behindBy,
     branchAheadBy: branchComparison.aheadBy,
     reviewers: normalizeReviewerStatuses(raw),
+    githubProjects: assignedGithubProjects,
     files: normalizeFiles(raw.files),
     commits,
     conversationComments,
@@ -600,6 +602,55 @@ export async function listGithubProjects(owner: string): Promise<GithubProject[]
   const organizationProjects = await listOrganizationProjects(token, owner);
   if (organizationProjects.length > 0) return organizationProjects;
   return listUserProjects(token, owner);
+}
+
+async function fetchAssignedGithubProjects(token: string, owner: string, repo: string, number: number): Promise<GithubProject[]> {
+  const query = `
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          projectItems(first: 20) {
+            nodes {
+              project {
+                id
+                title
+                url
+                number
+                owner {
+                  __typename
+                  ... on Organization { login }
+                  ... on User { login }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+  const result = await runGh(["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `repo=${repo}`, "-F", `number=${number}`], token);
+  const raw = JSON.parse(result.stdout) as {
+    data?: {
+      repository?: {
+        pullRequest?: {
+          projectItems?: {
+            nodes?: Array<{ project?: GhProjectV2 & { owner?: { __typename?: string; login?: string } } }>;
+          };
+        };
+      };
+    };
+  };
+  return (raw.data?.repository?.pullRequest?.projectItems?.nodes ?? [])
+    .map((node) => node.project)
+    .filter((project): project is GhProjectV2 & { owner?: { __typename?: string; login?: string } } => Boolean(project?.id && project.title))
+    .map((project) => ({
+      id: project.id!,
+      title: project.title!,
+      url: project.url,
+      number: project.number,
+      owner: project.owner?.login ?? owner,
+      ownerType: project.owner?.__typename === "User" ? "user" : "organization"
+    }));
 }
 
 async function listOrganizationProjects(token: string, owner: string): Promise<GithubProject[]> {

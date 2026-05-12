@@ -106,6 +106,7 @@ export interface PrDetail extends PrListItem {
   branchBehindBy?: number;
   branchAheadBy?: number;
   reviewers: PrReviewerStatus[];
+  githubProjects?: GithubProject[];
   files: PrFile[];
   commits: PrCommit[];
   conversationComments: ExistingComment[];

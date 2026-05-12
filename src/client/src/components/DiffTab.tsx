@@ -111,7 +111,7 @@ export function DiffTab({
       </div>
       <div className="diff-toolbar">
         <h3>Changes</h3>
-        <button disabled={draftCount === 0 && !canApproveWithoutComments} onClick={onOpenReviewDialog}>
+        <button onClick={onOpenReviewDialog}>
           <Send size={16} />
           {submitReviewLabel(draftCount, canApproveWithoutComments)}
         </button>
@@ -231,5 +231,5 @@ function fileChangeTone(changeType?: string): string {
 
 function submitReviewLabel(commentsCount: number, canApproveWithoutComments: boolean): string {
   if (commentsCount > 0) return "Submit review";
-  return canApproveWithoutComments ? "Submit approval" : "Submit review";
+  return canApproveWithoutComments ? "Approve" : "Review / Approve";
 }
