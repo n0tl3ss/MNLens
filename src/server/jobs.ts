@@ -1,5 +1,5 @@
 import type { AnalyzeRequest, Job, PrRef } from "../shared/types.js";
-import { readJob, readJobs, writeJob } from "./cache.js";
+import { readJob, readJobs, writeFastAnalysis, writeJob } from "./cache.js";
 import { analyzePr } from "./codex.js";
 import { publishEvent } from "./events.js";
 import { CommandError } from "./command.js";
@@ -107,6 +107,7 @@ async function drainQueue(): Promise<void> {
     try {
       if (item.job.mode === "fast") {
         const fast = await getFastPrAnalysis(item.pr.owner, item.pr.repo, item.pr.number);
+        await writeFastAnalysis({ ...fast, prKey: item.job.prKey, updatedAt: new Date().toISOString() }).catch(() => undefined);
         updateJob(item.job, {
           status: "done",
           fast,

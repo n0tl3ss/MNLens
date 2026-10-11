@@ -29,7 +29,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { hashText, prKey, readAnalysis, readPrDetail, writePrDetail } from "./cache.js";
+import { hashText, prKey, readAnalysis, readFastAnalysis, readPrDetail, writePrDetail } from "./cache.js";
 import { CommandError, type CommandResult, runCommand } from "./command.js";
 import { normalizeAnalysisForDetail } from "./codex.js";
 import { runAgent } from "./agent.js";
@@ -277,7 +277,7 @@ export async function listPrs(queue: QueueName, includeMine = false): Promise<Pr
   const items = [...byKey.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const enriched = await Promise.all(
     items.map(async (item) => {
-      const [analysis, cachedDetail] = await Promise.all([readAnalysis(item.key), readPrDetail(item.key)]);
+      const [analysis, cachedDetail, fast] = await Promise.all([readAnalysis(item.key), readPrDetail(item.key), readFastAnalysis(item.key)]);
       const withCachedDetail = cachedDetail
         ? {
             ...item,
@@ -289,16 +289,21 @@ export async function listPrs(queue: QueueName, includeMine = false): Promise<Pr
           }
         : item;
       const normalizedAnalysis = analysis && cachedDetail ? normalizeAnalysisForDetail(cachedDetail, analysis) : analysis;
+      // A persisted fast scan keeps its queue score across restarts; it is an estimate from metadata,
+      // so it stays useful even after the PR moves on (the list refreshes decision/merge state live).
+      const { prKey: _fastKey, headRefOid: _fastOid, updatedAt: _fastAt, ...fastFields } = fast ?? ({} as Partial<NonNullable<typeof fast>>);
+      const withFast = fast ? { ...withCachedDetail, ...fastFields } : withCachedDetail;
       return normalizedAnalysis
         ? {
-            ...withCachedDetail,
+            ...withFast,
             aiType: normalizedAnalysis.type,
             analysisStatus: "done" as const,
+            analysisMode: "deep" as const,
             analysisUpdatedAt: normalizedAnalysis.generatedAt,
             aiRiskCount: normalizedAnalysis.risks.length,
             aiTestsCount: normalizedAnalysis.testsToCheck.length
           }
-        : withCachedDetail;
+        : withFast;
     })
   );
   return enriched;

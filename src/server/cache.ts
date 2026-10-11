@@ -11,6 +11,7 @@ const progressDir = join(cacheDir, "progress");
 const verificationDir = join(cacheDir, "verification");
 const fixDir = join(cacheDir, "fixes");
 const ruleDir = join(cacheDir, "repo-rules");
+const fastDir = join(cacheDir, "fast-analysis");
 
 export async function ensureCache(): Promise<void> {
   await mkdir(prDir, { recursive: true });
@@ -20,6 +21,19 @@ export async function ensureCache(): Promise<void> {
   await mkdir(verificationDir, { recursive: true });
   await mkdir(fixDir, { recursive: true });
   await mkdir(ruleDir, { recursive: true });
+  await mkdir(fastDir, { recursive: true });
+}
+
+/** Fast (metadata-only) scores survive restarts so the queue never falls back to "N/A" for PRs already scanned. */
+export type FastAnalysisRecord = NonNullable<Job["fast"]> & { prKey: string; headRefOid?: string; updatedAt: string };
+
+export async function writeFastAnalysis(record: FastAnalysisRecord): Promise<void> {
+  await ensureCache();
+  await writeFile(join(fastDir, `${record.prKey}.json`), JSON.stringify(record, null, 2));
+}
+
+export async function readFastAnalysis(key: string): Promise<FastAnalysisRecord | undefined> {
+  return readJson<FastAnalysisRecord>(join(fastDir, `${key}.json`));
 }
 
 export function prKey(owner: string, repo: string, number: number): string {
@@ -143,6 +157,7 @@ export async function writeRepoRules(repository: string, rules: RepoReviewRule[]
 
 export async function clearPrCache(key: string): Promise<void> {
   await rm(join(prDir, `${key}.json`), { force: true });
+  await rm(join(fastDir, `${key}.json`), { force: true });
   await rm(join(analysisDir, `${key}.json`), { force: true });
   await rm(join(progressDir, `${key}.json`), { force: true });
 }
