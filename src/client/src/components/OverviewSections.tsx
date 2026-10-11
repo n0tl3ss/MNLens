@@ -154,14 +154,14 @@ function ScoreExplanation({ score }: { score: ReviewScore }) {
   const negativeTotal = negative.reduce((sum, item) => sum + item.points, 0);
   const positiveTotal = positive.reduce((sum, item) => sum + item.points, 0);
   return (
-    <div className="score-explanation">
-      <div>
+    <details className="score-explanation">
+      <summary>
         <h4>Why {score.score}/100</h4>
         <p>
           Starts at <b>{score.breakdown.base}</b>, applies <b>{negativeTotal}</b> in deductions and <b>+{positiveTotal}</b> in bonuses, ending at <b>{rawScore}</b>
-          {rawScore !== score.score ? `, clamped to ${score.score}` : ""}. The score is about merge readiness and remaining reviewer work, not just GitHub approval state.
+          {rawScore !== score.score ? `, clamped to ${score.score}` : ""}. {negative.length > 0 ? `${negative.length} deduction${negative.length === 1 ? "" : "s"}; ` : ""}click for the breakdown and how to raise it.
         </p>
-      </div>
+      </summary>
       <div className="score-adjustment-columns">
         <div>
           <h5>Lowering score</h5>
@@ -203,7 +203,7 @@ function ScoreExplanation({ score }: { score: ReviewScore }) {
           )}
         </div>
       </div>
-    </div>
+    </details>
   );
 }
 

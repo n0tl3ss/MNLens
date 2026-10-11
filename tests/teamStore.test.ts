@@ -22,6 +22,13 @@ afterAll(() => {
 });
 
 describe("team store", () => {
+  it("honours MNLENS_MEMBER_ID and sanitizes it for use as a file name", async () => {
+    const { computeMemberId } = await import("../src/server/teamStore.js");
+    expect(computeMemberId("n0tl3ss / laptop")).toBe("n0tl3ss___laptop");
+    expect(computeMemberId("   ")).toMatch(/^[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+$/);
+    expect(computeMemberId()).toContain("@");
+  });
+
   it("reports the env-configured folder and this machine's member id", async () => {
     const { teamStatus, memberId } = await import("../src/server/teamStore.js");
     const status = await teamStatus();

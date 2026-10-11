@@ -83,9 +83,17 @@ let cachedMemberId: string | undefined;
  * to avoid collisions. `user@host` when the host name is a real name; when it
  * is an IP address or empty (common on laptops that roam networks) a random
  * suffix is generated once and kept in the cache so the id never churns.
+ * `MNLENS_MEMBER_ID` overrides it (e.g. your GitHub login) for a nicer file name.
  */
 export function memberId(): string {
   if (cachedMemberId) return cachedMemberId;
+  cachedMemberId = computeMemberId(process.env.MNLENS_MEMBER_ID);
+  return cachedMemberId;
+}
+
+export function computeMemberId(override?: string): string {
+  const trimmed = override?.trim();
+  if (trimmed) return trimmed.replace(/[^a-zA-Z0-9_.@-]/g, "_").slice(0, 80);
   const user = (() => {
     try {
       return userInfo().username;
@@ -95,8 +103,7 @@ export function memberId(): string {
   })();
   let host = hostname().split(".")[0];
   if (!host || /^\d+(-\d+){3}$|^\d+$|^[0-9a-f:]+$/i.test(host.replace(/\./g, "-"))) host = stableMachineSuffix();
-  cachedMemberId = `${user}@${host}`.replace(/[^a-zA-Z0-9_.@-]/g, "_").slice(0, 80);
-  return cachedMemberId;
+  return `${user}@${host}`.replace(/[^a-zA-Z0-9_.@-]/g, "_").slice(0, 80);
 }
 
 function stableMachineSuffix(): string {

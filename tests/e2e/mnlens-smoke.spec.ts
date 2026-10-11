@@ -387,9 +387,11 @@ test("renders the core review tabs from mocked PR data", async ({ page }) => {
 });
 
 test("Overview keeps secondary sections collapsed and opens them on demand", async ({ page }) => {
+  if (process.env.MNLENS_E2E_SHOTS) await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
   await expect(page.getByText("Review Summary")).toBeVisible();
+  if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-top.png` });
   const rulesGroup = page.getByRole("button", { name: /Repository rules & review memory/ });
   await expect(rulesGroup).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("Repo Review Memory")).toHaveCount(0);
@@ -403,6 +405,7 @@ test("Overview keeps secondary sections collapsed and opens them on demand", asy
 });
 
 test("Review tab turns the agent's draft into the reviewer's own comments", async ({ page }) => {
+  if (process.env.MNLENS_E2E_SHOTS) await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
 

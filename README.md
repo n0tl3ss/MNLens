@@ -141,7 +141,7 @@ Every task is assigned a **tier**, and every tier maps to a model per agent:
 | standard | `sonnet` (medium) | `gpt-6.1-sol` (medium) | Deep Analyze, review draft, acceptance contract, implementation, tests/QA, security and final-review passes, rebase/merge conflict resolution |
 | premium | `opus` (high) | `gpt-6-astra` (high) | never by default; opt in per task for unusually hard PRs |
 
-At Oct 2026 list prices the economy tier is roughly 20x cheaper than standard on both vendors (≈$0.10/$0.50 vs ≈$2/$10 per 1M input/output tokens), and premium is 2–5x standard. Claude aliases always resolve to the newest model in that family; OpenAI ids are explicit and should match what your account exposes to Codex. Environment overrides: `MNLENS_AGENT=codex|claude`, `MNLENS_AGENT_SETTINGS_JSON='{...}'`, `MNLENS_CLAUDE_CONFIG_DIR`.
+At Oct 2026 list prices the economy tier is roughly 20x cheaper than standard on both vendors (≈$0.10/$0.50 vs ≈$2/$10 per 1M input/output tokens), and premium is 2–5x standard. Claude aliases always resolve to the newest model in that family; OpenAI ids are explicit and should match what your account exposes to Codex. Environment overrides: `MNLENS_AGENT=codex|claude`, `MNLENS_AGENT_SETTINGS_JSON='{...}'`, `MNLENS_CLAUDE_CONFIG_DIR`, `MNLENS_TEAM_DIR`, `MNLENS_MEMBER_ID`.
 
 Running fix sessions keep the agent they started with; switching agents applies to new analyses and sessions.
 
@@ -167,7 +167,7 @@ A stack is a chain of open PRs where each PR's base branch is the previous PR's 
 MNLens is local-first, but rules and review memory are more useful shared:
 
 - **Rules committed in the repository** — maintainers commit `.mnlens/review-rules.json` (Overview → *Repository rules & review memory* → *Copy as .mnlens/review-rules.json* produces it from your current rules). MNLens reads it from the default branch for every reviewer, applies it to Deep Analyze and the review draft, and shows those rules with a `repo file` badge. They can be switched off locally without editing the file.
-- **Shared team folder** — *Team sharing* in the sidebar (or `MNLENS_TEAM_DIR`) points MNLens at a folder the team already syncs: a git checkout, Dropbox / iCloud Drive, a network share. Repo rules are read from and written to `<folder>/<owner>__<repo>/rules.json`; review memory is written per machine (`memory/<user@host>.json`) and merged on read, so reviewers never overwrite each other and every 👍/👎 calibrates everyone's prompts. Turn it off and everything falls back to the local cache.
+- **Shared team folder** — *Team sharing* in the sidebar (or `MNLENS_TEAM_DIR`) points MNLens at a folder the team already syncs: a git checkout, Dropbox / iCloud Drive, a network share. Repo rules are read from and written to `<folder>/<owner>__<repo>/rules.json`; review memory is written per machine (`memory/<user@host>.json`, or `MNLENS_MEMBER_ID` such as your GitHub login) and merged on read, so reviewers never overwrite each other and every 👍/👎 calibrates everyone's prompts. Turn it off and everything falls back to the local cache.
 - **Agent accuracy** — every suggested comment you *Add to my review* or *Dismiss* on the Review tab is recorded. After three verdicts the tab shows the keep rate for the repository (and per comment kind in the tooltip); the calibration block tells the agent which kinds of comments reviewers rarely keep, so it raises fewer of them.
 
 ```json

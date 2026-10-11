@@ -408,10 +408,32 @@
   margin: 0 0 6px;
 }
 
-.score-explanation > div:first-child p {
+.score-explanation > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.score-explanation > summary::-webkit-details-marker {
+  display: none;
+}
+
+.score-explanation > summary h4::before {
+  content: "▸ ";
+  font-size: 12px;
+}
+
+.score-explanation[open] > summary h4::before {
+  content: "▾ ";
+}
+
+.score-explanation > summary p {
   margin: 0;
   color: #425155;
   font-size: 13px;
+}
+
+[data-theme="dark"] .score-explanation > summary p {
+  color: #9fb4bf;
 }
 
 .score-adjustment-columns {
