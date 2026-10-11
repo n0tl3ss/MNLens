@@ -125,6 +125,7 @@ import {
 } from "./verificationHelpers";
 import { useJobPolling } from "./useJobPolling";
 import { useServerEvents } from "./useServerEvents";
+import { availableAgentsFrom } from "./setupAgents";
 import { useSetupAuth } from "./useSetupAuth";
 
 type Theme = "light" | "dark";
@@ -1565,7 +1566,7 @@ export function App() {
           {agentSettingsOpen && (
         <AgentSettingsDialog
           data={agentSettings}
-          availableAgents={(setupStatus?.availableAgents ?? []) as AgentId[]}
+          availableAgents={availableAgentsFrom(setupStatus) ?? []}
           saving={agentSettingsSaving}
           error={agentSettingsError}
           onClose={() => setAgentSettingsOpen(false)}

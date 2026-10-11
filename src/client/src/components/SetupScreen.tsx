@@ -1,3 +1,4 @@
+import { availableAgentsFrom } from "../setupAgents";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ShieldAlert, X } from "lucide-react";
 import type { AuthStatus, SetupStatus } from "../../../shared/types";
 import "./setup.css";
@@ -29,9 +30,11 @@ export function SetupScreen({
   onSaveToken: () => void;
   onContinue: () => void;
 }) {
-  const agentsAvailable = status?.availableAgents ?? [];
+  const agentsAvailable = availableAgentsFrom(status) ?? [];
   // Agent CLIs are alternatives: a missing Claude check is not a blocker while Codex is ready (and vice versa).
-  const missingRequired = status?.dependencies.filter((item) => item.required && !item.installed && (!item.group || agentsAvailable.length === 0)) ?? [];
+  // Agent CLIs are reported separately ("no agent ready"), not as missing required tools.
+  const missingRequired = status?.dependencies.filter((item) => item.required && !item.installed && !item.group) ?? [];
+  const noAgent = Boolean(status) && agentsAvailable.length === 0;
   const missingRecommended = status?.dependencies.filter((item) => !item.required && !item.installed) ?? [];
   const visibleDependencies = status?.dependencies ?? setupDependencyPlaceholders();
   const githubReady = Boolean(auth?.ghAuthenticated);
@@ -123,11 +126,11 @@ export function SetupScreen({
         <div className="setup-summary">
           {loading && <span>Checking tools...</span>}
           {!loading && missingRequired.length > 0 && <span>{plural(missingRequired.length, "required tool")} missing.</span>}
+          {!loading && noAgent && <span><strong>No coding agent is ready.</strong> MNLens needs Codex CLI or Claude Code installed and signed in; see the agent checks above.</span>}
           {!loading && missingRequired.length === 0 && !githubReady && <span>GitHub authentication is required before PR data can be loaded.</span>}
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "limited" && <span>GitHub is authenticated with public repository access. Private repositories and some push workflows may need a fine-grained token or classic `repo`.</span>}
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "missing" && <span>GitHub is authenticated, but token permissions look too narrow for repository review workflows.</span>}
           {!loading && missingRequired.length === 0 && missingRecommended.length > 0 && <span>{plural(missingRecommended.length, "recommended tool")} missing. You can continue, but some local verification may need manual setup later.</span>}
-          {!loading && status && agentsAvailable.length === 0 && <span>Install and sign in to at least one coding agent CLI: Codex or Claude Code.</span>}
           {!loading && status && agentsAvailable.length > 0 && <span>Agent{agentsAvailable.length > 1 ? "s" : ""} ready: {agentsAvailable.join(", ")}. Using {status.selectedAgent}; change it later under “Agent &amp; models”.</span>}
           {!loading && status?.ready && githubReady && missingRecommended.length === 0 && <span>All local review tools are ready.</span>}
         </div>

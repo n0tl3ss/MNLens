@@ -18,6 +18,15 @@ interface DependencySpec {
 
 export async function getSetupStatus(): Promise<SetupStatus> {
   const dependencies = await Promise.all(dependencySpecs().map(checkDependency));
+  // An auth probe cannot pass when its CLI is missing; say that instead of "installed but not signed in".
+  for (const agent of agentIds) {
+    const cli = dependencies.find((item) => item.id === agent);
+    const auth = dependencies.find((item) => item.id === `${agent}-auth`);
+    if (cli && auth && !cli.installed && !auth.installed) {
+      auth.details = `Not checked: the \`${agent}\` CLI is not installed or not on PATH.`;
+      auth.installHint = `Install the ${cli.name} first (see above), then sign in.`;
+    }
+  }
   const settings = await readAgentSettings();
   const availableAgents = agentIds.filter((agent) => agentReady(dependencies, agent));
   return {

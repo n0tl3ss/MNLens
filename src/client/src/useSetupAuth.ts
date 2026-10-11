@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AuthStatus, SetupStatus } from "../../shared/types";
 import { getAuthStatus, getLocalSession, getSetupStatus, storeGithubToken } from "./api";
+import { availableAgentsFrom } from "./setupAgents";
 
 interface UseSetupAuthOptions {
   onError: (message: string | undefined) => void;
@@ -69,19 +70,18 @@ export function useSetupAuth({ onError, onNotice }: UseSetupAuthOptions) {
     [setupStatus]
   );
   const missingRequired = useMemo(
-    () =>
-      setupStatus?.dependencies.filter(
-        // Agent CLI checks are alternatives: they only block when no agent is ready at all.
-        (item) => item.required && !item.installed && (!item.group || (setupStatus.availableAgents ?? []).length === 0)
-      ) ?? [],
+    () => setupStatus?.dependencies.filter((item) => item.required && !item.installed && !item.group) ?? [],
     [setupStatus]
   );
+  // At least one coding agent (Codex or Claude Code) must be installed and signed in.
+  const noAgentReady = Boolean(setupStatus) && (availableAgentsFrom(setupStatus) ?? []).length === 0;
   const githubReady = Boolean(auth?.ghAuthenticated);
   const shouldShowSetup =
     setupLoading ||
     !setupStatus ||
     !auth ||
     missingRequired.length > 0 ||
+    noAgentReady ||
     !githubReady ||
     Boolean(setupError) ||
     (!setupDismissed && missingRecommended.length > 0);
