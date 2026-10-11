@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, GitPullRequest, Loader2, RefreshCw, Send, Sparkles, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FixJob, Job, JobStatus, VerificationJob } from "../../../shared/types";
 import { fixPipelineNode, fixProgress, fixSpecialistState } from "../fixHelpers";
 import { cleanConsoleOutput } from "../verificationHelpers";
@@ -505,7 +505,7 @@ function FixResult({
       {output && (
         <details className="fix-result-log" open>
           <summary>Fix session log</summary>
-          <pre>{output}</pre>
+          <LiveLog text={output} live={job.status === "queued" || job.status === "running"} />
           <div className="fix-log-followup">
             <label>
               {sending ? "Queue guidance for the next Codex pass" : "Ask a question or request code changes"}
@@ -541,4 +541,27 @@ function FixResult({
 /** Jobs persisted before multi-agent support have no `agent` field and were always Codex sessions. */
 export function fixAgentName(job: Pick<FixJob, "agent"> | undefined): string {
   return job?.agent === "claude" ? "Claude" : "Codex";
+}
+
+/** Log that follows the newest line while the job runs, like a terminal, and stops following once the user scrolls up. */
+function LiveLog({ text, live }: { text: string; live: boolean }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [follow, setFollow] = useState(true);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || !live || !follow) return;
+    element.scrollTop = element.scrollHeight;
+  }, [text, live, follow]);
+  return (
+    <pre
+      ref={ref}
+      className={live ? "live" : ""}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 24);
+      }}
+    >
+      {text}
+    </pre>
+  );
 }

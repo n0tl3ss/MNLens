@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { FixJob, FixPipelineNode, FixRequest, JobStatus, PrDetail } from "../shared/types.js";
 import { agentDisplayName, createAgentLogFormatter, currentAgent, extractAgentSessionId, parseAgentOutput, prepareAgentRun, recordUsage, type AgentInvocation } from "./agent.js";
 import type { AgentId, AgentTask } from "../shared/types.js";
-import { CommandError, mergeEnv, runCommand } from "./command.js";
+import { CommandError, appendTerminalOutput, formatElapsed, formatTimeout, mergeEnv, runCommand, silenceHeartbeat } from "./command.js";
 import { prKey, readAnalysis, readFixJob, readFixJobs, readFixJobsForPr, readPrDetail, writeFixJob } from "./cache.js";
 import { getPrDetail } from "./gh.js";
 import { assertGithubRateLimitAvailable, noteGithubRateLimit } from "./githubRateLimit.js";
@@ -817,10 +817,14 @@ async function prepareWorkspace(
     }
   }
   await rm(repoDir, { recursive: true, force: true });
-  update(job, { phase: "checking-out", statusMessage: `Cloning a clean ${repoName} workspace.` });
-  await runStreaming(job, "gh", ["repo", "clone", repoName, repoDir], {
+  update(job, { phase: "checking-out", statusMessage: `Cloning a clean ${repoName} workspace (shallow, default branch only).` });
+  // Shallow, tag-less clone: large repositories (thousands of commits, big histories) took longer than
+  // the timeout as full clones. `gh pr checkout` fetches the PR head on top of this, and pushing new
+  // commits from a shallow clone is supported by git. `--progress` makes git report progress even
+  // though stderr is a pipe, so the fix log shows "Receiving objects: 42%" instead of going silent.
+  await runStreaming(job, "gh", ["repo", "clone", repoName, repoDir, "--", "--depth", "1", "--no-tags", "--progress"], {
     env: githubCliEnv(token),
-    timeoutMs: 10 * 60_000,
+    timeoutMs: 15 * 60_000,
     redact: [token]
   });
   await hardenWorktreeCredentials(repoDir);
@@ -828,7 +832,7 @@ async function prepareWorkspace(
   await runStreaming(job, "gh", ["pr", "checkout", String(request.number)], {
     cwd: repoDir,
     env: githubCliEnv(token),
-    timeoutMs: 5 * 60_000,
+    timeoutMs: 10 * 60_000,
     redact: [token]
   });
   return { repoDir, reused: false, currentDiff: "" };
@@ -1349,37 +1353,54 @@ function runStreaming(
     const stdoutPipe = child.stdout;
     const stderrPipe = child.stderr;
     update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
+    const startedAt = Date.now();
+    // A long-running command with no output looks hung; say so in the log every 30 s with the elapsed time.
+    const heartbeat = silenceHeartbeat((elapsedMs) => {
+      jobStdout = appendTerminalOutput(jobStdout, `… still running (${formatElapsed(elapsedMs)} elapsed, no new output${options.timeoutMs ? `, times out after ${formatTimeout(options.timeoutMs)}` : ""})\n`);
+      update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
+    });
     const timeout = options.timeoutMs
       ? setTimeout(() => {
           settled = true;
+          heartbeat.stop();
           child.kill("SIGTERM");
-          reject(new CommandError(`${command} timed out after ${options.timeoutMs}ms`, { stdout: commandStdout, stderr: commandStderr, exitCode: null }));
+          const message = `${[command, ...args.slice(0, 2)].join(" ")} timed out after ${formatTimeout(options.timeoutMs ?? 0)} (${formatElapsed(Date.now() - startedAt)} elapsed). Last output is in the log above.`;
+          jobStderr = appendTerminalOutput(jobStderr, `${message}\n`);
+          update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
+          reject(new CommandError(message, { stdout: commandStdout, stderr: commandStderr, exitCode: null }));
         }, options.timeoutMs)
       : undefined;
     stdoutPipe?.setEncoding("utf8");
     stderrPipe?.setEncoding("utf8");
     stdoutPipe?.on("data", (chunk) => {
+      heartbeat.touch();
       const text = redact(String(chunk), options.redact);
       commandStdout += text;
-      jobStdout += options.formatStdout ? options.formatStdout(text) : text;
+      jobStdout = appendTerminalOutput(jobStdout, options.formatStdout ? options.formatStdout(text) : text);
       update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
     });
     stderrPipe?.on("data", (chunk) => {
+      heartbeat.touch();
       const text = redact(String(chunk), options.redact);
       commandStderr += text;
-      jobStderr += text;
+      // Interleave with stdout in arrival order so the log reads like a terminal (git progress,
+      // clone messages and agent diagnostics all arrive on stderr). job.stderr keeps only failure summaries.
+      jobStdout = appendTerminalOutput(jobStdout, text);
       update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
     });
     child.on("error", (error) => {
+      heartbeat.stop();
       if (timeout) clearTimeout(timeout);
       if (activeProcesses.get(job.id) === child) activeProcesses.delete(job.id);
       if (!settled) reject(error);
     });
     child.on("close", (exitCode) => {
+      heartbeat.stop();
       if (timeout) clearTimeout(timeout);
       if (activeProcesses.get(job.id) === child) activeProcesses.delete(job.id);
       if (settled) return;
       const result = { stdout: commandStdout, stderr: commandStderr, exitCode };
+      jobStdout = appendTerminalOutput(jobStdout, `[exit ${exitCode ?? "?"} · ${formatElapsed(Date.now() - startedAt)}]\n`);
       update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr), exitCode });
       if (cancelledJobs.has(job.id)) {
         reject(new CommandError(`${command} cancelled`, result));
@@ -1395,6 +1416,9 @@ function runStreaming(
             return;
           }
         }
+        const tail = commandStderr.trim().split("\n").slice(-12).join("\n");
+        jobStderr = appendTerminalOutput(jobStderr, `${[command, ...args.slice(0, 2)].join(" ")} exited with code ${exitCode}${tail ? `:\n${tail}` : ""}\n`);
+        update(job, { stderr: trim(jobStderr) });
         reject(new CommandError(`${command} exited with code ${exitCode}`, result));
       }
     });

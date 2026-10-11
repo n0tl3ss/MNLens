@@ -830,3 +830,8 @@
   border-left-color: #cf4b42;
   background: #fff6f4;
 }
+
+.verification-result pre.live {
+  max-height: 360px;
+  border-left: 3px solid #159bd3;
+}

@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JobStatus, PrRef, VerificationArtifact, VerificationJob } from "../shared/types.js";
 import { prKey, readPrDetail, readVerificationJob, readVerificationJobs, readVerificationJobsForPr, writeVerificationJob } from "./cache.js";
-import { CommandError, mergeEnv, runCommand } from "./command.js";
+import { CommandError, appendTerminalOutput, formatTimeout, mergeEnv, runCommand } from "./command.js";
 import { parseAgentOutput, prepareAgentRun } from "./agent.js";
 import { githubCliEnv, githubHost, hardenWorktreeCredentials } from "./githubHost.js";
 import { manualCheckInstructions } from "./agentSkills.js";
@@ -648,7 +648,7 @@ async function preparePrWorktree(pr: PrRef, token: string, job: VerificationJob)
   if (!existsSync(join(repoDir, ".git"))) {
     updateVerificationJob(job, { phase: "cloning", statusMessage: `Cloning ${repoName} into a temporary review checkout.` });
     await rm(repoDir, { recursive: true, force: true });
-    await runStreamingCommand(job, "gh", ["repo", "clone", repoName, repoDir, "--", "--depth", "1"], {
+    await runStreamingCommand(job, "gh", ["repo", "clone", repoName, repoDir, "--", "--depth", "1", "--no-tags", "--progress"], {
       env: githubCliEnv(token),
       timeoutMs: 10 * 60_000,
       redact: [token]
@@ -848,9 +848,9 @@ function runStreamingCommand(
           updateVerificationJob(job, {
             stdout: result.stdout,
             stderr: result.stderr,
-            error: `${command} timed out after ${options.timeoutMs}ms`
+            error: `${command} timed out after ${formatTimeout(options.timeoutMs ?? 0)}`
           });
-          reject(new CommandError(`${command} timed out after ${options.timeoutMs}ms`, result));
+          reject(new CommandError(`${command} timed out after ${formatTimeout(options.timeoutMs ?? 0)}`, result));
         }, options.timeoutMs)
       : undefined;
 
@@ -861,7 +861,7 @@ function runStreamingCommand(
       updateVerificationJob(job, { stdout: trimLog(stdout), stderr: trimLog(stderr) });
     });
     stderrPipe?.on("data", (chunk) => {
-      stderr += redact(String(chunk), options.redact);
+      stderr = appendTerminalOutput(stderr, redact(String(chunk), options.redact));
       updateVerificationJob(job, { stdout: trimLog(stdout), stderr: trimLog(stderr) });
     });
     child.on("error", (error) => {

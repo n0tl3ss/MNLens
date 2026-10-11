@@ -204,3 +204,59 @@ function resolveExecutable(command: string, env: NodeJS.ProcessEnv): string {
   }
   return command;
 }
+
+/**
+ * Append terminal output to a log buffer the way a terminal would render it:
+ * a bare carriage return rewinds to the start of the current line, so git's
+ * "Receiving objects: 42%" progress updates replace each other instead of
+ * piling up as hundreds of lines.
+ */
+export function appendTerminalOutput(buffer: string, chunk: string): string {
+  // A trailing "\r" in the buffer means "the next text replaces the current line" (the
+  // cursor moved home but nothing was written yet), so progress stays visible between chunks.
+  let pendingRewind = buffer.endsWith("\r");
+  let out = pendingRewind ? buffer.slice(0, -1) : buffer;
+  for (const piece of chunk.split(/(\r\n|\r|\n)/)) {
+    if (piece === "") continue;
+    if (piece === "\r\n" || piece === "\n") {
+      out += "\n";
+      pendingRewind = false;
+    } else if (piece === "\r") {
+      pendingRewind = true;
+    } else {
+      if (pendingRewind) out = out.slice(0, out.lastIndexOf("\n") + 1);
+      out += piece;
+      pendingRewind = false;
+    }
+  }
+  return pendingRewind ? `${out}\r` : out;
+}
+
+/** "600000ms" is not a number a human reads under pressure; "10 min" is. */
+export function formatTimeout(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
+  const minutes = ms / 60_000;
+  return Number.isInteger(minutes) ? `${minutes} min` : `${minutes.toFixed(1)} min`;
+}
+
+/** Starts a timer that calls `onSilent(elapsedMs)` while a command produces no output; call `touch()` on every chunk. */
+export function silenceHeartbeat(onSilent: (elapsedMs: number) => void, intervalMs = 30_000): { touch: () => void; stop: () => void } {
+  const startedAt = Date.now();
+  let lastOutputAt = startedAt;
+  const timer = setInterval(() => {
+    if (Date.now() - lastOutputAt >= intervalMs) onSilent(Date.now() - startedAt);
+  }, intervalMs);
+  return {
+    touch: () => {
+      lastOutputAt = Date.now();
+    },
+    stop: () => clearInterval(timer)
+  };
+}
+
+export function formatElapsed(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, "0")}s` : `${seconds}s`;
+}
