@@ -1,6 +1,10 @@
+import { analysisFreshness } from "../../../shared/analysisContext";
+import { SecondOpinionSection } from "./SecondOpinionSection";
+import { AcceptanceSection } from "./AcceptanceSection";
+import { ReviewMemoryCard } from "./ReviewMemoryCard";
 import { Bug, FolderKanban, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
 import { fixCurrentSpecialist } from "../fixHelpers";
 import { insightScope, isDocsOnlyReview, latestPushedFix, sourceChangedLines } from "../reviewHelpers";
 import { readinessForPr } from "../reviewScoring";
@@ -26,6 +30,17 @@ import { Badge, plural } from "./uiBits";
 
 export function OverviewTab({
   analysis,
+  usage,
+  secondOpinionBusy,
+  secondOpinionError,
+  onRequestSecondOpinion,
+  acceptance,
+  acceptanceBusy,
+  acceptanceError,
+  onGenerateAcceptance,
+  onOverrideCriterion,
+  memory,
+  onFindingFeedback,
   attentionMode,
   canApproveWithoutComments,
   ciChecks,
@@ -54,6 +69,17 @@ export function OverviewTab({
   onStartFix
 }: {
   analysis?: AnalysisResult;
+  usage?: AgentUsageSummary;
+  secondOpinionBusy?: boolean;
+  secondOpinionError?: string;
+  onRequestSecondOpinion?: () => void;
+  acceptance?: AcceptanceContract | null;
+  acceptanceBusy?: boolean;
+  acceptanceError?: string;
+  onGenerateAcceptance?: (force: boolean) => void;
+  onOverrideCriterion?: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
+  memory?: ReviewMemorySummary;
+  onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
   attentionMode: boolean;
   canApproveWithoutComments: boolean;
   ciChecks: CiCheck[];
@@ -132,9 +158,37 @@ export function OverviewTab({
                 <Bug size={18} />
               </div>
               <p>{analysis?.summary ?? "Analyze this PR to classify it and generate reviewer guidance."}</p>
+              {analysisFreshness(analysis, detail) === "context-changed" && (
+                <p className="analysis-stale">
+                  Discussion changed since this analysis (new or resolved comments, reviews, or linked-issue edits). The diff is unchanged, so the findings still apply, but the draft comment and reviewer focus may be out of date — re-run Deep Analyze to refresh.
+                </p>
+              )}
+              {analysis?.agent && (
+                <p className="muted analysis-provenance">
+                  Analyzed by {analysis.agent === "claude" ? "Claude" : "Codex"}
+                  {analysis.model ? ` (${analysis.model})` : ""}
+                  {typeof analysis.costUsd === "number" ? ` · ~$${analysis.costUsd.toFixed(3)}` : ""}
+                  {analysis.stack?.parentNumber ? ` · stacked on #${analysis.stack.parentNumber}, diff judged relative to the parent` : ""}
+                </p>
+              )}
+              {usage && usage.runs > 0 && (
+                <p className="muted analysis-provenance" title={Object.entries(usage.byTask).map(([task, stat]) => `${task}: ${stat?.runs} run(s)${stat && stat.costUsd > 0 ? ` ~$${stat.costUsd.toFixed(3)}` : ""}`).join("\n")}>
+                  Agent spend on this PR: {usage.runs} run{usage.runs === 1 ? "" : "s"}
+                  {usage.runsWithCost > 0 ? ` · ~$${usage.totalCostUsd.toFixed(3)}` : ""}
+                  {usage.runsWithCost < usage.runs ? ` · ${usage.runs - usage.runsWithCost} without cost data (Codex does not report cost)` : ""}
+                  {usage.totalDurationMs > 0 ? ` · ${Math.round(usage.totalDurationMs / 60_000)} min of agent time` : ""}
+                </p>
+              )}
               {analysis?.behaviorBefore && <Callout title="Before" text={analysis.behaviorBefore} />}
               {analysis?.behaviorAfter && <Callout title="After" text={analysis.behaviorAfter} />}
             </section>
+            {onGenerateAcceptance && onOverrideCriterion && (
+              <AcceptanceSection contract={acceptance} diffHash={detail.diffHash} busy={Boolean(acceptanceBusy)} error={acceptanceError} onGenerate={onGenerateAcceptance} onOverride={onOverrideCriterion} />
+            )}
+            {analysis && onRequestSecondOpinion && (
+              <SecondOpinionSection analysis={analysis} diffHash={detail.diffHash} busy={Boolean(secondOpinionBusy)} error={secondOpinionError} onRequest={onRequestSecondOpinion} />
+            )}
+            <ReviewMemoryCard memory={memory} onAddRepoRule={onAddRepoRule} />
             <PolicySection
               detail={detail}
               analysis={analysis}
@@ -160,6 +214,8 @@ export function OverviewTab({
                 compact={attentionMode}
                 progress={progress}
                 onSaveProgress={onSaveProgress}
+                verdicts={memory?.prVerdicts}
+                onFeedback={onFindingFeedback}
               />
             )}
             <InsightSection
@@ -175,6 +231,8 @@ export function OverviewTab({
               }}
               progress={progress}
               onSaveProgress={onSaveProgress}
+              verdicts={memory?.prVerdicts}
+              onFeedback={onFindingFeedback}
             />
             {(!attentionMode || analysis?.testAssessment?.rating === "weak" || analysis?.testAssessment?.rating === "partial") && (
               <TestAssessmentSection assessment={analysis?.testAssessment} onImproveTests={(instructions) => onStartFix(instructions, undefined, "Overview / Test Quality")} />
@@ -195,6 +253,8 @@ export function OverviewTab({
               }}
               progress={progress}
               onSaveProgress={onSaveProgress}
+              verdicts={memory?.prVerdicts}
+              onFeedback={onFindingFeedback}
             />
             <VerificationSection
               items={analysis?.testsToCheck ?? []}

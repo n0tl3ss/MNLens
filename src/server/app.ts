@@ -22,9 +22,16 @@ import type {
   RebasePrConfirmRequest,
   RebasePrRequest,
   ResolveReviewThreadRequest,
+  SecondOpinionRequest,
+  AcceptanceContractRequest,
+  UpdateCriterionRequest,
+  RecordFindingFeedbackRequest,
+  PostFeedbackCommentRequest,
+  StackMergeRequest,
   ReplyConversationRequest,
   SubmitReviewRequest,
   UpdateRepoReviewRuleRequest,
+  UpdateAgentSettingsRequest,
   UpdateReviewProgressRequest,
   VerificationRequest
 } from "../shared/types.js";
@@ -38,6 +45,16 @@ import { askCiFailure, askResearch, askRisk, normalizeAnalysisForDetail, normali
 import { openPrInEditor } from "./editor.js";
 import { storeGithubToken } from "./keychain.js";
 import { getSetupStatus } from "./setup.js";
+import { agentTasks, defaultAgentSettings, readAgentSettings, resetAgentSettings, taskDescriptions, updateAgentSettings } from "./agentSettings.js";
+import { getPrStack, getStackSummaries } from "./stacks.js";
+import { usageSummary } from "./usage.js";
+import { secondOpinionFor } from "./secondOpinion.js";
+import { generateAcceptanceContract, readAcceptanceContract, updateCriterion } from "./acceptance.js";
+import { recordFindingFeedback, reviewMemorySummary } from "./reviewMemory.js";
+import { buildFeedbackComment } from "./feedback.js";
+import { mergeStackStep, stackMergePlan } from "./stacks.js";
+import { eventStreamHandler } from "./events.js";
+import { readVerificationJobsForPr } from "./cache.js";
 import { cacheDir } from "./paths.js";
 import { enhanceCliPath } from "./envPath.js";
 import { GithubRateLimitError, githubRateLimitStatus } from "./githubRateLimit.js";
@@ -64,6 +81,20 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
       mode: "local",
       betaLimitations: betaLimitations()
     });
+  });
+
+  // EventSource cannot set headers, so the SSE stream authenticates with the session token as a query parameter.
+  app.get("/api/events", (req, res) => {
+    const origin = req.get("origin");
+    if (origin && !isAllowedLocalOrigin(origin)) {
+      res.status(403).json({ error: "MNLens only accepts API requests from the local app origin." });
+      return;
+    }
+    if (String(req.query.token ?? "") !== localSessionToken) {
+      res.status(403).json({ error: "Missing or invalid MNLens local session token." });
+      return;
+    }
+    eventStreamHandler(req, res);
   });
 
   app.use("/api", localSessionGuard);
@@ -130,6 +161,72 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
 
   app.get("/api/github/rate-limit", (_req, res) => {
     res.json(githubRateLimitStatus());
+  });
+
+  app.get("/api/agent-settings", async (_req, res, next) => {
+    try {
+      res.json({
+        settings: await readAgentSettings(),
+        defaults: defaultAgentSettings(),
+        tasks: agentTasks.map((task) => ({ task, description: taskDescriptions[task] }))
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/agent-settings", async (req, res, next) => {
+    try {
+      const body = (req.body ?? {}) as UpdateAgentSettingsRequest;
+      res.json({ settings: await updateAgentSettings(body), defaults: defaultAgentSettings(), tasks: agentTasks.map((task) => ({ task, description: taskDescriptions[task] })) });
+    } catch (error) {
+      if (error instanceof Error && /Unknown agent|Invalid model|Invalid effort/.test(error.message)) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.delete("/api/agent-settings", async (_req, res, next) => {
+    try {
+      res.json({ settings: await resetAgentSettings(), defaults: defaultAgentSettings(), tasks: agentTasks.map((task) => ({ task, description: taskDescriptions[task] })) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/usage", async (req, res, next) => {
+    try {
+      const prKeyFilter = typeof req.query.prKey === "string" && req.query.prKey.trim() ? req.query.prKey.trim() : undefined;
+      res.json(await usageSummary(prKeyFilter));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/stacks/summary", async (req, res, next) => {
+    try {
+      const repos = String(req.query.repos ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (repos.length === 0) {
+        res.json({});
+        return;
+      }
+      res.json(await getStackSummaries(repos, { force: req.query.force === "true" }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/stacks/:owner/:repo/:number", async (req, res, next) => {
+    try {
+      res.json(await getPrStack(req.params.owner, req.params.repo, Number(req.params.number), { force: req.query.force === "true" }));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/auth/token", async (req, res, next) => {
@@ -220,6 +317,123 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
       await writeAnalysis(normalized);
     }
     res.json(normalized);
+  });
+
+  app.post("/api/second-opinion", async (req, res, next) => {
+    try {
+      const body = req.body as SecondOpinionRequest;
+      const detail = await getPrDetail(body.owner, body.repo, Number(body.number));
+      res.json(await secondOpinionFor(detail));
+    } catch (error) {
+      if (error instanceof Error && /Run Deep Analyze first|diff changed/.test(error.message)) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.get("/api/acceptance/:key", async (req, res) => {
+    res.json((await readAcceptanceContract(req.params.key)) ?? null);
+  });
+
+  app.post("/api/acceptance", async (req, res, next) => {
+    try {
+      const body = req.body as AcceptanceContractRequest;
+      const detail = await getPrDetail(body.owner, body.repo, Number(body.number));
+      const ciChecks = await getCiChecks(body.owner, body.repo, Number(body.number)).catch(() => []);
+      res.json(await generateAcceptanceContract(detail, { force: Boolean(body.force), ciChecks }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/acceptance/:key/criteria/:id", async (req, res, next) => {
+    try {
+      res.json(await updateCriterion(req.params.key, req.params.id, (req.body ?? {}) as UpdateCriterionRequest));
+    } catch (error) {
+      if (error instanceof Error && /No acceptance contract|Unknown acceptance criterion/.test(error.message)) {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.get("/api/review-memory/:owner/:repo", async (req, res, next) => {
+    try {
+      const number = req.query.number ? Number(req.query.number) : undefined;
+      res.json(await reviewMemorySummary(req.params.owner, req.params.repo, Number.isFinite(number) ? number : undefined));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/review-memory", async (req, res, next) => {
+    try {
+      const body = req.body as RecordFindingFeedbackRequest;
+      if (!body?.title?.trim() || !body.kind) {
+        res.status(400).json({ error: "Finding kind and title are required." });
+        return;
+      }
+      const detail = await readPrDetail(`${body.owner}__${body.repo}__${body.number}`);
+      res.json(await recordFindingFeedback(body, detail?.author));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/feedback-comment/preview", async (req, res, next) => {
+    try {
+      const body = req.body as { owner: string; repo: string; number: number; reviewerNote?: string };
+      const detail = await getPrDetail(body.owner, body.repo, Number(body.number));
+      const [analysis, contract, memory, verificationJobs] = await Promise.all([
+        readAnalysis(detail.key),
+        readAcceptanceContract(detail.key),
+        reviewMemorySummary(body.owner, body.repo, Number(body.number)),
+        readVerificationJobsForPr(detail.key)
+      ]);
+      res.json(buildFeedbackComment({ detail, analysis, contract, memory, verificationJobs, reviewerNote: body.reviewerNote }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/feedback-comment", async (req, res, next) => {
+    try {
+      const body = req.body as PostFeedbackCommentRequest;
+      if (!body.body?.trim()) {
+        res.status(400).json({ error: "Comment body is required." });
+        return;
+      }
+      // Explicit human action: the reviewer previewed and clicked Post.
+      res.json(await replyToConversation({ owner: body.owner, repo: body.repo, number: Number(body.number), body: body.body }));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/stacks/:owner/:repo/:number/merge-plan", async (req, res, next) => {
+    try {
+      const stack = await getPrStack(req.params.owner, req.params.repo, Number(req.params.number), { force: req.query.force === "true" });
+      res.json(stackMergePlan(stack));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/stacks/merge", async (req, res, next) => {
+    try {
+      const body = req.body as StackMergeRequest;
+      const method = body.method === "squash" || body.method === "rebase" ? body.method : "merge";
+      res.json(await mergeStackStep(body.owner, body.repo, Number(body.number), method, body.deleteBranch ?? true));
+    } catch (error) {
+      if (error instanceof Error && /not ready to merge|bottom-up|not part of an open stack/.test(error.message)) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
   });
 
   app.post("/api/ask-risk", async (req, res, next) => {
@@ -807,10 +1021,10 @@ function isLocalHostName(value: string): boolean {
 function betaLimitations(): string[] {
   return [
     "MNLens is a local review assistant. It should be opened from this machine, not exposed on a network.",
-    "GitHub, Git, Codex, Java, Gradle, Maven, and browser tooling are discovered from local command-line tools.",
+    "GitHub, Git, Codex/Claude Code, Java, Gradle, Maven, and browser tooling are discovered from local command-line tools.",
     "Queued jobs are recovered after restart. Jobs that were running are shown as interrupted/resumable with logs and workspace context preserved.",
-    "Codex prepares reviewable code changes. It does not commit or push until a human explicitly approves.",
-    "Repository checkouts, Codex state, and artifacts are stored under the local MNLens cache directory."
+    "The coding agent (Codex or Claude Code) prepares reviewable code changes. It does not commit or push until a human explicitly approves.",
+    "Repository checkouts, agent session state, and artifacts are stored under the local MNLens cache directory."
   ];
 }
 

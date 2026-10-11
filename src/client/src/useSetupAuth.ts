@@ -69,7 +69,11 @@ export function useSetupAuth({ onError, onNotice }: UseSetupAuthOptions) {
     [setupStatus]
   );
   const missingRequired = useMemo(
-    () => setupStatus?.dependencies.filter((item) => item.required && !item.installed) ?? [],
+    () =>
+      setupStatus?.dependencies.filter(
+        // Agent CLI checks are alternatives: they only block when no agent is ready at all.
+        (item) => item.required && !item.installed && (!item.group || (setupStatus.availableAgents ?? []).length === 0)
+      ) ?? [],
     [setupStatus]
   );
   const githubReady = Boolean(auth?.ghAuthenticated);

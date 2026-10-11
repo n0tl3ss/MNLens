@@ -18,7 +18,9 @@ export function InsightSection({
   onDraftComment,
   draftCommentLabel,
   progress,
-  onSaveProgress
+  onSaveProgress,
+  verdicts,
+  onFeedback
 }: {
   title: string;
   tone: "evidence" | "focus" | "risk";
@@ -31,6 +33,9 @@ export function InsightSection({
   draftCommentLabel?: string;
   progress?: ReviewProgress;
   onSaveProgress?: (patch: Partial<Pick<ReviewProgress, "checkedItems">>) => void;
+  /** Reviewer verdicts keyed by `${kind}:${normalized title}` (see server/reviewMemory.ts). */
+  verdicts?: Record<string, "kept" | "dismissed">;
+  onFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const detailItems = details.length > 0 ? sortReviewInsights(details) : [];
@@ -88,6 +93,20 @@ export function InsightSection({
                     <div className="inline-actions">
                       <Badge tone={toneForSeverity(item.severity)}>{item.severity ?? "info"}</Badge>
                       <Badge tone={insightScope(item) === "test-maintainability" ? "queue" : "feature"}>{insightScopeLabel(item)}</Badge>
+                      {onFeedback && (() => {
+                        const kind = tone === "evidence" ? "evidence" : tone === "focus" ? "focus" : "risk";
+                        const current = verdicts?.[verdictKey(kind, heading)];
+                        return (
+                          <span className="finding-feedback" title="Teach MNLens: was this finding useful in this repository?">
+                            <button type="button" className={current === "kept" ? "active kept" : ""} onClick={() => onFeedback(kind, heading, item.observation, current === "kept" ? null : "kept")} aria-label="Useful finding">
+                              👍
+                            </button>
+                            <button type="button" className={current === "dismissed" ? "active dismissed" : ""} onClick={() => onFeedback(kind, heading, item.observation, current === "dismissed" ? null : "dismissed")} aria-label="Not useful">
+                              👎
+                            </button>
+                          </span>
+                        );
+                      })()}
                       {onSaveProgress && (
                         <label className="insight-done-check" title={checked ? "Reopen this review point" : "Mark this review point complete"}>
                           <input type="checkbox" checked={checked} onChange={() => toggleInsight(id)} />
@@ -299,4 +318,9 @@ function toneForSeverity(severity?: string): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Mirrors `verdictKey` in src/server/reviewMemory.ts. */
+export function verdictKey(kind: string, title: string): string {
+  return `${kind}:${title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
 }

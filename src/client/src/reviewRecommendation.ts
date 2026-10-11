@@ -78,7 +78,11 @@ export function finalReviewRecommendation(
     addEvidence("Fix preview", "There are prepared Codex changes that have not been pushed.", "queue");
   }
 
-  if (runningFix) blockers.push(`Codex fix is still ${runningFix.status}: ${fixCurrentSpecialist(runningFix)}.`);
+  if (runningFix) blockers.push(`Agent fix is still ${runningFix.status}: ${fixCurrentSpecialist(runningFix)}.`);
+  const criteria = context.acceptance?.criteria ?? [];
+  const criteriaFailed = criteria.filter((criterion) => (criterion.humanStatus ?? criterion.status) === "failed");
+  const criteriaUnproven = criteria.filter((criterion) => (criterion.humanStatus ?? criterion.status) === "unproven");
+  if (criteriaFailed.length > 0) blockers.push(`${criteriaFailed.length} acceptance ${criteriaFailed.length === 1 ? "criterion" : "criteria"} failed: ${criteriaFailed[0].text}`);
   if (ci.label === "failing" && !staleFailingCiAfterFix) blockers.push("CI is currently failing and should be explained or fixed.");
   if (localFailed.length > 0) blockers.push(`${plural(localFailed.length, "local verification")} failed.`);
   if (manualFailed.length > 0) blockers.push(`${plural(manualFailed.length, "manual check")} marked as failed.`);
@@ -87,6 +91,7 @@ export function finalReviewRecommendation(
   if (draftCount > 0 && !context.canApproveWithoutComments) blockers.push(`${plural(draftCount, "draft review comment")} still need to be submitted.`);
 
   const holdReasons: string[] = [];
+  if (criteriaUnproven.length > 0) holdReasons.push(`${criteriaUnproven.length} acceptance ${criteriaUnproven.length === 1 ? "criterion" : "criteria"} unproven: ${criteriaUnproven.map((criterion) => criterion.text).slice(0, 2).join("; ")}.`);
   if (!analysis) holdReasons.push("No AI analysis is available yet.");
   if (ci.label === "running") holdReasons.push("CI is still running.");
   if (staleFailingCiAfterFix) holdReasons.push("CI should be refreshed after the pushed fix.");

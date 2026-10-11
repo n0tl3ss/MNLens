@@ -1,4 +1,5 @@
-import type { DependencyCheck, SetupStatus } from "../shared/types.js";
+import type { AgentId, DependencyCheck, SetupStatus } from "../shared/types.js";
+import { agentIds, readAgentSettings } from "./agentSettings.js";
 import { CommandError, runCommand } from "./command.js";
 
 interface DependencySpec {
@@ -11,16 +12,27 @@ interface DependencySpec {
   versionFrom?: "stdout" | "stderr" | "both";
   input?: string;
   timeoutMs?: number;
+  /** Agent CLI group. Readiness needs every check of at least one agent group to pass. */
+  group?: AgentId;
 }
 
 export async function getSetupStatus(): Promise<SetupStatus> {
   const dependencies = await Promise.all(dependencySpecs().map(checkDependency));
+  const settings = await readAgentSettings();
+  const availableAgents = agentIds.filter((agent) => agentReady(dependencies, agent));
   return {
     checkedAt: new Date().toISOString(),
     platform: process.platform,
-    ready: dependencies.filter((item) => item.required).every((item) => item.installed),
-    dependencies
+    ready: dependencies.filter((item) => item.required && !item.group).every((item) => item.installed) && availableAgents.length > 0,
+    dependencies,
+    availableAgents,
+    selectedAgent: settings.agent
   };
+}
+
+export function agentReady(dependencies: DependencyCheck[], agent: AgentId): boolean {
+  const members = dependencies.filter((item) => item.group === agent);
+  return members.length > 0 && members.every((item) => item.installed);
 }
 
 function dependencySpecs(): DependencySpec[] {
@@ -53,6 +65,7 @@ function dependencySpecs(): DependencySpec[] {
       id: "codex",
       name: "Codex CLI",
       required: true,
+      group: "codex",
       command: "codex",
       args: ["--version"],
       installHint: platformHint({
@@ -65,11 +78,35 @@ function dependencySpecs(): DependencySpec[] {
       id: "codex-auth",
       name: "Codex authentication",
       required: true,
+      group: "codex",
       command: "codex",
       args: ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
       input: "Reply with exactly: OK",
       timeoutMs: 20000,
-      installHint: "Codex is installed, but a live auth/model check failed. Re-authenticate Codex or fix the configured provider credentials before using Analyze or Fix."
+      installHint: "Codex is installed, but a live auth/model check failed. Re-authenticate Codex (`codex login`) or fix the configured provider credentials before using Analyze or Fix with Codex."
+    },
+    {
+      id: "claude",
+      name: "Claude Code CLI",
+      required: true,
+      group: "claude",
+      command: "claude",
+      args: ["--version"],
+      installHint: platformHint({
+        darwin: "Install Claude Code (`curl -fsSL https://claude.ai/install.sh | bash`, `brew install --cask claude-code`, or `npm install -g @anthropic-ai/claude-code`) and make sure `claude` is on PATH, then run `claude auth login`.",
+        win32: "Install Claude Code (`npm install -g @anthropic-ai/claude-code` or the native installer), reopen MNLens so `claude` is on PATH, then run `claude auth login`.",
+        linux: "Install Claude Code (`curl -fsSL https://claude.ai/install.sh | bash` or `npm install -g @anthropic-ai/claude-code`) and make sure `claude` is on PATH, then run `claude auth login`."
+      })
+    },
+    {
+      id: "claude-auth",
+      name: "Claude Code authentication",
+      required: true,
+      group: "claude",
+      command: "claude",
+      args: ["auth", "status"],
+      timeoutMs: 20000,
+      installHint: "Claude Code is installed but not signed in. Run `claude auth login` (subscription) or `claude auth login --console` / set ANTHROPIC_API_KEY (API billing) before using Analyze or Fix with Claude."
     },
     credentialStoreSpec(),
     {
@@ -125,8 +162,9 @@ async function checkDependency(spec: DependencySpec): Promise<DependencyCheck> {
       name: spec.name,
       required: spec.required,
       installed: true,
-      version: firstUsefulLine(output),
-      installHint: spec.installHint
+      version: spec.id === "claude-auth" ? summarizeClaudeAuth(output) : firstUsefulLine(output),
+      installHint: spec.installHint,
+      group: spec.group
     };
   } catch (error) {
     const details = error instanceof CommandError ? failureDetails(spec, `${error.result.stdout}\n${error.result.stderr}`) : error instanceof Error ? error.message : String(error);
@@ -136,7 +174,8 @@ async function checkDependency(spec: DependencySpec): Promise<DependencyCheck> {
       required: spec.required,
       installed: false,
       details,
-      installHint: spec.installHint
+      installHint: spec.installHint,
+      group: spec.group
     };
   }
 }
@@ -186,6 +225,19 @@ function platformHint(hints: Partial<Record<NodeJS.Platform, string>>): string {
   return hints[process.platform] ?? "Install this command and make sure it is available on PATH, then restart the app.";
 }
 
+export function summarizeClaudeAuth(output: string): string | undefined {
+  try {
+    const parsed = JSON.parse(output.trim()) as { loggedIn?: boolean; authMethod?: string; email?: string; subscriptionType?: string };
+    if (parsed && typeof parsed === "object") {
+      const parts = [parsed.authMethod ? `auth: ${parsed.authMethod}` : undefined, parsed.email, parsed.subscriptionType].filter(Boolean);
+      return parts.length > 0 ? parts.join(" · ") : "signed in";
+    }
+  } catch {
+    // Older CLI versions print text; fall through.
+  }
+  return firstUsefulLine(output) ?? "signed in";
+}
+
 function firstUsefulLine(value: string): string | undefined {
   return value
     .split("\n")
@@ -196,7 +248,7 @@ function firstUsefulLine(value: string): string | undefined {
 
 function failureDetails(spec: DependencySpec, output: string): string | undefined {
   const lines = usefulLines(output);
-  if (spec.id !== "codex-auth") return lines[0];
+  if (spec.id !== "codex-auth" && spec.id !== "claude-auth") return lines[0];
   const priority = lines.filter((line) => /\b(ERROR|Unauthorized|NotAuthenticated|authentication|auth|credential|provider)\b/i.test(line));
   return (priority.length > 0 ? priority : lines).slice(0, 6).join("\n");
 }

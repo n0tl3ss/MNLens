@@ -29,7 +29,9 @@ export function SetupScreen({
   onSaveToken: () => void;
   onContinue: () => void;
 }) {
-  const missingRequired = status?.dependencies.filter((item) => item.required && !item.installed) ?? [];
+  const agentsAvailable = status?.availableAgents ?? [];
+  // Agent CLIs are alternatives: a missing Claude check is not a blocker while Codex is ready (and vice versa).
+  const missingRequired = status?.dependencies.filter((item) => item.required && !item.installed && (!item.group || agentsAvailable.length === 0)) ?? [];
   const missingRecommended = status?.dependencies.filter((item) => !item.required && !item.installed) ?? [];
   const visibleDependencies = status?.dependencies ?? setupDependencyPlaceholders();
   const githubReady = Boolean(auth?.ghAuthenticated);
@@ -45,7 +47,7 @@ export function SetupScreen({
               <h1>Set up MNLens</h1>
             </div>
             <p>
-              MNLens runs GitHub, Git, Codex, and verification commands on this machine. Fix required tools before reviewing PRs.
+              MNLens runs GitHub, Git, a coding agent CLI (Codex or Claude Code), and verification commands on this machine. Fix required tools before reviewing PRs.
             </p>
           </div>
           {loading ? <Loader2 size={28} className="spin" /> : status?.ready ? <CheckCircle2 size={28} /> : <AlertTriangle size={28} />}
@@ -61,13 +63,24 @@ export function SetupScreen({
         <div className="setup-grid">
           {visibleDependencies.map((item) => {
             const checking = loading && !status;
+            const alternativeAgentReady = Boolean(item.group) && agentsAvailable.length > 0 && !agentsAvailable.includes(item.group as NonNullable<typeof item.group>);
+            const blocking = item.required && !alternativeAgentReady;
+            const kind = item.group
+              ? item.group === status?.selectedAgent
+                ? "selected agent"
+                : alternativeAgentReady
+                  ? "optional alternative agent"
+                  : "one agent required"
+              : item.required
+                ? "required"
+                : "recommended";
             return (
-              <article key={item.id} className={`setup-check ${checking ? "checking" : item.installed ? "ok" : item.required ? "missing" : "warn"}`}>
+              <article key={item.id} className={`setup-check ${checking ? "checking" : item.installed ? "ok" : blocking ? "missing" : "warn"}`}>
                 <div className="setup-check-title">
-                  {checking ? <Loader2 size={18} className="spin" /> : item.installed ? <CheckCircle2 size={18} /> : item.required ? <X size={18} /> : <AlertTriangle size={18} />}
+                  {checking ? <Loader2 size={18} className="spin" /> : item.installed ? <CheckCircle2 size={18} /> : blocking ? <X size={18} /> : <AlertTriangle size={18} />}
                   <div>
                     <strong>{item.name}</strong>
-                    <span>{item.required ? "required" : "recommended"}</span>
+                    <span>{kind}</span>
                   </div>
                 </div>
                 {checking ? (
@@ -114,6 +127,8 @@ export function SetupScreen({
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "limited" && <span>GitHub is authenticated with public repository access. Private repositories and some push workflows may need a fine-grained token or classic `repo`.</span>}
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "missing" && <span>GitHub is authenticated, but token permissions look too narrow for repository review workflows.</span>}
           {!loading && missingRequired.length === 0 && missingRecommended.length > 0 && <span>{plural(missingRecommended.length, "recommended tool")} missing. You can continue, but some local verification may need manual setup later.</span>}
+          {!loading && status && agentsAvailable.length === 0 && <span>Install and sign in to at least one coding agent CLI: Codex or Claude Code.</span>}
+          {!loading && status && agentsAvailable.length > 0 && <span>Agent{agentsAvailable.length > 1 ? "s" : ""} ready: {agentsAvailable.join(", ")}. Using {status.selectedAgent}; change it later under “Agent &amp; models”.</span>}
           {!loading && status?.ready && githubReady && missingRecommended.length === 0 && <span>All local review tools are ready.</span>}
         </div>
 
@@ -135,8 +150,10 @@ function setupDependencyPlaceholders(): SetupStatus["dependencies"] {
   return [
     { id: "git", name: "Git", required: true, installed: false, installHint: "" },
     { id: "gh", name: "GitHub CLI", required: true, installed: false, installHint: "" },
-    { id: "codex", name: "Codex CLI", required: true, installed: false, installHint: "" },
-    { id: "codex-auth", name: "Codex authentication", required: true, installed: false, installHint: "" },
+    { id: "codex", name: "Codex CLI", required: true, installed: false, installHint: "", group: "codex" },
+    { id: "codex-auth", name: "Codex authentication", required: true, installed: false, installHint: "", group: "codex" },
+    { id: "claude", name: "Claude Code CLI", required: true, installed: false, installHint: "", group: "claude" },
+    { id: "claude-auth", name: "Claude Code authentication", required: true, installed: false, installHint: "", group: "claude" },
     { id: "secure-store", name: "Secure credential store", required: true, installed: false, installHint: "" }
   ];
 }

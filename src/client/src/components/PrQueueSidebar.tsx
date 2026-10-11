@@ -1,8 +1,10 @@
 import {
+  Bot,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   GitPullRequest,
+  Layers,
   Moon,
   RefreshCw,
   Search,
@@ -10,7 +12,7 @@ import {
   Sun,
   X
 } from "lucide-react";
-import type { AuthStatus, FixJob, Job, PrListItem, QueueName } from "../../../shared/types";
+import type { AuthStatus, FixJob, Job, PrListItem, PrStackSummaryMap, QueueName } from "../../../shared/types";
 import type { ReviewScore } from "../reviewScoring";
 import type { PrRepositoryGroup, PrSortField, SortDirection } from "../reviewHelpers";
 import { hasAnalysisSignal, sortDirectionLabel, sortFieldLabel, triageForPr } from "../reviewHelpers";
@@ -70,6 +72,9 @@ export function PrQueueSidebar({
   onCancelQueuedActivity,
   onClearAllData,
   onExportData,
+  onOpenAgentSettings,
+  agentLabel,
+  stackSummaries,
   onSelectActivity,
   onSelectPr,
   onSortDirectionChange,
@@ -123,6 +128,9 @@ export function PrQueueSidebar({
   onCancelQueuedActivity: () => void;
   onClearAllData: () => void;
   onExportData: () => void;
+  onOpenAgentSettings: () => void;
+  agentLabel?: string;
+  stackSummaries?: PrStackSummaryMap;
   onSelectActivity: (item: WorkActivityItem) => void;
   onSelectPr: (pr: PrListItem) => void;
   onSortDirectionChange: (direction: SortDirection) => void;
@@ -230,6 +238,10 @@ export function PrQueueSidebar({
           {bulkAnalyzeMode === "deep" ? "Deep Analyze visible" : "Fast Analyze visible"}
           {unanalyzedVisibleCount > 0 && <span>{unanalyzedVisibleCount} new first</span>}
         </button>
+        <button type="button" onClick={onOpenAgentSettings} title="Choose Codex or Claude Code and the model tier per task">
+          <Bot size={16} />
+          {agentLabel ? `Agent: ${agentLabel}` : "Agent & models"}
+        </button>
         <button type="button" onClick={onExportData}>Export data</button>
         <button type="button" className="danger" onClick={onClearAllData}>Clear local data</button>
       </div>
@@ -247,6 +259,7 @@ export function PrQueueSidebar({
             scoreForPrList={scoreForPrList}
             selectedKey={selectedKey}
             selectedReviewScore={selectedReviewScore}
+            stackSummaries={stackSummaries}
             onSelectPr={onSelectPr}
             onTogglePrRow={onTogglePrRow}
             onToggleRepoGroup={onToggleRepoGroup}
@@ -269,6 +282,7 @@ function PrRepositorySection({
   scoreForPrList,
   selectedKey,
   selectedReviewScore,
+  stackSummaries,
   onSelectPr,
   onTogglePrRow,
   onToggleRepoGroup
@@ -282,6 +296,7 @@ function PrRepositorySection({
   scoreForPrList: (pr: PrListItem) => { score: ReviewScore; estimated: boolean; available: boolean };
   selectedKey?: string;
   selectedReviewScore?: ReviewScore;
+  stackSummaries?: PrStackSummaryMap;
   onSelectPr: (pr: PrListItem) => void;
   onTogglePrRow: (key: string) => void;
   onToggleRepoGroup: (repository: string) => void;
@@ -303,6 +318,7 @@ function PrRepositorySection({
         const rowScore = pr.key === selectedKey && selectedReviewScore ? { score: selectedReviewScore, estimated: false, available: true } : scoreForPrList(pr);
         const score = rowScore.score;
         const expanded = expandedPrRows[pr.key] ?? false;
+        const stack = stackSummaries?.[pr.key];
         return (
           <article key={pr.key} className={`pr-row ${pr.key === selectedKey ? "selected" : ""} ${expanded ? "expanded" : ""} ${triage.tone}`}>
             <div className="pr-row-top">
@@ -310,6 +326,11 @@ function PrRepositorySection({
                 <span className="row-title">{pr.title}</span>
                 <span className="row-triage">
                   <Badge tone={triage.tone}>{triage.label}</Badge>
+                  {stack && (
+                    <Badge tone="queue">
+                      <Layers size={11} /> {stack.position}/{stack.size}
+                    </Badge>
+                  )}
                   <span>{triage.nextAction}</span>
                 </span>
               </button>

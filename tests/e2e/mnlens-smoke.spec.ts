@@ -436,10 +436,10 @@ test("promotes unresolved line comments into Reviewer Focus and sends them to Co
 
   await expect.poll(() => fixRequests.length).toBe(1);
   expect(fixRequests[0]).toMatchObject({
-    source: expect.stringMatching(/^Overview \/ Reviewer Focus \/ Focus \d+$/)
+    source: expect.stringMatching(/^Overview \/ Reviewer Focus \/ (Review focus|Focus) \d+$/)
   });
   await expect(page.getByRole("button", { name: "Codex", exact: true })).toHaveClass(/active/);
-  await expect(page.getByText(/Overview \/ Reviewer Focus \/ Focus \d+/).first()).toBeVisible();
+  await expect(page.getByText(/Overview \/ Reviewer Focus \/ (Review focus|Focus) \d+/).first()).toBeVisible();
 });
 
 test("supports find inside code diff views", async ({ page }) => {

@@ -27,11 +27,21 @@ export function runCommand(
     input?: string;
     timeoutMs?: number;
     redact?: string[];
+    /** Environment variables to remove from the inherited environment before spawning. */
+    omitEnv?: string[];
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
   } = {}
 ): Promise<CommandResult> {
   return runCommandAttempt(command, args, options, 0);
+}
+
+export function mergeEnv(env: NodeJS.ProcessEnv | undefined, omit: string[] = []): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...process.env, ...env };
+  for (const key of omit) {
+    if (!(env && key in env)) delete merged[key];
+  }
+  return merged;
 }
 
 function runCommandAttempt(
@@ -43,6 +53,7 @@ function runCommandAttempt(
     input?: string;
     timeoutMs?: number;
     redact?: string[];
+    omitEnv?: string[];
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
   },
@@ -51,10 +62,11 @@ function runCommandAttempt(
   return new Promise((resolve, reject) => {
     const isGithubCommand = isGithubCliCommand(command);
     if (isGithubCommand) assertGithubRateLimitAvailable();
-    const resolvedCommand = resolveExecutable(command, { ...process.env, ...options.env });
+    const env = mergeEnv(options.env, options.omitEnv);
+    const resolvedCommand = resolveExecutable(command, env);
     const child = spawn(resolvedCommand, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env,
       stdio: [options.input ? "pipe" : "ignore", "pipe", "pipe"]
     });
 

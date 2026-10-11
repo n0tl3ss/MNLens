@@ -1,0 +1,217 @@
+.agent-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(16, 24, 32, 0.45);
+}
+
+.agent-settings {
+  display: grid;
+  gap: 14px;
+  width: min(880px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px 18px;
+  border: 1px solid #b8c9ce;
+  border-radius: 10px;
+  background: #fbfdfd;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+}
+
+.agent-settings header,
+.agent-settings footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-settings h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.agent-settings h4 {
+  margin: 0 0 6px;
+}
+
+.agent-settings-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e1e8ea;
+}
+
+.agent-settings-section p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.agent-choice {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.agent-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "radio name" "radio desc";
+  gap: 2px 10px;
+  padding: 10px 12px;
+  border: 1px solid #c6d9df;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.agent-option input {
+  grid-area: radio;
+  align-self: center;
+}
+
+.agent-option > span {
+  grid-area: name;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-option > em {
+  grid-area: desc;
+  font-size: 12px;
+}
+
+.agent-option.selected {
+  border-color: #5b4bd6;
+  box-shadow: 0 0 0 2px rgba(91, 75, 214, 0.15);
+}
+
+.agent-option.unavailable {
+  opacity: 0.75;
+}
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) 1fr 1fr;
+  gap: 8px 12px;
+  align-items: start;
+}
+
+.tier-row {
+  display: contents;
+}
+
+.tier-label {
+  display: grid;
+  gap: 2px;
+}
+
+.tier-label em {
+  font-size: 12px;
+}
+
+.tier-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.tier-cell input,
+.tier-cell select,
+.task-row select,
+.budget-row input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #c6d9df;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 6px 14px;
+}
+
+.task-row,
+.budget-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.task-row > span,
+.budget-row > span {
+  display: grid;
+  gap: 1px;
+  font-size: 13px;
+}
+
+.task-row em,
+.budget-row em {
+  font-size: 11px;
+}
+
+.task-row select {
+  width: auto;
+  min-width: 190px;
+}
+
+.budget-row input {
+  width: 120px;
+}
+
+.agent-settings-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #e997aa;
+  border-radius: 6px;
+  background: #fff0f2;
+  color: #9a2e3f;
+  font-size: 13px;
+}
+
+.agent-settings-footer-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+[data-theme="dark"] .agent-settings {
+  border-color: #34404a;
+  background: #15161f;
+}
+
+[data-theme="dark"] .agent-settings-section {
+  border-top-color: #2b3440;
+}
+
+[data-theme="dark"] .agent-option {
+  border-color: #34404a;
+  background: #1a1b26;
+}
+
+[data-theme="dark"] .tier-cell input,
+[data-theme="dark"] .tier-cell select,
+[data-theme="dark"] .task-row select,
+[data-theme="dark"] .budget-row input {
+  border-color: #34404a;
+  background: #1a1b26;
+  color: inherit;
+}
+
+@media (max-width: 720px) {
+  .tier-grid {
+    grid-template-columns: 1fr;
+  }
+  .tier-grid > strong:empty {
+    display: none;
+  }
+}

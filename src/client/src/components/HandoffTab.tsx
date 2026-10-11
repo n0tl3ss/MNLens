@@ -1,4 +1,5 @@
-import { Clipboard } from "lucide-react";
+import { Clipboard, Send } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { AnalysisResult, FixJob, PrDetail, VerificationJob } from "../../../shared/types";
 import type { DraftReviewComment } from "./CommentTab";
 import type { ReviewReplay } from "./ReviewDeltaSection";
@@ -14,7 +15,12 @@ export function HandoffTab({
   fixJobs,
   recommendation,
   replay,
-  markdown
+  markdown,
+  feedbackPreview,
+  feedbackBusy,
+  feedbackError,
+  onPreviewFeedback,
+  onPostFeedback
 }: {
   detail: PrDetail;
   analysis?: AnalysisResult;
@@ -24,7 +30,15 @@ export function HandoffTab({
   recommendation: ReviewRecommendation;
   replay: ReviewReplay;
   markdown: string;
+  feedbackPreview?: string;
+  feedbackBusy?: boolean;
+  feedbackError?: string;
+  onPreviewFeedback?: (note: string) => void;
+  onPostFeedback?: (body: string) => void;
 }) {
+  const [note, setNote] = useState("");
+  const [draft, setDraft] = useState(feedbackPreview ?? "");
+  useEffect(() => setDraft(feedbackPreview ?? ""), [feedbackPreview]);
   return (
     <div className="panel handoff-panel">
       <ReviewTraceSection
@@ -64,6 +78,41 @@ export function HandoffTab({
         </div>
         <textarea className="handoff-text" value={markdown} readOnly />
       </section>
+      {onPreviewFeedback && onPostFeedback && (
+        <section className="summary-card handoff-card">
+          <div className="panel-title">
+            <div>
+              <h3>Feedback To Author</h3>
+              <p className="muted">
+                One structured comment for the PR author: acceptance-criteria status with evidence, the findings you kept (👍), second-opinion notes, and your local verification runs. Nothing is posted until you click Post.
+              </p>
+            </div>
+          </div>
+          <label className="handoff-note">
+            <span>Optional note to the author</span>
+            <input type="text" value={note} onChange={(event) => setNote(event.target.value)} placeholder="e.g. Approving once the retry test lands." />
+          </label>
+          <div className="inline-actions">
+            <button type="button" onClick={() => onPreviewFeedback(note)} disabled={feedbackBusy}>
+              {feedbackBusy && !draft ? "Building..." : draft ? "Rebuild preview" : "Build comment preview"}
+            </button>
+            {draft && (
+              <>
+                <button type="button" onClick={() => void navigator.clipboard.writeText(draft)}>
+                  <Clipboard size={16} />
+                  Copy
+                </button>
+                <button type="button" className="primary" onClick={() => onPostFeedback(draft)} disabled={feedbackBusy || !draft.trim()} title="Posts this comment to the PR conversation with your GitHub identity">
+                  <Send size={16} />
+                  {feedbackBusy ? "Posting..." : "Post to PR"}
+                </button>
+              </>
+            )}
+          </div>
+          {draft && <textarea className="handoff-text" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />}
+          {feedbackError && <p className="acceptance-error">{feedbackError}</p>}
+        </section>
+      )}
     </div>
   );
 }

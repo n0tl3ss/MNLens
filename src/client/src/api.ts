@@ -1,4 +1,17 @@
 import type {
+  AcceptanceContract,
+  AcceptanceContractRequest,
+  FeedbackCommentPreview,
+  FindingVerdict,
+  RecordFindingFeedbackRequest,
+  ReviewMemorySummary,
+  StackMergePlan,
+  StackMergeRequest,
+  StackMergeResponse,
+  UpdateCriterionRequest,
+  AgentSettings,
+  AgentTask,
+  AgentUsageSummary,
   AnalysisResult,
   AskFixRequest,
   AskFixResponse,
@@ -30,6 +43,8 @@ import type {
   PrDetail,
   PrListItem,
   PrRef,
+  PrStack,
+  PrStackSummaryMap,
   RepositoryBranch,
   QueueName,
   CreateRepoReviewRuleRequest,
@@ -47,6 +62,7 @@ import type {
   StoreGithubTokenRequest,
   SubmitReviewRequest,
   SubmitReviewResponse,
+  UpdateAgentSettingsRequest,
   UpdatePrTargetBranchRequest,
   UpdatePrTargetBranchResponse,
   UpdateRepoReviewRuleRequest,
@@ -381,6 +397,90 @@ export async function clearCache(key: string): Promise<void> {
   const session = await getLocalSession();
   const response = await fetch(`/api/cache/${key}`, { method: "DELETE", headers: { "x-mnlens-session": session.token } });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+}
+
+export interface AgentSettingsResponse {
+  settings: AgentSettings;
+  defaults: AgentSettings;
+  tasks: Array<{ task: AgentTask; description: string }>;
+}
+
+export function getAgentSettings(): Promise<AgentSettingsResponse> {
+  return request<AgentSettingsResponse>("/api/agent-settings");
+}
+
+export function updateAgentSettings(payload: UpdateAgentSettingsRequest): Promise<AgentSettingsResponse> {
+  return request<AgentSettingsResponse>("/api/agent-settings", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function resetAgentSettings(): Promise<AgentSettingsResponse> {
+  return request<AgentSettingsResponse>("/api/agent-settings", { method: "DELETE" });
+}
+
+export function requestSecondOpinion(pr: PrRef): Promise<AnalysisResult> {
+  return request<AnalysisResult>("/api/second-opinion", {
+    method: "POST",
+    body: JSON.stringify({ owner: pr.owner, repo: pr.repo, number: pr.number })
+  });
+}
+
+export function getAcceptanceContract(prKey: string): Promise<AcceptanceContract | null> {
+  return request<AcceptanceContract | null>(`/api/acceptance/${prKey}`);
+}
+
+export function generateAcceptanceContract(payload: AcceptanceContractRequest): Promise<AcceptanceContract> {
+  return request<AcceptanceContract>("/api/acceptance", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateAcceptanceCriterion(prKey: string, criterionId: string, payload: UpdateCriterionRequest): Promise<AcceptanceContract> {
+  return request<AcceptanceContract>(`/api/acceptance/${prKey}/criteria/${encodeURIComponent(criterionId)}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function getReviewMemory(owner: string, repo: string, number?: number): Promise<ReviewMemorySummary> {
+  return request<ReviewMemorySummary>(`/api/review-memory/${owner}/${repo}${number ? `?number=${number}` : ""}`);
+}
+
+export function recordFindingFeedback(payload: RecordFindingFeedbackRequest): Promise<ReviewMemorySummary> {
+  return request<ReviewMemorySummary>("/api/review-memory", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function previewFeedbackComment(pr: PrRef, reviewerNote?: string): Promise<FeedbackCommentPreview> {
+  return request<FeedbackCommentPreview>("/api/feedback-comment/preview", { method: "POST", body: JSON.stringify({ ...pr, reviewerNote }) });
+}
+
+export function postFeedbackComment(pr: PrRef, body: string): Promise<ReplyConversationResponse> {
+  return request<ReplyConversationResponse>("/api/feedback-comment", { method: "POST", body: JSON.stringify({ owner: pr.owner, repo: pr.repo, number: pr.number, body }) });
+}
+
+export function getStackMergePlan(pr: PrRef, force = false): Promise<StackMergePlan> {
+  return request<StackMergePlan>(`/api/stacks/${pr.owner}/${pr.repo}/${pr.number}/merge-plan${force ? "?force=true" : ""}`);
+}
+
+export function mergeStackStep(payload: StackMergeRequest): Promise<StackMergeResponse> {
+  return request<StackMergeResponse>("/api/stacks/merge", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function eventStreamUrl(): Promise<string> {
+  const session = await getLocalSession();
+  return `/api/events?token=${encodeURIComponent(session.token)}`;
+}
+
+export type { FindingVerdict };
+
+export function getAgentUsage(prKey?: string): Promise<AgentUsageSummary> {
+  return request<AgentUsageSummary>(`/api/usage${prKey ? `?prKey=${encodeURIComponent(prKey)}` : ""}`);
+}
+
+export function getPrStack(pr: PrRef, force = false): Promise<PrStack> {
+  return request<PrStack>(`/api/stacks/${pr.owner}/${pr.repo}/${pr.number}${force ? "?force=true" : ""}`);
+}
+
+export function getStackSummaries(repositories: string[]): Promise<PrStackSummaryMap> {
+  if (repositories.length === 0) return Promise.resolve({});
+  return request<PrStackSummaryMap>(`/api/stacks/summary?repos=${encodeURIComponent(repositories.join(","))}`);
 }
 
 export function isAnalysisResult(value: unknown): value is AnalysisResult {

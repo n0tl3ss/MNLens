@@ -1,6 +1,14 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AcceptanceContract,
+  AcceptanceCriterion,
+  CriterionStatus,
+  ReviewMemorySummary,
+  StackMergeMethod,
+  StackMergePlan,
+  AgentId,
+  AgentUsageSummary,
   AnalysisResult,
   CiCheck,
   FixJob,
@@ -8,6 +16,9 @@ import type {
   Job,
   PrDetail,
   PrListItem,
+  PrStack,
+  PrStackNode,
+  PrStackSummaryMap,
   QueueName,
   RebasePrResponse,
   ReviewComment,
@@ -16,6 +27,7 @@ import type {
   ReviewProgress,
   RepoReviewRule,
   RepositoryBranch,
+  UpdateAgentSettingsRequest,
   VerificationJob
 } from "../../shared/types";
 import {
@@ -31,6 +43,17 @@ import {
   createRepoRule,
   downloadCacheBundle,
   getActiveFixJobs,
+  getAgentSettings,
+  getAgentUsage,
+  getAcceptanceContract,
+  generateAcceptanceContract,
+  updateAcceptanceCriterion,
+  getReviewMemory,
+  recordFindingFeedback,
+  previewFeedbackComment,
+  postFeedbackComment,
+  getStackMergePlan,
+  mergeStackStep,
   getAnalysis,
   getCacheStats,
   getCiChecks,
@@ -41,14 +64,18 @@ import {
   getGithubProjects,
   getJob,
   getPrDetail,
+  getPrStack,
   getPrs,
   getProgress,
   getRepositoryBranches,
   getRepoRules,
+  getStackSummaries,
   getVerificationJob,
   getVerificationJobs,
   openEditor,
   replyConversation,
+  requestSecondOpinion,
+  resetAgentSettings,
   resolveReviewThread,
   retryFix,
   runManualVerification,
@@ -56,11 +83,15 @@ import {
   pushFix,
   startFix,
   submitReview,
+  updateAgentSettings,
   updatePrBranch,
   updatePrTargetBranch,
   updateRepoRule,
-  updateProgress
+  updateProgress,
+  type AgentSettingsResponse
 } from "./api";
+import { AgentSettingsDialog, agentLabels } from "./components/AgentSettingsDialog";
+import { StackPanel } from "./components/StackPanel";
 import { type DraftReviewComment } from "./components/CommentTab";
 import { DetailTab } from "./components/DetailTab";
 import { DetailPaneChrome } from "./components/DetailPaneChrome";
@@ -93,6 +124,7 @@ import {
   toneForCi
 } from "./verificationHelpers";
 import { useJobPolling } from "./useJobPolling";
+import { useServerEvents } from "./useServerEvents";
 import { useSetupAuth } from "./useSetupAuth";
 
 type Theme = "light" | "dark";
@@ -117,6 +149,26 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [cacheText, setCacheText] = useState("");
+  const [agentSettings, setAgentSettings] = useState<AgentSettingsResponse | undefined>();
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const [agentSettingsSaving, setAgentSettingsSaving] = useState(false);
+  const [agentSettingsError, setAgentSettingsError] = useState<string | undefined>();
+  const [stacks, setStacks] = useState<Record<string, PrStack>>({});
+  const [stackLoading, setStackLoading] = useState(false);
+  const [stackSummaries, setStackSummaries] = useState<PrStackSummaryMap>({});
+  const [usage, setUsage] = useState<Record<string, AgentUsageSummary>>({});
+  const [secondOpinionBusy, setSecondOpinionBusy] = useState(false);
+  const [acceptance, setAcceptance] = useState<Record<string, AcceptanceContract | null>>({});
+  const [acceptanceBusy, setAcceptanceBusy] = useState(false);
+  const [acceptanceError, setAcceptanceError] = useState<string | undefined>();
+  const [memory, setMemory] = useState<Record<string, ReviewMemorySummary>>({});
+  const [feedbackPreview, setFeedbackPreview] = useState<Record<string, string>>({});
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | undefined>();
+  const [mergePlans, setMergePlans] = useState<Record<string, StackMergePlan>>({});
+  const [stackMerging, setStackMerging] = useState(false);
+  const [stackMergeError, setStackMergeError] = useState<string | undefined>();
+  const [secondOpinionError, setSecondOpinionError] = useState<string | undefined>();
   const [reviewComments, setReviewComments] = useState<Record<string, DraftReviewComment[]>>({});
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -230,6 +282,21 @@ export function App() {
   useJobPolling(jobs, pollJob, 2000);
   useJobPolling(verificationJobs, pollVerificationJob, 2500);
   useJobPolling(fixJobs, pollFixJob, 3000);
+  // Push channel: same payloads as polling, but immediate. Terminal states go through the poll handlers so notices/analysis refresh stay in one place.
+  useServerEvents({
+    onAnalysis: (job) => {
+      if (job.status === "done" || job.status === "failed") void pollJob(job.id);
+      else setJobs((current) => ({ ...current, [job.id]: job }));
+    },
+    onFix: (job) => {
+      if (job.status === "done" || job.status === "failed") void pollFixJob(job.id);
+      else setFixJobs((current) => ({ ...current, [job.id]: { ...job, diff: job.diff || current[job.id]?.diff } }));
+    },
+    onVerification: (job) => {
+      if (job.status === "done" || job.status === "failed") void pollVerificationJob(job.id);
+      else setVerificationJobs((current) => ({ ...current, [job.id]: job }));
+    }
+  });
 
   useEffect(() => {
     void refreshActiveFixJobs();
@@ -238,6 +305,7 @@ export function App() {
   }, []);
 
   const repos = useMemo(() => ["all", ...Array.from(new Set(prs.map((pr) => pr.repository))).sort()], [prs]);
+  const selectedAgentLabel = setupStatus?.selectedAgent === "claude" ? "Claude" : "Codex";
   const { visiblePrs, visiblePrGroups, visibleAnalysisBatch, unanalyzedVisibleCount, latestJobForPr, scoreForPrList } =
     useMemo(
       () =>
@@ -276,6 +344,9 @@ export function App() {
       setPrs(next);
       setSelectedFallbackPr((current) => (current && next.some((pr) => pr.key === current.key) ? undefined : current));
       setSelectedKey((current) => current ?? next[0]?.key);
+      void getStackSummaries(Array.from(new Set(next.map((pr) => pr.repository))))
+        .then(setStackSummaries)
+        .catch(() => undefined);
       const stats = await getCacheStats();
       setCacheText(`${stats.prCount} PR snapshots, ${stats.analysisCount} analyses`);
       if (refreshSelected && selectedKey) {
@@ -311,6 +382,10 @@ export function App() {
         return [];
       });
       if (nextGithubProjects.length > 0) setGithubProjectsError(undefined);
+      void loadStack(pr);
+      void getAcceptanceContract(pr.key).then((contract) => setAcceptance((current) => ({ ...current, [pr.key]: contract }))).catch(() => undefined);
+      void getReviewMemory(pr.owner, pr.repo, pr.number).then((summary) => setMemory((current) => ({ ...current, [pr.key]: summary }))).catch(() => undefined);
+      void getAgentUsage(pr.key).then((summary) => setUsage((current) => ({ ...current, [pr.key]: summary }))).catch(() => undefined);
       setDetail(next);
       setSelectedFallbackPr((current) => {
         if (prs.some((item) => item.key === next.key)) return current?.key === next.key ? undefined : current;
@@ -679,6 +754,171 @@ export function App() {
       setNotice("Prepared code changes refreshed from git status.");
     } catch (err) {
       setError(messageOf(err));
+    }
+  }
+
+  async function loadStack(pr: Pick<PrListItem, "owner" | "repo" | "number" | "key">, force = false) {
+    setStackLoading(true);
+    try {
+      const stack = await getPrStack(pr, force);
+      setStacks((current) => ({ ...current, [pr.key]: stack }));
+      if (stack.isStacked) {
+        const plan = await getStackMergePlan(pr, force).catch(() => undefined);
+        if (plan) setMergePlans((current) => ({ ...current, [pr.key]: plan }));
+      }
+    } catch {
+      // Stack detection is best-effort; the PR is still reviewable without it.
+    } finally {
+      setStackLoading(false);
+    }
+  }
+
+  function selectStackNode(node: PrStackNode) {
+    if (!selected) return;
+    const key = `${selected.owner}__${selected.repo}__${node.number}`;
+    const existing = prs.find((candidate) => candidate.key === key);
+    const target = existing ?? activityPrFromRef({ owner: selected.owner, repo: selected.repo, number: node.number, key, repository: selected.repository }, node.title);
+    if (!existing) setSelectedFallbackPr(target);
+    else setSelectedFallbackPr(undefined);
+    setSelectedKey(key);
+    setTab("overview");
+    void loadDetail(target);
+  }
+
+  async function mergeStack(number: number, method: StackMergeMethod) {
+    if (!selected) return;
+    setStackMerging(true);
+    setStackMergeError(undefined);
+    try {
+      const response = await mergeStackStep({ owner: selected.owner, repo: selected.repo, number, method, deleteBranch: true });
+      setNotice(response.message);
+      await loadStack(selected, true);
+      await refreshPrs();
+    } catch (err) {
+      setStackMergeError(messageOf(err));
+    } finally {
+      setStackMerging(false);
+    }
+  }
+
+  async function buildAcceptance(force: boolean) {
+    if (!selected) return;
+    setAcceptanceBusy(true);
+    setAcceptanceError(undefined);
+    try {
+      const contract = await generateAcceptanceContract({ owner: selected.owner, repo: selected.repo, number: selected.number, force });
+      setAcceptance((current) => ({ ...current, [selected.key]: contract }));
+      void getAgentUsage(selected.key).then((summary) => setUsage((current) => ({ ...current, [selected.key]: summary }))).catch(() => undefined);
+    } catch (err) {
+      setAcceptanceError(messageOf(err));
+    } finally {
+      setAcceptanceBusy(false);
+    }
+  }
+
+  async function overrideCriterion(criterion: AcceptanceCriterion, status: CriterionStatus | null) {
+    if (!selected) return;
+    try {
+      const contract = await updateAcceptanceCriterion(selected.key, criterion.id, { status });
+      setAcceptance((current) => ({ ...current, [selected.key]: contract }));
+      void recordFindingFeedback({ owner: selected.owner, repo: selected.repo, number: selected.number, kind: "criterion", title: criterion.text, verdict: status === null ? null : status === "proven" || status === "not-applicable" ? "kept" : "dismissed" }).catch(() => undefined);
+    } catch (err) {
+      setAcceptanceError(messageOf(err));
+    }
+  }
+
+  async function giveFindingFeedback(kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) {
+    if (!selected) return;
+    try {
+      const summary = await recordFindingFeedback({ owner: selected.owner, repo: selected.repo, number: selected.number, kind, title, observation, verdict });
+      setMemory((current) => ({ ...current, [selected.key]: summary }));
+    } catch (err) {
+      setError(messageOf(err));
+    }
+  }
+
+  async function previewAuthorFeedback(note: string) {
+    if (!selected) return;
+    setFeedbackBusy(true);
+    setFeedbackError(undefined);
+    try {
+      const preview = await previewFeedbackComment(selected, note);
+      setFeedbackPreview((current) => ({ ...current, [selected.key]: preview.body }));
+    } catch (err) {
+      setFeedbackError(messageOf(err));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  async function postAuthorFeedback(body: string) {
+    if (!selected) return;
+    if (!window.confirm(`Post this comment to PR #${selected.number} as you?`)) return;
+    setFeedbackBusy(true);
+    setFeedbackError(undefined);
+    try {
+      const response = await postFeedbackComment(selected, body);
+      setNotice(`Feedback posted to the PR conversation${response.comment.url ? ` (${response.comment.url})` : ""}.`);
+      setFeedbackPreview((current) => ({ ...current, [selected.key]: "" }));
+      await loadDetail(selected, true, true);
+    } catch (err) {
+      setFeedbackError(messageOf(err));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }
+
+  async function askSecondOpinion() {
+    if (!selected) return;
+    setSecondOpinionBusy(true);
+    setSecondOpinionError(undefined);
+    try {
+      const next = await requestSecondOpinion(selected);
+      setAnalysis(next);
+      void getAgentUsage(selected.key).then((summary) => setUsage((current) => ({ ...current, [selected.key]: summary }))).catch(() => undefined);
+      setNotice(`${next.secondOpinion?.agent === "claude" ? "Claude" : "Codex"} second opinion: ${next.secondOpinion?.verdict ?? "done"}.`);
+    } catch (err) {
+      setSecondOpinionError(messageOf(err));
+    } finally {
+      setSecondOpinionBusy(false);
+    }
+  }
+
+  async function openAgentSettings() {
+    setAgentSettingsError(undefined);
+    setAgentSettingsOpen(true);
+    try {
+      setAgentSettings(await getAgentSettings());
+    } catch (err) {
+      setAgentSettingsError(messageOf(err));
+    }
+  }
+
+  async function saveAgentSettings(patch: UpdateAgentSettingsRequest) {
+    setAgentSettingsSaving(true);
+    setAgentSettingsError(undefined);
+    try {
+      const next = await updateAgentSettings(patch);
+      setAgentSettings(next);
+      setAgentSettingsOpen(false);
+      setNotice(`Agent set to ${agentLabels[next.settings.agent]}. New analyses and fix sessions will use it; running sessions keep their original agent.`);
+      void refreshSetupStatus();
+    } catch (err) {
+      setAgentSettingsError(messageOf(err));
+    } finally {
+      setAgentSettingsSaving(false);
+    }
+  }
+
+  async function resetAgentDefaults() {
+    setAgentSettingsSaving(true);
+    setAgentSettingsError(undefined);
+    try {
+      setAgentSettings(await resetAgentSettings());
+    } catch (err) {
+      setAgentSettingsError(messageOf(err));
+    } finally {
+      setAgentSettingsSaving(false);
     }
   }
 
@@ -1127,6 +1367,9 @@ export function App() {
         onCancelQueuedActivity={() => void cancelQueuedWorkActivity()}
         onClearAllData={() => void clearAllReviewData()}
         onExportData={() => void exportLocalReviewData()}
+        onOpenAgentSettings={() => void openAgentSettings()}
+        agentLabel={setupStatus?.selectedAgent ? selectedAgentLabel : undefined}
+        stackSummaries={stackSummaries}
         onSelectActivity={(item) => {
           setSelectedKey(item.prKey);
           setTab(item.targetTab);
@@ -1194,6 +1437,19 @@ export function App() {
               onToggleAttention={() => setAttentionMode((value) => !value)}
             />
 
+            <StackPanel
+              stack={stacks[selected.key]}
+              plan={mergePlans[selected.key]}
+              loading={stackLoading}
+              busy={rebasing}
+              merging={stackMerging}
+              mergeError={stackMergeError}
+              onSelect={selectStackNode}
+              onRefresh={() => void loadStack(selected, true)}
+              onRestack={() => void updateSelectedBranch()}
+              onMerge={(number, method) => void mergeStack(number, method)}
+            />
+
             {rebasePreview?.previewId && (
               <RebasePreviewPanel
                 preview={rebasePreview}
@@ -1206,13 +1462,14 @@ export function App() {
             {selectedJob && (selectedJob.status === "running" || selectedJob.status === "queued") ? (
               <div className="running">
                 <Loader2 size={18} className="spin" />
-                Codex analysis is {selectedJob.status}.
+                {selectedAgentLabel} analysis is {selectedJob.status}.
               </div>
             ) : null}
 
             <ReviewTabs
               active={tab}
               refreshing={refreshingSelected}
+              agentLabel={selectedAgentLabel}
               onChange={setTab}
               onRefresh={() => void refreshSelectedData()}
             />
@@ -1221,6 +1478,22 @@ export function App() {
               tab={tab}
               detail={selectedDetail}
               analysis={activeDetailAnalysis}
+              usage={usage[selected.key]}
+              secondOpinionBusy={secondOpinionBusy}
+              secondOpinionError={secondOpinionError}
+              onRequestSecondOpinion={() => void askSecondOpinion()}
+              acceptance={acceptance[selected.key]}
+              acceptanceBusy={acceptanceBusy}
+              acceptanceError={acceptanceError}
+              onGenerateAcceptance={(force) => void buildAcceptance(force)}
+              onOverrideCriterion={(criterion, status) => void overrideCriterion(criterion, status)}
+              memory={memory[selected.key]}
+              onFindingFeedback={(kind, title, observation, verdict) => void giveFindingFeedback(kind, title, observation, verdict)}
+              feedbackPreview={feedbackPreview[selected.key]}
+              feedbackBusy={feedbackBusy}
+              feedbackError={feedbackError}
+              onPreviewFeedback={(note) => void previewAuthorFeedback(note)}
+              onPostFeedback={(body) => void postAuthorFeedback(body)}
               progress={progress}
               githubProjects={githubProjects}
               githubProjectsError={githubProjectsError}
@@ -1289,7 +1562,18 @@ export function App() {
           </>
         ) : null}
       </DetailPaneChrome>
-    </main>
+          {agentSettingsOpen && (
+        <AgentSettingsDialog
+          data={agentSettings}
+          availableAgents={(setupStatus?.availableAgents ?? []) as AgentId[]}
+          saving={agentSettingsSaving}
+          error={agentSettingsError}
+          onClose={() => setAgentSettingsOpen(false)}
+          onSave={(patch) => void saveAgentSettings(patch)}
+          onReset={() => void resetAgentDefaults()}
+        />
+      )}
+</main>
   );
 }
 

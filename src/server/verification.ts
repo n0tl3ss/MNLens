@@ -6,9 +6,11 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JobStatus, PrRef, VerificationArtifact, VerificationJob } from "../shared/types.js";
 import { prKey, readPrDetail, readVerificationJob, readVerificationJobs, readVerificationJobsForPr, writeVerificationJob } from "./cache.js";
-import { CommandError } from "./command.js";
-import { runCommand } from "./command.js";
-import { codexHome, ensureCodexHome } from "./codex.js";
+import { CommandError, mergeEnv, runCommand } from "./command.js";
+import { parseAgentOutput, prepareAgentRun } from "./agent.js";
+import { githubCliEnv, githubHost, hardenWorktreeCredentials } from "./githubHost.js";
+import { manualCheckInstructions } from "./agentSkills.js";
+import { publishEvent } from "./events.js";
 import { assertGithubRateLimitAvailable, noteGithubRateLimit } from "./githubRateLimit.js";
 import { missingGithubTokenMessage, readGithubToken } from "./keychain.js";
 import { cacheDir } from "./paths.js";
@@ -92,7 +94,7 @@ export async function enqueueManualVerification(pr: PrRef, item: string, id: str
     prKey: prKey(pr.owner, pr.repo, pr.number),
     command: manualVerificationCommand(id),
     phase: "queued",
-    statusMessage: "Waiting for Codex manual-check assistance.",
+    statusMessage: "Waiting for agent manual-check assistance.",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     stdout: "",
@@ -152,14 +154,15 @@ export async function ensureVerificationWorktree(pr: PrRef): Promise<string> {
   if (!existsSync(join(repoDir, ".git"))) {
     await rm(repoDir, { recursive: true, force: true });
     await runCommand("gh", ["repo", "clone", repoName, repoDir, "--", "--depth", "1"], {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 10 * 60_000,
       redact: [token]
     });
+    await hardenWorktreeCredentials(repoDir);
   }
   await runCommand("gh", ["pr", "checkout", String(pr.number), "--detach"], {
     cwd: repoDir,
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: 5 * 60_000,
     redact: [token]
   });
@@ -206,20 +209,25 @@ async function drainVerificationQueue(): Promise<void> {
         if (isDocRenderVerification(item.manualItem)) {
           result = await runDocRenderVerification(item.job, item.pr, repoDir, item.manualItem, token);
         } else {
-          await ensureCodexHome();
-          updateVerificationJob(item.job, { phase: "running", statusMessage: "Codex is investigating the manual check." });
-          result = await runStreamingCommand(
-            item.job,
-            "codex",
-            ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
-            {
-              cwd: repoDir,
-              input: manualCheckPrompt(item.manualItem),
-              env: { CODEX_HOME: codexHome, GH_TOKEN: token, GH_HOST: "github.com" },
-              timeoutMs: 15 * 60_000,
-              redact: [token]
-            }
-          );
+          const invocation = await prepareAgentRun({
+            task: "manual-check",
+            prKey: item.job.prKey,
+            prompt: manualCheckPrompt(item.manualItem),
+            access: "read-only",
+            cwd: repoDir
+          });
+          updateVerificationJob(item.job, { phase: "running", statusMessage: `${invocation.label} is investigating the manual check.` });
+          const raw = await runStreamingCommand(item.job, invocation.command, invocation.args, {
+            cwd: repoDir,
+            input: invocation.input,
+            env: invocation.env,
+            omitEnv: invocation.omitEnv,
+            timeoutMs: 15 * 60_000,
+            redact: [token]
+          });
+          const parsed = parseAgentOutput(invocation.agent, raw.stdout);
+          if (parsed.isError) throw new Error(parsed.text || `${invocation.label} reported an error.`);
+          result = { ...raw, stdout: parsed.text || raw.stdout };
         }
       } else {
         const parsed = parseVerificationCommand(item.job.command);
@@ -228,7 +236,7 @@ async function drainVerificationQueue(): Promise<void> {
         updateVerificationJob(item.job, { phase: "running", statusMessage: `Running ${resolved.display}` });
         result = await runStreamingCommand(item.job, resolved.command, resolved.args, {
           cwd: repoDir,
-          env: { GH_TOKEN: token, GH_HOST: "github.com" },
+          env: githubCliEnv(token),
           timeoutMs: verificationCommandTimeoutMs,
           redact: [token]
         });
@@ -274,22 +282,7 @@ export function manualVerificationCommand(id: string): string {
 }
 
 function manualCheckPrompt(item: string): string {
-  return `You are helping a human reviewer with a manual PR verification item.
-
-Manual check:
-${item}
-
-Use the checked-out PR code in this repository. Do not modify files.
-
-Try to answer:
-- Can this be verified by static inspection?
-- Is there an existing test that covers it?
-- What exact command should the human run if a command is needed?
-- If this should be automated, what unit/integration/TCK test should be added instead of leaving it manual?
-- What evidence supports pass/fail?
-- What remains genuinely manual?
-
-Return a concise reviewer report with verdict: likely pass, likely fail, inconclusive, or needs human runtime validation.`;
+  return manualCheckInstructions(item);
 }
 
 function isDocRenderVerification(item: string): boolean {
@@ -301,7 +294,7 @@ async function runDocRenderVerification(job: VerificationJob, pr: PrRef, repoDir
   const command = docBuildCommand(repoDir);
   const build = await runStreamingCommand(job, command.command, command.args, {
     cwd: repoDir,
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: verificationCommandTimeoutMs,
     redact: [token]
   });
@@ -656,15 +649,16 @@ async function preparePrWorktree(pr: PrRef, token: string, job: VerificationJob)
     updateVerificationJob(job, { phase: "cloning", statusMessage: `Cloning ${repoName} into a temporary review checkout.` });
     await rm(repoDir, { recursive: true, force: true });
     await runStreamingCommand(job, "gh", ["repo", "clone", repoName, repoDir, "--", "--depth", "1"], {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 10 * 60_000,
       redact: [token]
     });
+    await hardenWorktreeCredentials(repoDir);
   }
   updateVerificationJob(job, { phase: "checking-out", statusMessage: `Checking out PR #${pr.number}.` });
   await runStreamingCommand(job, "gh", ["pr", "checkout", String(pr.number), "--detach"], {
     cwd: repoDir,
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: 5 * 60_000,
     redact: [token]
   });
@@ -740,7 +734,7 @@ async function discoverGradleProjects(job: VerificationJob, repoDir: string, gra
   try {
     const result = await runStreamingCommand(job, gradleCommand, ["projects", "--quiet"], {
       cwd: repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 3 * 60_000,
       redact: [token]
     });
@@ -814,6 +808,7 @@ function updateVerificationJob(job: VerificationJob, patch: Partial<Verification
   Object.assign(job, patch, { updatedAt: new Date().toISOString() });
   verificationJobs.set(job.id, job);
   void writeVerificationJob(job);
+  publishEvent("verification", job, job.id);
 }
 
 function runStreamingCommand(
@@ -826,6 +821,7 @@ function runStreamingCommand(
     input?: string;
     timeoutMs?: number;
     redact?: string[];
+    omitEnv?: string[];
   } = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
@@ -833,7 +829,7 @@ function runStreamingCommand(
     if (isGithubCommand) assertGithubRateLimitAvailable();
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env: mergeEnv(options.env, options.omitEnv),
       stdio: [options.input ? "pipe" : "ignore", "pipe", "pipe"]
     });
     activeProcesses.set(job.id, child);

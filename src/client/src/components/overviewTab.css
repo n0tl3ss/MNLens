@@ -795,3 +795,21 @@
   color: #536164;
   font-size: 13px;
 }
+
+.analysis-stale {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #e3c98a;
+  border-left: 4px solid #c9962a;
+  border-radius: 6px;
+  background: #fff8e6;
+  color: #6b4e08;
+  font-size: 13px;
+}
+
+[data-theme="dark"] .analysis-stale {
+  border-color: #6b5a2a;
+  border-left-color: #d9a83a;
+  background: #2a2412;
+  color: #e9d7a3;
+}

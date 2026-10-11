@@ -63,12 +63,12 @@ export function FixSection({
     <div className="fix-workspace">
       <section id={visibleSession ? `fix-session-${visibleSession.id}` : undefined} className={`summary-card fix-card ${visibleSession?.id === highlightedJobId ? "session-highlight" : ""}`}>
         <div className="insight-heading">
-          <h3>Codex Fix Session</h3>
+          <h3>{fixAgentName(visibleSession ?? latest)} Fix Session</h3>
           {visibleSession && <Badge tone={visibleSession.status === "failed" ? "danger" : running ? "queue" : "added"}>{visibleSession.status}</Badge>}
         </div>
         <p>Step 1 prepares a patch in a temporary PR checkout using research, implementation, tests/QA, docs, security, and final review passes. Step 2 is only available after you inspect the diff.</p>
         {visibleSession && visibleSession.id !== latest?.id && (
-          <p className="muted">Viewing an older Codex session selected from Tool activity. The latest session is {latest?.id.slice(0, 8)}.</p>
+          <p className="muted">Viewing an older {fixAgentName(visibleSession)} session selected from Tool activity. The latest session is {latest?.id.slice(0, 8)}.</p>
         )}
         {visibleSession && <FixSessionContext job={visibleSession} />}
         <FixPhaseStatus job={visibleSession} />
@@ -189,11 +189,11 @@ function sessionHistoryItems(fixJobs: FixJob[], analysisJobs: Job[], verificatio
     key: `fix:${job.id}`,
     id: job.id,
     kind: "fix",
-    typeLabel: "Codex fix",
+    typeLabel: `${fixAgentName(job)} fix`,
     status: job.status,
     updatedAt: job.updatedAt,
     title: job.source ?? phaseLabel(job.phase ?? "codex"),
-    detail: job.statusMessage ?? job.instructions ?? "Codex fix session.",
+    detail: job.statusMessage ?? job.instructions ?? `${fixAgentName(job)} fix session.`,
     job
   }));
   const analysis = analysisJobs.map((job): SessionHistoryItem => ({
@@ -332,7 +332,7 @@ function VerificationJobResult({ job }: { job: VerificationJob }) {
 
 function analysisDetail(job: Job): string {
   const running = job.status === "queued" || job.status === "running";
-  if (running) return job.mode === "fast" ? "MNLens is estimating queue score from PR metadata." : "Codex is analyzing the PR and preparing review guidance.";
+  if (running) return job.mode === "fast" ? "MNLens is estimating queue score from PR metadata." : "The agent is analyzing the PR and preparing review guidance.";
   return job.mode === "fast" ? "Fast score analysis completed." : "Analysis completed.";
 }
 
@@ -381,10 +381,10 @@ function FixSessionContext({ job }: { job: FixJob }) {
           {job.source ?? "Fix tab"}
           {job.baseJobId ? `, continuing ${job.baseJobId.slice(0, 8)}` : ""}
         </strong>
-        {job.codexSessionId && <em>Codex session {job.codexSessionId}</em>}
+        {(job.agentSessionId ?? job.codexSessionId) && <em>{fixAgentName(job)} session {job.agentSessionId ?? job.codexSessionId}</em>}
       </div>
       <div>
-        <span>Codex is trying to fix</span>
+        <span>{fixAgentName(job)} is trying to fix</span>
         <p>{instructions || "General review issues, existing PR comments, failing checks, and test gaps."}</p>
       </div>
     </div>
@@ -536,4 +536,9 @@ function FixResult({
       )}
     </div>
   );
+}
+
+/** Jobs persisted before multi-agent support have no `agent` field and were always Codex sessions. */
+export function fixAgentName(job: Pick<FixJob, "agent"> | undefined): string {
+  return job?.agent === "claude" ? "Claude" : "Codex";
 }

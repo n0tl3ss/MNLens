@@ -62,7 +62,7 @@ describe("server API hardening", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { mode: string; betaLimitations: string[] };
     expect(body.mode).toBe("local");
-    expect(body.betaLimitations).toContain("Codex prepares reviewable code changes. It does not commit or push until a human explicitly approves.");
+    expect(body.betaLimitations).toContain("The coding agent (Codex or Claude Code) prepares reviewable code changes. It does not commit or push until a human explicitly approves.");
   });
 
   for (const item of requests) {

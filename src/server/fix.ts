@@ -4,14 +4,17 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { FixJob, FixPipelineNode, FixRequest, JobStatus, PrDetail } from "../shared/types.js";
-import { codexHome, ensureCodexHome } from "./codex.js";
-import { CommandError } from "./command.js";
-import { runCommand } from "./command.js";
+import { agentDisplayName, createAgentLogFormatter, currentAgent, extractAgentSessionId, parseAgentOutput, prepareAgentRun, recordUsage, type AgentInvocation } from "./agent.js";
+import type { AgentId, AgentTask } from "../shared/types.js";
+import { CommandError, mergeEnv, runCommand } from "./command.js";
 import { prKey, readAnalysis, readFixJob, readFixJobs, readFixJobsForPr, readPrDetail, writeFixJob } from "./cache.js";
 import { getPrDetail } from "./gh.js";
 import { assertGithubRateLimitAvailable, noteGithubRateLimit } from "./githubRateLimit.js";
 import { missingGithubTokenMessage, readGithubToken } from "./keychain.js";
 import { cacheDir } from "./paths.js";
+import { githubCliEnv, githubHost, hardenWorktreeCredentials } from "./githubHost.js";
+import { phaseInstructions, phaseOutputContract, workspaceOperatingRules } from "./agentSkills.js";
+import { publishEvent } from "./events.js";
 import { clearRecoveryPatch, interruptedJobPatch, parsePrKey } from "./recovery.js";
 
 const fixJobs = new Map<string, FixJob>();
@@ -32,41 +35,47 @@ const maxPipelineReworks = 2;
 const fixPipelinePasses = [
   {
     phase: "research",
+    task: "fix-research",
     label: "Research",
     statusMessage: "Researching project patterns and review context.",
     timeoutMs: 12 * 60_000
   },
   {
     phase: "implementation",
+    task: "fix-implementation",
     label: "Implementation",
     statusMessage: "Implementing the smallest coherent fix.",
     timeoutMs: 30 * 60_000
   },
   {
     phase: "tests-qa",
+    task: "fix-tests-qa",
     label: "Tests/QA",
     statusMessage: "Adding or updating focused tests.",
     timeoutMs: 20 * 60_000
   },
   {
     phase: "docs",
+    task: "fix-docs",
     label: "Docs",
     statusMessage: "Checking whether docs or examples need updates.",
     timeoutMs: 10 * 60_000
   },
   {
     phase: "security",
+    task: "fix-security",
     label: "Security",
     statusMessage: "Reviewing the patch for security regressions.",
     timeoutMs: 10 * 60_000
   },
   {
     phase: "final-review",
+    task: "fix-final-review",
     label: "Final review",
     statusMessage: "Reviewing the full patch before preview.",
     timeoutMs: 10 * 60_000
   }
-] satisfies Array<{ phase: SpecialistPhase; label: string; statusMessage: string; timeoutMs: number }>;
+] satisfies Array<{ phase: SpecialistPhase; task: AgentTask; label: string; statusMessage: string; timeoutMs: number }>;
 
 type FixPipelinePass = (typeof fixPipelinePasses)[number];
 
@@ -92,12 +101,12 @@ export async function recoverFixJobs(): Promise<void> {
           baseJobId: job.baseJobId
         }
       });
-      update(job, { ...clearRecoveryPatch<FixJob>(), status: "queued", phase: "queued", statusMessage: "Recovered queued Codex fix session.", error: undefined });
+      update(job, { ...clearRecoveryPatch<FixJob>(), status: "queued", phase: "queued", statusMessage: "Recovered queued agent fix session.", error: undefined });
     } else {
       const phase = specialistPhase(job.phase);
       update(
         job,
-        interruptedJobPatch(job, "Codex fix session was interrupted when MNLens stopped. Retry session to continue from the preserved workspace/context.", {
+        interruptedJobPatch(job, "Agent fix session was interrupted when MNLens stopped. Retry session to continue from the preserved workspace/context.", {
           phase: job.phase ?? "completed",
           pipeline: phase ? markPipelineFailed(job, phase, "Interrupted when MNLens stopped; retry can continue from this phase.") : job.pipeline,
           statusMessage: "Fix session interrupted."
@@ -119,11 +128,15 @@ function buildPipelineState(startIndex = 0): FixPipelineNode[] {
 }
 
 export async function enqueueFix(request: FixRequest): Promise<FixJob> {
+  // A continuation inherits the base job's agent so its session can be resumed; new sessions use the configured agent.
+  const baseJob = request.baseJobId ? fixJobs.get(request.baseJobId) ?? (await readFixJob(request.baseJobId)) : undefined;
+  const agent = baseJob ? baseJob.agent ?? (baseJob.codexSessionId ? "codex" : await currentAgent()) : await currentAgent();
   const job: FixJob = {
     id: randomUUID(),
     status: "queued",
     prKey: prKey(request.owner, request.repo, request.number),
     phase: "queued",
+    agent,
     statusMessage: "Waiting to start.",
     pipeline: buildPipelineState(),
     source: request.source?.trim() || fixSourceLabel(request.instructions),
@@ -202,7 +215,7 @@ export async function askFixQuestion(id: string, question: string): Promise<{ jo
   if (!text) throw new Error("Question is required.");
   if (job.status === "queued" || job.status === "running") {
     const now = new Date().toISOString();
-    const answer = "Guidance queued for the next Codex continuation pass. The current running process cannot be interrupted through stdin safely.";
+    const answer = "Guidance queued for the next agent continuation pass. The current running process cannot be interrupted through stdin safely.";
     update(job, {
       instructions: [job.instructions, text].filter(Boolean).join("\n\n"),
       conversation: [
@@ -210,7 +223,7 @@ export async function askFixQuestion(id: string, question: string): Promise<{ jo
         { id: randomUUID(), role: "user", body: text, createdAt: now },
         { id: randomUUID(), role: "assistant", body: answer, createdAt: new Date().toISOString() }
       ],
-      statusMessage: "Reviewer guidance queued for the next Codex continuation pass."
+      statusMessage: "Reviewer guidance queued for the next agent continuation pass."
     });
     return { job, answer };
   }
@@ -224,25 +237,25 @@ export async function askFixQuestion(id: string, question: string): Promise<{ jo
       { id: randomUUID(), role: "user", body: text, createdAt: now }
     ]
   });
-  const args = job.codexSessionId
-    ? ["exec", "resume", "--skip-git-repo-check", job.codexSessionId, "-"]
-    : ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"];
-  const result = await runStreaming(job, "codex", args, {
+  const agent = await jobAgent(job);
+  const invocation = await prepareAgentRun({
+    task: "fix-question",
+    prompt: buildFixQuestionPrompt(job, text, currentDiff, agent),
+    access: "read-only",
     cwd: job.repoDir,
-    input: buildFixQuestionPrompt(job, text, currentDiff),
-    env: { CODEX_HOME: codexHome, GH_TOKEN: token, GH_HOST: "github.com" },
-    timeoutMs: 8 * 60_000,
-    redact: [token]
+    sessionId: sessionIdOf(job),
+    agent
   });
-  const answer = extractFixAnswer(result.stdout);
+  const result = await runAgentStreaming(job, invocation, { cwd: job.repoDir, timeoutMs: 8 * 60_000, redact: [token] });
+  const answer = extractFixAnswer(result.text);
   update(job, {
-    codexSessionId: extractCodexSessionId(job.stdout) ?? job.codexSessionId,
+    ...sessionPatch(job, result.sessionId),
     conversation: [
       ...(job.conversation ?? []),
       { id: randomUUID(), role: "assistant", body: answer, createdAt: new Date().toISOString() }
     ],
     diff: await preparedDiffSnapshot(job.repoDir).catch(() => job.diff ?? currentDiff),
-    statusMessage: "Codex answered a review question without starting a new fix pipeline."
+    statusMessage: `${agentDisplayName(agent)} answered a review question without starting a new fix pipeline.`
   });
   return { job, answer };
 }
@@ -251,7 +264,7 @@ function buildRetryInstructions(previous: FixJob, instructions: string): string 
   const log = cleanRetryLog([previous.error, previous.stderr, previous.stdout].filter(Boolean).join("\n\n"));
   const diff = previous.diff?.trim() ? cleanRetryLog(previous.diff) : "";
   const retryPass = retryStartPass(previous);
-  return `Retry the previous failed Codex fix session. First try to continue the existing workspace/session from the failed pipeline stage: ${retryPass}. Do not restart earlier completed stages unless the existing workspace/session is unavailable or clearly inconsistent. If continuation is not possible, start from a clean PR checkout and make the smallest coherent patch.
+  return `Retry the previous failed agent fix session. First try to continue the existing workspace/session from the failed pipeline stage: ${retryPass}. Do not restart earlier completed stages unless the existing workspace/session is unavailable or clearly inconsistent. If continuation is not possible, start from a clean PR checkout and make the smallest coherent patch.
 
 Pipeline order:
 1. Research
@@ -263,7 +276,7 @@ Pipeline order:
 
 Resume guidance:
 - If the previous failure was in Research or checkout, recover context and continue with Research.
-- If the previous failure was in the Codex implementation pass, continue from Implementation and keep any useful prepared diff.
+- If the previous failure was in the agent implementation pass, continue from Implementation and keep any useful prepared diff.
 - If the previous failure was in local verification, continue from Tests/QA: inspect the failing output, fix tests or code, then rerun only relevant verification.
 - If the previous failure was in commit/push/finalization, do Final review first, then retry the finalization path only after the diff is coherent.
 
@@ -379,7 +392,7 @@ function markPipelineFailed(job: FixJob, phase: SpecialistPhase, message: string
   );
 }
 
-function pipelineReworkTarget(
+export function pipelineReworkTarget(
   target: SpecialistPhase | undefined,
   current: SpecialistPhase,
   reworkCount: number
@@ -392,7 +405,7 @@ function pipelineReworkTarget(
   return { index: targetIndex, phase: pass.phase, pass };
 }
 
-function parsePipelineDirective(output: string): { action: "continue" } | { action: "rework"; target: SpecialistPhase } | undefined {
+export function parsePipelineDirective(output: string): { action: "continue" } | { action: "rework"; target: SpecialistPhase } | undefined {
   const matches = [...output.matchAll(/PRA_PIPELINE:\s*(continue|rework)\s*([a-z-]+)?/gi)];
   const match = matches[matches.length - 1];
   if (!match) return undefined;
@@ -402,7 +415,7 @@ function parsePipelineDirective(output: string): { action: "continue" } | { acti
   return pass ? { action: "rework", target: pass.phase } : undefined;
 }
 
-function extractQaSummary(
+export function extractQaSummary(
   output: string,
   failures: string[],
   directive: { action: "continue" } | { action: "rework"; target: SpecialistPhase } | undefined
@@ -426,7 +439,7 @@ function pipelineLabel(phase: SpecialistPhase): string {
   return fixPipelinePasses.find((pass) => pass.phase === phase)?.label ?? phase;
 }
 
-function extractFixAnswer(output: string): string {
+export function extractFixAnswer(output: string): string {
   const marker = /FIX_ANSWER:\s*([\s\S]*)/i.exec(output);
   const answer = marker?.[1]?.trim() || output.trim();
   return answer.replace(/\s+\n/g, "\n").trim().slice(0, 2_500);
@@ -439,9 +452,9 @@ function specialistPhase(value: FixPipelinePhase | undefined): SpecialistPhase |
 export async function getFixJob(id: string): Promise<FixJob | undefined> {
   const job = fixJobs.get(id) ?? (await readFixJob(id));
   if (!job) return undefined;
-  if (!job.codexSessionId) {
-    const codexSessionId = extractCodexSessionId(job.stdout);
-    if (codexSessionId) update(job, { codexSessionId });
+  if (!sessionIdOf(job)) {
+    const recovered = extractAgentSessionId(job.stdout, job.agent);
+    if (recovered) update(job, sessionPatch(job, recovered));
   }
   if (!fixJobs.has(job.id) && (job.status === "queued" || job.status === "running")) {
     const phase = specialistPhase(job.phase);
@@ -474,9 +487,9 @@ export async function listFixJobs(key: string): Promise<FixJob[]> {
   const persisted = await readFixJobsForPr(key);
   const byId = new Map<string, FixJob>();
   for (const job of persisted) {
-    if (!job.codexSessionId) {
-      const codexSessionId = extractCodexSessionId(job.stdout);
-      if (codexSessionId) job.codexSessionId = codexSessionId;
+    if (!sessionIdOf(job)) {
+      const recovered = extractAgentSessionId(job.stdout, job.agent);
+      if (recovered) Object.assign(job, sessionPatch(job, recovered));
     }
     await refreshPreparedDiff(job);
     byId.set(job.id, job);
@@ -545,7 +558,7 @@ export async function pushFix(id: string): Promise<FixJob> {
   const token = await requireToken();
   const started = Date.now();
   try {
-    update(job, { status: "running", phase: "committing", statusMessage: hasWorkingChanges ? "Committing approved Codex fixes." : "Using existing local Codex commit." });
+    update(job, { status: "running", phase: "committing", statusMessage: hasWorkingChanges ? "Committing approved agent fixes." : "Using existing local agent commit." });
     let sha = await runStreaming(job, "git", ["rev-parse", "--short", "HEAD"], { cwd: job.repoDir, redact: [token] });
     const detail = await readPrDetail(job.prKey).catch(() => undefined);
     const commitMessage = buildApprovedFixCommitMessage(job, currentDiff, detail);
@@ -554,14 +567,14 @@ export async function pushFix(id: string): Promise<FixJob> {
       await runStreaming(job, "git", ["commit", "-m", commitMessage.subject, "-m", commitMessage.body], { cwd: job.repoDir, redact: [token] });
       sha = await runStreaming(job, "git", ["rev-parse", "--short", "HEAD"], { cwd: job.repoDir, redact: [token] });
     } else {
-      update(job, { statusMessage: "Updating approved Codex commit message." });
+      update(job, { statusMessage: "Updating approved agent commit message." });
       await runStreaming(job, "git", ["commit", "--amend", "-m", commitMessage.subject, "-m", commitMessage.body], { cwd: job.repoDir, redact: [token] });
       sha = await runStreaming(job, "git", ["rev-parse", "--short", "HEAD"], { cwd: job.repoDir, redact: [token] });
     }
     update(job, { committed: true, diff: "", commitSha: commandOutput(sha.stdout).trim(), phase: "pushing", statusMessage: "Pushing approved fixes to the PR branch." });
     await runStreaming(job, "git", ["push"], {
       cwd: job.repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 10 * 60_000,
       redact: [token]
     });
@@ -615,19 +628,22 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
   const started = Date.now();
   update(item.job, { status: "running", phase: "preparing", startedAt: new Date(started).toISOString(), statusMessage: "Preparing fix workspace." } as Partial<FixJob>);
   try {
-      await ensureCodexHome();
       const token = await requireToken();
       const detail = await getPrDetail(item.request.owner, item.request.repo, item.request.number);
       const analysis = await readAnalysis(detail.key);
       const workspace = await prepareWorkspace(item.request, token, item.job);
+      const agent = workspace.agent ?? (await jobAgent(item.job));
+      const agentName = agentDisplayName(agent);
       const startPassIndex = await pipelineStartIndex(item.request);
       const firstPass = fixPipelinePasses[startPassIndex] ?? fixPipelinePasses[0];
       update(item.job, {
         repoDir: workspace.repoDir,
-        codexSessionId: workspace.codexSessionId,
+        agent,
+        agentSessionId: workspace.sessionId,
+        codexSessionId: agent === "codex" ? workspace.sessionId : undefined,
         pipeline: buildPipelineState(startPassIndex),
         phase: firstPass.phase,
-        statusMessage: workspace.reused ? "Codex is continuing the existing fix session." : "Codex is starting the specialist fix pipeline."
+        statusMessage: workspace.reused ? `${agentName} is continuing the existing fix session.` : `${agentName} is starting the specialist fix pipeline.`
       });
       let testFailures: string[] = [];
       let pipelineIndex = startPassIndex;
@@ -641,28 +657,27 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
           phase: pass.phase,
           diff: currentDiff,
           pipeline: markPipelineCurrent(item.job, pass.phase, pass.statusMessage),
-          statusMessage: `${pass.statusMessage} ${workspace.reused || item.job.codexSessionId ? "Continuing the current Codex session." : "Starting a Codex session."}`
+          statusMessage: `${pass.statusMessage} ${workspace.reused || sessionIdOf(item.job) ? `Continuing the current ${agentName} session.` : `Starting a ${agentName} session.`}`
         });
-        const prompt = buildPhasePrompt(pass, detail, analysis, item.request, item.job, currentDiff);
-        const sessionId = item.job.codexSessionId ?? workspace.codexSessionId;
-        const codexArgs = sessionId
-          ? ["exec", "resume", "--skip-git-repo-check", sessionId, "-"]
-          : ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"];
-        const result = await runStreaming(item.job, "codex", codexArgs, {
+        const prompt = buildPhasePrompt(pass, detail, analysis, item.request, item.job, currentDiff, agent);
+        const sessionId = sessionIdOf(item.job) ?? workspace.sessionId;
+        const invocation = await prepareAgentRun({
+          task: pass.task,
+          prompt,
+          access: "full-access",
           cwd: workspace.repoDir,
-          input: prompt,
-          env: { CODEX_HOME: codexHome, GH_TOKEN: token, GH_HOST: "github.com" },
-          timeoutMs: pass.timeoutMs,
-          redact: [token]
+          sessionId,
+          agent
         });
-        const codexSessionId = extractCodexSessionId(item.job.stdout) ?? item.job.codexSessionId ?? workspace.codexSessionId;
+        update(item.job, { statusMessage: `${pass.statusMessage} Using ${invocation.label}.` });
+        const result = await runAgentStreaming(item.job, invocation, { cwd: workspace.repoDir, timeoutMs: pass.timeoutMs, redact: [token] });
         update(item.job, {
-          codexSessionId,
+          ...sessionPatch(item.job, result.sessionId ?? sessionId),
           diff: await preparedDiffSnapshot(workspace.repoDir).catch(() => item.job.diff ?? currentDiff),
           pipeline: markPipelineDone(item.job, pass.phase)
         });
 
-        let directive = parsePipelineDirective(result.stdout);
+        let directive = parsePipelineDirective(result.text);
         if (pass.phase === "tests-qa") {
           const latestFailures: string[] = [];
           update(item.job, { phase: "tests-qa", pipeline: markPipelineCurrent(item.job, "tests-qa", "Running inferred verification commands."), statusMessage: "Running inferred verification commands." });
@@ -673,7 +688,7 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
               try {
                 await runStreaming(item.job, resolved.command, resolved.args, {
                   cwd: workspace.repoDir,
-                  env: { GH_TOKEN: token, GH_HOST: "github.com" },
+                  env: githubCliEnv(token),
                   timeoutMs: fixVerificationTimeoutMs,
                   redact: [token]
                 });
@@ -695,21 +710,20 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
               pipeline: markPipelineCurrent(item.job, "tests-qa", "QA is deciding whether verification failures require implementation rework."),
               statusMessage: "Tests/QA is assessing verification failures before deciding whether to send work back."
             });
-            const assessmentSessionId = item.job.codexSessionId ?? codexSessionId;
-            const assessmentArgs = assessmentSessionId
-              ? ["exec", "resume", "--skip-git-repo-check", assessmentSessionId, "-"]
-              : ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"];
-            const assessment = await runStreaming(item.job, "codex", assessmentArgs, {
+            const assessmentSessionId = sessionIdOf(item.job) ?? result.sessionId ?? sessionId;
+            const assessmentInvocation = await prepareAgentRun({
+              task: "fix-qa-assessment",
+              prompt: buildVerificationAssessmentPrompt(detail, analysis, item.request, item.job, failureDiff, latestFailures, agent),
+              access: "full-access",
               cwd: workspace.repoDir,
-              input: buildVerificationAssessmentPrompt(detail, analysis, item.request, item.job, failureDiff, latestFailures),
-              env: { CODEX_HOME: codexHome, GH_TOKEN: token, GH_HOST: "github.com" },
-              timeoutMs: 10 * 60_000,
-              redact: [token]
+              sessionId: assessmentSessionId,
+              agent
             });
-            directive = parsePipelineDirective(assessment.stdout) ?? directive;
-            const qaSummary = extractQaSummary(assessment.stdout, latestFailures, directive);
+            const assessment = await runAgentStreaming(item.job, assessmentInvocation, { cwd: workspace.repoDir, timeoutMs: 10 * 60_000, redact: [token] });
+            directive = parsePipelineDirective(assessment.text) ?? directive;
+            const qaSummary = extractQaSummary(assessment.text, latestFailures, directive);
             update(item.job, {
-              codexSessionId: extractCodexSessionId(item.job.stdout) ?? item.job.codexSessionId ?? codexSessionId,
+              ...sessionPatch(item.job, assessment.sessionId ?? assessmentSessionId),
               diff: await preparedDiffSnapshot(workspace.repoDir).catch(() => item.job.diff ?? failureDiff),
               qaSummary,
               qaFailures: latestFailures,
@@ -744,7 +758,7 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
           : "Fix preview ready for human review."
         : testFailures.length > 0
           ? "No code changes; verification failed."
-          : "Codex did not make file changes.";
+          : `${agentName} did not make file changes.`;
       update(item.job, {
         diff,
         committed: false,
@@ -768,7 +782,7 @@ async function runFixQueueItem(item: { job: FixJob; request: FixRequest }): Prom
       phase: item.job.phase,
       pipeline: failedPhase ? markPipelineFailed(item.job, failedPhase, cancelled ? "Fix job cancelled." : "Phase failed before the preview could finish.") : item.job.pipeline,
       statusMessage: cancelled ? "Fix job cancelled." : "Fix job failed.",
-      codexSessionId: extractCodexSessionId(item.job.stdout) ?? item.job.codexSessionId,
+      ...sessionPatch(item.job, extractAgentSessionId(item.job.stdout, item.job.agent)),
       ...(cancelled ? { error: "Cancelled by reviewer." } : errorResult(error)),
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - started
@@ -781,7 +795,7 @@ async function prepareWorkspace(
   request: FixRequest,
   token: string,
   job: FixJob
-): Promise<{ repoDir: string; reused: boolean; codexSessionId?: string; currentDiff: string }> {
+): Promise<{ repoDir: string; reused: boolean; sessionId?: string; agent?: AgentId; currentDiff: string }> {
   const prDir = join(root, prKey(request.owner, request.repo, request.number));
   const repoDir = join(prDir, job.id);
   const repoName = `${request.owner}/${request.repo}`;
@@ -794,23 +808,26 @@ async function prepareWorkspace(
         phase: "checking-out",
         statusMessage: `Reusing existing fix workspace from ${request.baseJobId.slice(0, 8)}.`,
         repoDir: baseJob.repoDir,
+        agent: baseJob.agent ?? (baseJob.codexSessionId ? "codex" : undefined),
+        agentSessionId: baseJob.agentSessionId ?? baseJob.codexSessionId,
         codexSessionId: baseJob.codexSessionId,
         diff: currentDiff
       });
-      return { repoDir: baseJob.repoDir, reused: true, codexSessionId: baseJob.codexSessionId, currentDiff };
+      return { repoDir: baseJob.repoDir, reused: true, sessionId: baseJob.agentSessionId ?? baseJob.codexSessionId, agent: baseJob.agent ?? (baseJob.codexSessionId ? "codex" : undefined), currentDiff };
     }
   }
   await rm(repoDir, { recursive: true, force: true });
   update(job, { phase: "checking-out", statusMessage: `Cloning a clean ${repoName} workspace.` });
   await runStreaming(job, "gh", ["repo", "clone", repoName, repoDir], {
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: 10 * 60_000,
     redact: [token]
   });
+  await hardenWorktreeCredentials(repoDir);
   update(job, { phase: "checking-out", statusMessage: `Checking out PR #${request.number}.` });
   await runStreaming(job, "gh", ["pr", "checkout", String(request.number)], {
     cwd: repoDir,
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: 5 * 60_000,
     redact: [token]
   });
@@ -823,12 +840,15 @@ function buildPhasePrompt(
   analysis: unknown,
   request: FixRequest,
   job: FixJob,
-  currentDiff: string
+  currentDiff: string,
+  agent: AgentId
 ): string {
-  const context = buildFixContext(detail, analysis, request);
-  const continuation = job.codexSessionId
-    ? `Continue Codex session ${job.codexSessionId}. Preserve useful existing changes in the working tree.`
-    : "This is the first Codex pass for this fix session.";
+  const context = buildFixContext(detail, analysis, request, agent);
+  const agentName = agentDisplayName(agent);
+  const sessionId = sessionIdOf(job);
+  const continuation = sessionId
+    ? `Continue ${agentName} session ${sessionId}. Preserve useful existing changes in the working tree.`
+    : `This is the first ${agentName} pass for this fix session.`;
   return `${context}
 
 Current pipeline phase: ${pass.label}
@@ -839,6 +859,8 @@ ${currentDiff.trim() || "No prepared diff is present yet."}
 
 Phase instructions:
 ${phaseInstructions(pass.phase)}
+
+${phaseOutputContract()}
 
 Gradle command policy:
 - In multi-project Gradle repositories, do not guess project paths. Inspect \`settings.gradle\`, \`settings.gradle.kts\`, or run \`./gradlew projects\` before adding or relying on module-scoped Gradle commands.
@@ -862,12 +884,13 @@ function buildVerificationAssessmentPrompt(
   request: FixRequest,
   job: FixJob,
   currentDiff: string,
-  failures: string[]
+  failures: string[],
+  agent: AgentId
 ): string {
-  return `${buildFixContext(detail, analysis, request)}
+  return `${buildFixContext(detail, analysis, request, agent)}
 
 Current pipeline phase: Tests/QA verification assessment
-Continue Codex session ${job.codexSessionId ?? "unknown"}. Do not make broad changes in this assessment pass.
+Continue ${agentDisplayName(agent)} session ${sessionIdOf(job) ?? "unknown"}. Do not make broad changes in this assessment pass.
 
 The runner executed local verification after the Tests/QA pass and captured these failures:
 ${failures.map((failure, index) => `${index + 1}. ${failure}`).join("\n") || "No failure text was captured."}
@@ -892,12 +915,12 @@ Pipeline control:
 Leave a concise QA judgment explaining why you chose that pipeline action. Do not commit or push.`;
 }
 
-function buildFixQuestionPrompt(job: FixJob, question: string, currentDiff: string): string {
+function buildFixQuestionPrompt(job: FixJob, question: string, currentDiff: string, agent: AgentId): string {
   const recentConversation = (job.conversation ?? [])
     .slice(-8)
     .map((message) => `${message.role}: ${message.body}`)
     .join("\n\n");
-  return `You are Codex answering a reviewer question about an existing Fix session.
+  return `You are ${agentDisplayName(agent)} answering a reviewer question about an existing Fix session.
 
 This is explanation-only. Do not edit files, run broad commands, commit, push, or start a new fix pipeline.
 If the reviewer is asking for code changes, explain what would need to change and say they should use Request changes.
@@ -920,45 +943,7 @@ FIX_ANSWER:
 Keep the answer concise and directly tied to the current prepared changes.`;
 }
 
-function phaseInstructions(phase: FixPipelinePhase): string {
-  if (phase === "research") {
-    return `- Inspect the repository patterns, existing modules, PR comments, and AI analysis before editing.
-- Prefer read-only investigation in this phase.
-- Only edit if a tiny metadata/context correction is required to unblock later phases.
-- Identify the concrete issues that Implementation and Tests/QA should address.`;
-  }
-  if (phase === "implementation") {
-    return `- Make the smallest coherent code/configuration changes that address concrete reviewer comments, failing checks, and high-confidence AI findings.
-- Do not broaden the PR scope or rewrite unrelated code.
-- If this is a Vulnerability Audit/CVE fix, trace the dependency tree and update the root dependency, BOM, or platform that brings the vulnerable transitive dependency first; add a direct fixed transitive version only as a last resort with a clear reason.
-- Preserve existing authorship metadata in existing files and do not invent authorship metadata in new files.`;
-  }
-  if (phase === "tests-qa") {
-    return `- Add or update focused tests that would fail before the fix and pass after it.
-- Prioritize edge cases directly connected to source-code behavior, lifecycle, security, dependency, or compatibility risks.
-- Keep test-only maintainability cleanup small and label it as test-only in your summary.
-- If no test change is justified, explain why existing coverage is enough and name the commands that should pass.`;
-  }
-  if (phase === "docs") {
-    return `- Update docs, examples, migration notes, or configuration snippets only when user-facing behavior, setup, dependency usage, or terminology changed.
-- Keep docs concise and aligned with project style.
-- If no docs are needed, say so and do not edit files.`;
-  }
-  if (phase === "security") {
-    return `- Review the current diff for auth, secret handling, injection, unsafe shell/process execution, permissions, dependency/CVE, and data exposure risks.
-- Make focused fixes only for concrete security issues introduced or exposed by this patch.
-- For dependency vulnerabilities, update the owning platform/root dependency first; avoid pinning random transitives unless there is no better root-level update.`;
-  }
-  if (phase === "final-review") {
-    return `- Inspect the complete prepared diff as a final reviewer.
-- Remove speculative, unrelated, or over-broad changes.
-- Verify the patch still addresses existing PR comments and human follow-up instructions.
-- Do not start new feature work. Leave a final summary and expected verification commands.`;
-  }
-  return "- Continue the fix conservatively and keep the patch reviewable.";
-}
-
-function buildFixContext(detail: PrDetail, analysis: unknown, request: FixRequest): string {
+function buildFixContext(detail: PrDetail, analysis: unknown, request: FixRequest, agent: AgentId): string {
   const conversationComments = (detail.conversationComments ?? []).map((comment) => ({
     body: comment.body,
     author: comment.author,
@@ -989,7 +974,7 @@ function buildFixContext(detail: PrDetail, analysis: unknown, request: FixReques
       side: comment.side,
       body: comment.body
   }));
-  return `You are Codex fixing a GitHub PR after human/AI review.
+  return `You are ${agentDisplayName(agent)} fixing a GitHub PR after human/AI review.
 
 Goal:
 - Address all concrete issues in the analysis and existing PR comments.
@@ -1002,6 +987,8 @@ Goal:
 - If an existing template requires an @author tag for a new file but the correct human author is not known from that template, omit the tag instead of guessing from the PR author or comments.
 - After edits, summarize what changed and which tests should pass.
 - Do not commit or push. The human reviewer must inspect the diff first.
+
+${workspaceOperatingRules()}
 ${request.instructions?.trim() ? `\nHuman follow-up instructions from the fix session log:\n${request.instructions.trim()}\n` : ""}
 
 PR:
@@ -1042,8 +1029,47 @@ function compactFixAnalysis(analysis: unknown): unknown {
   };
 }
 
-function extractCodexSessionId(output: string): string | undefined {
-  return /session id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(output)?.[1];
+function sessionIdOf(job: FixJob): string | undefined {
+  return job.agentSessionId ?? job.codexSessionId;
+}
+
+function sessionPatch(job: FixJob, sessionId: string | undefined): Partial<FixJob> {
+  const next = sessionId ?? sessionIdOf(job);
+  if (!next) return {};
+  const agent = job.agent ?? "codex";
+  return { agentSessionId: next, codexSessionId: agent === "codex" ? next : job.codexSessionId };
+}
+
+async function jobAgent(job: FixJob): Promise<AgentId> {
+  if (job.agent) return job.agent;
+  // Jobs persisted before multi-agent support were always Codex sessions.
+  if (job.codexSessionId) return "codex";
+  return currentAgent();
+}
+
+async function runAgentStreaming(
+  job: FixJob,
+  invocation: AgentInvocation,
+  options: { cwd?: string; timeoutMs?: number; redact?: string[] }
+): Promise<{ text: string; sessionId?: string; stdout: string; stderr: string; exitCode: number | null }> {
+  const started = Date.now();
+  const result = await runStreaming(job, invocation.command, invocation.args, {
+    cwd: options.cwd,
+    env: invocation.env,
+    omitEnv: invocation.omitEnv,
+    input: invocation.input,
+    timeoutMs: options.timeoutMs,
+    redact: options.redact,
+    formatStdout: createAgentLogFormatter(invocation.agent)
+  }).catch((error: unknown) => {
+    void recordUsage(invocation, job.prKey, started, undefined, sessionIdOf(job), false);
+    throw error;
+  });
+  const parsed = parseAgentOutput(invocation.agent, result.stdout);
+  const sessionId = parsed.sessionId ?? extractAgentSessionId(job.stdout, invocation.agent);
+  void recordUsage(invocation, job.prKey, started, parsed.costUsd, sessionId, !parsed.isError);
+  if (parsed.isError) throw new CommandError(parsed.text || `${invocation.label} reported an error.`, result);
+  return { ...result, text: parsed.text, sessionId };
 }
 
 async function preparedDiff(job: FixJob, repoDir: string, token: string): Promise<string> {
@@ -1124,16 +1150,16 @@ function buildApprovedFixCommitMessage(job: FixJob, diff: string, detail?: PrDet
   const subject = compactCommitText(`${category} ${title}`, 72);
   const fileSummary = files.length > 0 ? files.slice(0, 8).join("\n- ") : "No changed files listed.";
   const body = [
-    "Prepared from an approved MNLens Codex fix session.",
+    `Prepared from an approved MNLens ${agentDisplayName(job.agent ?? "codex")} fix session.`,
     "",
-    `Source: ${job.source ?? "Codex Fix Session"}`,
+    `Source: ${job.source ?? `${agentDisplayName(job.agent ?? "codex")} Fix Session`}`,
     job.instructions ? `Intent: ${compactCommitText(job.instructions, 240)}` : undefined,
     "",
     "Changed files:",
     files.length > 0 ? `- ${fileSummary}` : "- No changed files listed.",
     files.length > 8 ? `- ...and ${files.length - 8} more` : undefined,
     "",
-    "Co-authored-by: Codex <codex@openai.com>"
+    job.agent === "claude" ? "Co-authored-by: Claude <noreply@anthropic.com>" : "Co-authored-by: Codex <codex@openai.com>"
   ]
     .filter((line): line is string => line !== undefined)
     .join("\n");
@@ -1255,7 +1281,7 @@ async function discoverFixGradleProjects(job: FixJob, repoDir: string, gradleCom
   try {
     const result = await runStreaming(job, gradleCommand, ["projects", "--quiet"], {
       cwd: repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 3 * 60_000,
       redact: [token]
     });
@@ -1297,20 +1323,21 @@ function update(job: FixJob, patch: Partial<FixJob> & { status?: JobStatus }): v
   Object.assign(job, patch, { updatedAt: new Date().toISOString() });
   fixJobs.set(job.id, job);
   void writeFixJob(job);
+  publishEvent("fix", job, job.id);
 }
 
 function runStreaming(
   job: FixJob,
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; redact?: string[] } = {}
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; omitEnv?: string[]; input?: string; timeoutMs?: number; redact?: string[]; formatStdout?: (chunk: string) => string } = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
     const isGithubCommand = command.split(/[\\/]/).pop() === "gh";
     if (isGithubCommand) assertGithubRateLimitAvailable();
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env },
+      env: mergeEnv(options.env, options.omitEnv),
       stdio: [options.input ? "pipe" : "ignore", "pipe", "pipe"]
     });
     activeProcesses.set(job.id, child);
@@ -1334,7 +1361,7 @@ function runStreaming(
     stdoutPipe?.on("data", (chunk) => {
       const text = redact(String(chunk), options.redact);
       commandStdout += text;
-      jobStdout += text;
+      jobStdout += options.formatStdout ? options.formatStdout(text) : text;
       update(job, { stdout: trim(jobStdout), stderr: trim(jobStderr) });
     });
     stderrPipe?.on("data", (chunk) => {

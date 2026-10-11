@@ -10,7 +10,7 @@ MNLens is a local-first GitHub PR review workstation built with:
 - Express server
 - Electron desktop shell
 - GitHub CLI (`gh`) for GitHub operations
-- Codex CLI for analysis/fix sessions
+- A coding-agent CLI for analysis/fix sessions: Codex CLI or Claude Code, behind `src/server/agent.ts`
 - Vitest and Playwright for validation
 
 The app is intentionally human-in-the-loop. Do not add behavior that commits, pushes, rebases, or submits reviews without an explicit user action.
@@ -18,7 +18,13 @@ The app is intentionally human-in-the-loop. Do not add behavior that commits, pu
 ## Repository Layout
 
 - `src/client/src` - React UI and client helpers.
-- `src/server` - Express routes, GitHub/Codex/verification/rebase/cache services.
+- `src/server` - Express routes, GitHub/agent/verification/rebase/stack/cache services.
+  - `agent.ts` builds CLI invocations for Codex or Claude Code and parses their output; `agentSettings.ts` holds the task → tier → model routing; `agentSkills.ts` holds every prompt/instruction set handed to agents.
+  - `githubHost.ts` is the only place that knows the GitHub host, builds MNLens's own `gh`/`git` auth env, and defines what agents may NOT inherit (reviewer tokens).
+  - `researchProfiles.ts` turns technology-specific research heuristics into data; `secondOpinion.ts` runs the cross-agent audit; `usage.ts` is the per-PR cost ledger.
+  - `acceptance.ts` builds the acceptance-criteria contract (criteria → evidence → status, with human overrides); `reviewMemory.ts` stores reviewer verdicts and produces calibration text and rule suggestions; `feedback.ts` renders the author comment; `events.ts` is the SSE bus.
+  - `stacks.ts` reconstructs stacked-PR chains from open PRs' base/head branches.
+- `src/shared/analysisContext.ts` - discussion-state fingerprint shared by server cache checks and client staleness badges.
 - `src/shared` - shared TypeScript types.
 - `electron` - Electron shell for packaged desktop app.
 - `tests` - Vitest unit/server tests.
@@ -50,7 +56,7 @@ The app expects local tools for full functionality:
 
 - `git`
 - `gh`
-- `codex`
+- `codex` and/or `claude` (at least one, signed in)
 - Java/Gradle/Maven when verifying JVM projects
 
 ## Validation
@@ -76,6 +82,9 @@ If E2E tests fail because a stale dev server is running, stop the old server and
 
 - Keep patches focused. Avoid unrelated redesigns or broad refactors.
 - Preserve human approval gates for review submission, commit, push, and rebase confirmation.
+- Never pass the reviewer's GitHub token to an agent process. Agent runs go through `prepareAgentRun`, which strips `GH_TOKEN`/`GITHUB_TOKEN`; MNLens's own `gh`/`git` calls use `githubCliEnv(token)`. Call `hardenWorktreeCredentials(repoDir)` after every clone an agent will work in.
+- Do not hard-code `github.com`; use `githubHost()` / `githubWebUrl()`.
+- Prompts for agents belong in `src/server/agentSkills.ts` (or `researchProfiles.ts` for technology-specific guidance), not inline in pipeline code.
 - Do not weaken the local session-token guard.
 - Do not expose the server remotely unless the existing explicit opt-in remains in place.
 - Treat GitHub API rate limits as important. Avoid adding aggressive polling.
@@ -100,11 +109,26 @@ If E2E tests fail because a stale dev server is running, stop the old server and
 3. Preserve session-token checks.
 4. Add server tests under `tests`.
 
-### Change Codex/fix behavior
+### Change agent/fix behavior
 
-1. Inspect `src/server/codex.ts`, `src/server/fixService.ts`, and Codex UI in `src/client/src/components/CodexTab.tsx`.
-2. Preserve retry/resume/cancel semantics.
-3. Make sure prepared code changes represent uncommitted/unpushed work from the fix session only.
+1. Inspect `src/server/agent.ts` (CLI flags per agent), `src/server/agentSettings.ts` (model routing), `src/server/codex.ts` (analysis prompts/schema), `src/server/fix.ts`, and the fix UI in `src/client/src/components/CodexTab.tsx`.
+2. Never call `codex` or `claude` directly; go through `prepareAgentRun`/`runAgent` so both agents stay in sync and session ids are recovered the same way.
+3. Pick the cheapest tier that can do the job when adding a task (`defaultTaskTiers`); premium is opt-in only.
+4. Preserve retry/resume/cancel semantics. Jobs persisted before multi-agent support have no `agent` field and are Codex sessions.
+5. Make sure prepared code changes represent uncommitted/unpushed work from the fix session only.
+
+### Change acceptance / memory / feedback behavior
+
+1. Criteria statuses: the agent writes `status`, humans write `humanStatus`; always read through `effectiveStatus`. Regeneration must keep human overrides for unchanged criterion text.
+2. Review memory keys findings with `verdictKey(kind, title)`; the client mirrors it in `InsightSection.tsx`. Keep both in sync.
+3. The author comment is a preview the human edits and posts; never post it automatically.
+4. Job updates must go through the existing `update*` helpers so `publishEvent` fires.
+
+### Change stacked-PR behavior
+
+1. Graph building and chain selection live in `src/server/stacks.ts`; keep it to one GraphQL query per repository and respect the cache TTL.
+2. Call `invalidateStackCache(repository)` after any mutation that changes a PR base.
+3. "Restack" must keep using the branch-update preview and its human approval gate.
 
 ### Change artifact behavior
 

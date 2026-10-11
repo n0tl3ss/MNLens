@@ -1,4 +1,4 @@
-import type { AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewProgress, RepoReviewRule, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewProgress, RepoReviewRule, VerificationJob } from "../../../shared/types";
 import { buildOverviewLinePins } from "../planHelpers";
 import type { Tab } from "../reviewTypes";
 import { reviewReplay, type ReviewReplay } from "./ReviewDeltaSection";
@@ -17,6 +17,22 @@ export function DetailTab({
   tab,
   detail,
   analysis,
+  usage,
+  secondOpinionBusy,
+  secondOpinionError,
+  onRequestSecondOpinion,
+  acceptance,
+  acceptanceBusy,
+  acceptanceError,
+  onGenerateAcceptance,
+  onOverrideCriterion,
+  memory,
+  onFindingFeedback,
+  feedbackPreview,
+  feedbackBusy,
+  feedbackError,
+  onPreviewFeedback,
+  onPostFeedback,
   progress,
   githubProjects,
   githubProjectsError,
@@ -68,6 +84,22 @@ export function DetailTab({
   buildRecommendation,
   buildHandoffMarkdown
 }: {
+  usage?: AgentUsageSummary;
+  secondOpinionBusy?: boolean;
+  secondOpinionError?: string;
+  onRequestSecondOpinion?: () => void;
+  acceptance?: AcceptanceContract | null;
+  acceptanceBusy?: boolean;
+  acceptanceError?: string;
+  onGenerateAcceptance?: (force: boolean) => void;
+  onOverrideCriterion?: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
+  memory?: ReviewMemorySummary;
+  onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
+  feedbackPreview?: string;
+  feedbackBusy?: boolean;
+  feedbackError?: string;
+  onPreviewFeedback?: (note: string) => void;
+  onPostFeedback?: (body: string) => void;
   tab: Tab;
   detail?: PrDetail;
   analysis?: AnalysisResult;
@@ -219,7 +251,8 @@ export function DetailTab({
       verificationJobs,
       fixJobs,
       draftComments: reviewComments,
-      canApproveWithoutComments
+      canApproveWithoutComments,
+      acceptance: acceptance ?? undefined
     });
     const replay = reviewReplay(detail, progress, ciChecks, verificationJobs, fixJobs);
     const markdown = buildHandoffMarkdown({
@@ -244,12 +277,28 @@ export function DetailTab({
         recommendation={recommendation}
         replay={replay}
         markdown={markdown}
+        feedbackPreview={feedbackPreview}
+        feedbackBusy={feedbackBusy}
+        feedbackError={feedbackError}
+        onPreviewFeedback={onPreviewFeedback}
+        onPostFeedback={onPostFeedback}
       />
     );
   }
   return (
     <OverviewTab
       analysis={analysis}
+      usage={usage}
+      secondOpinionBusy={secondOpinionBusy}
+      secondOpinionError={secondOpinionError}
+      onRequestSecondOpinion={onRequestSecondOpinion}
+      acceptance={acceptance}
+      acceptanceBusy={acceptanceBusy}
+      acceptanceError={acceptanceError}
+      onGenerateAcceptance={onGenerateAcceptance}
+      onOverrideCriterion={onOverrideCriterion}
+      memory={memory}
+      onFindingFeedback={onFindingFeedback}
       attentionMode={attentionMode}
       canApproveWithoutComments={canApproveWithoutComments}
       ciChecks={ciChecks}
@@ -269,7 +318,8 @@ export function DetailTab({
         verificationJobs,
         fixJobs,
         draftComments: reviewComments,
-        canApproveWithoutComments
+        canApproveWithoutComments,
+        acceptance: acceptance ?? undefined
       })}
       repoRules={repoRules}
       reviewComments={reviewComments}
@@ -296,6 +346,7 @@ export type RecommendationContext = {
   fixJobs?: FixJob[];
   draftComments?: DraftReviewComment[];
   canApproveWithoutComments?: boolean;
+  acceptance?: AcceptanceContract;
 };
 
 export type HandoffMarkdownArgs = {

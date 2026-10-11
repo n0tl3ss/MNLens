@@ -31,7 +31,11 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { hashText, prKey, readAnalysis, readPrDetail, writePrDetail } from "./cache.js";
 import { CommandError, type CommandResult, runCommand } from "./command.js";
-import { codexHome, ensureCodexHome, normalizeAnalysisForDetail } from "./codex.js";
+import { normalizeAnalysisForDetail } from "./codex.js";
+import { runAgent } from "./agent.js";
+import { githubCliEnv, githubHost, githubWebUrl, hardenWorktreeCredentials } from "./githubHost.js";
+import { conflictResolutionRules } from "./agentSkills.js";
+import { invalidateStackCache } from "./stacks.js";
 import { missingGithubTokenMessage, readGithubToken, tokenStoreInfo } from "./keychain.js";
 import { cacheDir } from "./paths.js";
 import {
@@ -410,7 +414,7 @@ export async function replyToConversation(request: ReplyConversationRequest): Pr
 
 export async function listRepositoryBranches(owner: string, repo: string): Promise<RepositoryBranch[]> {
   const token = await requireToken();
-  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/branches`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/branches`, "-F", "per_page=100", "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as Array<{ name?: string; protected?: boolean; commit?: { url?: string } }>;
   return raw
     .map((branch) => ({
@@ -428,7 +432,7 @@ async function comparePrBranch(token: string, owner: string, repo: string, baseR
   const base = baseRefName?.trim();
   const head = (headRefOid || headRefName)?.trim();
   if (!base || !head) return {};
-  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`, "--hostname", "github.com"], token);
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`, "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as { behind_by?: number; ahead_by?: number };
   return {
     behindBy: raw.behind_by,
@@ -440,7 +444,8 @@ export async function updatePrTargetBranch(owner: string, repo: string, number: 
   const token = await requireToken();
   const base = baseRefName.trim();
   if (!base) throw new Error("Target branch is required.");
-  await runGh(["api", "-X", "PATCH", `repos/${owner}/${repo}/pulls/${number}`, "-f", `base=${base}`, "--hostname", "github.com"], token);
+  await runGh(["api", "-X", "PATCH", `repos/${owner}/${repo}/pulls/${number}`, "-f", `base=${base}`, "--hostname", githubHost()], token);
+  invalidateStackCache(`${owner}/${repo}`);
   await getPrDetail(owner, repo, number);
   return {
     owner,
@@ -529,7 +534,7 @@ export async function resolveReviewThread(owner: string, repo: string, number: n
       }
     }
   `;
-  await runGh(["api", "graphql", "-f", `query=${mutation}`, "-F", `threadId=${id}`, "--hostname", "github.com"], token);
+  await runGh(["api", "graphql", "-f", `query=${mutation}`, "-F", `threadId=${id}`, "--hostname", githubHost()], token);
   await getPrDetail(owner, repo, number);
   return { owner, repo, number, threadId: id, resolved: true };
 }
@@ -560,10 +565,10 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
     repo,
     number: raw.number ?? number,
     title: raw.title ?? "",
-    url: raw.url ?? `https://github.com/${repoName}/pull/${number}`,
+    url: raw.url ?? `${githubWebUrl()}/${repoName}/pull/${number}`,
     repository: repoName,
     author: raw.author?.login ?? "unknown",
-    authorUrl: raw.author?.url ?? (raw.author?.login ? `https://github.com/${raw.author.login}` : undefined),
+    authorUrl: raw.author?.url ?? (raw.author?.login ? `${githubWebUrl()}/${raw.author.login}` : undefined),
     labels,
     queues: queueMembership(raw),
     state: raw.state ?? "UNKNOWN",
@@ -730,7 +735,7 @@ async function addProjectItem(token: string, projectId: string, contentId: strin
 
 async function fetchPullRequestDiff(token: string, owner: string, repo: string, number: number): Promise<CommandResult> {
   try {
-    return await runGh(["api", `repos/${owner}/${repo}/pulls/${number}`, "-H", "Accept: application/vnd.github.v3.diff", "--hostname", "github.com"], token);
+    return await runGh(["api", `repos/${owner}/${repo}/pulls/${number}`, "-H", "Accept: application/vnd.github.v3.diff", "--hostname", githubHost()], token);
   } catch {
     return runGh(["pr", "diff", String(number), "-R", `${owner}/${repo}`, "--color", "never"], token);
   }
@@ -755,7 +760,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
   const run = async (command: string, args: string[], cwd = repoDir) => {
     const result = await runCommand(command, args, {
       cwd,
-      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
+      env: githubCliEnv(token, { GIT_EDITOR: "true" }),
       redact: [token],
       timeoutMs: 15 * 60_000
     });
@@ -767,10 +772,11 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
     await mkdir(join(cacheDir, "rebase-worktrees"), { recursive: true });
     await rm(repoDir, { recursive: true, force: true });
     logs.push(await runCommand("gh", ["repo", "clone", repoName, repoDir], {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       redact: [token],
       timeoutMs: 15 * 60_000
     }));
+    await hardenWorktreeCredentials(repoDir);
     await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
     await run("git", ["fetch", "origin", defaultBranch]);
     const resolution = await rebaseWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
@@ -805,7 +811,7 @@ export async function rebasePrOntoDefault(owner: string, repo: string, number: n
       conflictsResolved: resolvedConflicts,
       message:
         resolvedConflicts > 0
-          ? `Rebase preview ready for PR #${number}. Codex resolved ${resolvedConflicts} conflict step${resolvedConflicts === 1 ? "" : "s"}. Review the preview before approving push and retarget.`
+          ? `Rebase preview ready for PR #${number}. The agent resolved ${resolvedConflicts} conflict step${resolvedConflicts === 1 ? "" : "s"}. Review the preview before approving push and retarget.`
           : `Rebase preview ready for PR #${number}. Review the preview before approving push and retarget.`
     };
   } catch (error) {
@@ -892,7 +898,7 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
   const run = async (command: string, args: string[], cwd = repoDir) => {
     const result = await runCommand(command, args, {
       cwd,
-      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
+      env: githubCliEnv(token, { GIT_EDITOR: "true" }),
       redact: [token],
       timeoutMs: 15 * 60_000
     });
@@ -904,10 +910,11 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
     await mkdir(join(cacheDir, "merge-worktrees"), { recursive: true });
     await rm(repoDir, { recursive: true, force: true });
     logs.push(await runCommand("gh", ["repo", "clone", repoName, repoDir], {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       redact: [token],
       timeoutMs: 15 * 60_000
     }));
+    await hardenWorktreeCredentials(repoDir);
     await checkoutPrHead({ repoName, headRepository, headRefName, headRefOid: prHead.headRefOid, run });
     await run("git", ["fetch", "origin", defaultBranch]);
     const resolution = await mergeWithCodexResolution({ owner, repo, number, repoName, repoDir, defaultBranch, token, logs, run });
@@ -942,7 +949,7 @@ async function prepareBranchUpdatePreview(owner: string, repo: string, number: n
       conflictsResolved: resolvedConflicts,
       message:
         resolvedConflicts > 0
-          ? `Merge preview ready for PR #${number}. Codex resolved ${resolvedConflicts} conflict step${resolvedConflicts === 1 ? "" : "s"}. Review the preview before approving push.`
+          ? `Merge preview ready for PR #${number}. The agent resolved ${resolvedConflicts} conflict step${resolvedConflicts === 1 ? "" : "s"}. Review the preview before approving push.`
           : `Merge preview ready for PR #${number}. Review the preview before approving push.`
     };
   } catch (error) {
@@ -972,7 +979,7 @@ export async function confirmRebasePrOntoDefault(previewId: string): Promise<Reb
   const run = async (command: string, args: string[]) => {
     const result = await runCommand(command, args, {
       cwd: preview.repoDir,
-      env: { GH_TOKEN: token, GH_HOST: "github.com", GIT_EDITOR: "true" },
+      env: githubCliEnv(token, { GIT_EDITOR: "true" }),
       redact: [token],
       timeoutMs: 15 * 60_000
     });
@@ -982,13 +989,13 @@ export async function confirmRebasePrOntoDefault(previewId: string): Promise<Reb
 
   try {
     await run("git", ["remote", "remove", "pr-head"]).catch(() => undefined);
-    await run("git", ["remote", "add", "pr-head", `https://github.com/${preview.headRepository}.git`]);
+    await run("git", ["remote", "add", "pr-head", `${githubWebUrl()}/${preview.headRepository}.git`]);
     await run("git", ["fetch", "pr-head", preview.headRefName]);
     await run("git", preview.strategy === "merge"
       ? ["push", "pr-head", `HEAD:${preview.headRefName}`]
       : ["push", "--force-with-lease", "pr-head", `HEAD:${preview.headRefName}`]);
     if (preview.strategy === "rebase") {
-      await run("gh", ["api", "-X", "PATCH", `repos/${preview.owner}/${preview.repo}/pulls/${preview.number}`, "-f", `base=${preview.defaultBranch}`, "--hostname", "github.com"]);
+      await run("gh", ["api", "-X", "PATCH", `repos/${preview.owner}/${preview.repo}/pulls/${preview.number}`, "-f", `base=${preview.defaultBranch}`, "--hostname", githubHost()]);
     }
     await getPrDetail(preview.owner, preview.repo, preview.number);
     rebasePreviews.delete(previewId);
@@ -1037,7 +1044,7 @@ async function checkoutPrHead(args: {
 }): Promise<void> {
   if (args.headRepository !== args.repoName) {
     await args.run("git", ["remote", "remove", "pr-head"]).catch(() => undefined);
-    await args.run("git", ["remote", "add", "pr-head", `https://github.com/${args.headRepository}.git`]);
+    await args.run("git", ["remote", "add", "pr-head", `${githubWebUrl()}/${args.headRepository}.git`]);
     await args.run("git", ["fetch", "pr-head", args.headRefName]);
     await args.run("git", ["checkout", "-B", args.headRefName, "FETCH_HEAD"]);
     return;
@@ -1083,14 +1090,14 @@ async function rebaseWithCodexResolution(args: {
 
     const remainingMarkers = await conflictMarkerFiles(args.repoDir, conflicts);
     if (remainingMarkers.length > 0) {
-      throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
+      throw new CommandError(`The agent left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
     }
     const resolutionDiff = await conflictResolutionDiff(args.repoDir, conflicts);
     if (resolutionDiff.trim()) resolutionDiffs.push(resolutionDiff);
     await args.run("git", ["add", "-A"]);
     const remainingConflicts = await conflictFiles(args.repoDir);
     if (remainingConflicts.length > 0) {
-      throw new CommandError(`Codex did not stage all rebase conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
+      throw new CommandError(`The agent did not stage all rebase conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
     }
     resolved += 1;
 
@@ -1099,7 +1106,7 @@ async function rebaseWithCodexResolution(args: {
     args.logs.push(result);
   }
 
-  throw new CommandError("Rebase still has conflicts after 6 Codex resolution attempts.", result);
+  throw new CommandError("Rebase still has conflicts after 6 agent resolution attempts.", result);
 }
 
 async function mergeWithCodexResolution(args: {
@@ -1131,21 +1138,21 @@ async function mergeWithCodexResolution(args: {
     args.logs.push(codexResult);
     const remainingMarkers = await conflictMarkerFiles(args.repoDir, conflicts);
     if (remainingMarkers.length > 0) {
-      throw new CommandError(`Codex left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
+      throw new CommandError(`The agent left conflict markers in: ${remainingMarkers.join(", ")}`, codexResult);
     }
     const resolutionDiff = await conflictResolutionDiff(args.repoDir, conflicts);
     if (resolutionDiff.trim()) resolutionDiffs.push(resolutionDiff);
     await args.run("git", ["add", "-A"]);
     const remainingConflicts = await conflictFiles(args.repoDir);
     if (remainingConflicts.length > 0) {
-      throw new CommandError(`Codex did not stage all merge conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
+      throw new CommandError(`The agent did not stage all merge conflict resolutions: ${remainingConflicts.join(", ")}`, codexResult);
     }
     await args.run("git", ["commit", "--no-edit"]);
     resolved += 1;
     return { steps: resolved, diff: resolutionDiffs.join("\n") };
   }
 
-  throw new CommandError("Merge still has conflicts after Codex resolution attempts.", result);
+  throw new CommandError("Merge still has conflicts after agent resolution attempts.", result);
 }
 
 async function resolveConflictsWithCodex(args: {
@@ -1159,15 +1166,16 @@ async function resolveConflictsWithCodex(args: {
   detail?: unknown;
   analysis?: unknown;
 }): Promise<CommandResult> {
-  await ensureCodexHome();
   const detail = args.detail ?? await getPrDetail(args.repoName.split("/")[0] ?? "", args.repoName.split("/")[1] ?? "", args.number);
   const analysis = args.analysis ?? await readAnalysis(prKey(args.repoName.split("/")[0] ?? "", args.repoName.split("/")[1] ?? "", args.number));
-  return runCommand(
-    "codex",
-    ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access", "-"],
+  const { result, output, invocation } = await runAgent(
     {
+      task: "conflict-resolution",
+      prKey: prKey(args.repoName.split("/")[0] ?? "", args.repoName.split("/")[1] ?? "", args.number),
+      access: "full-access",
       cwd: args.repoDir,
-      input: buildRebaseConflictPrompt({
+      persistSession: false,
+      prompt: buildRebaseConflictPrompt({
         repoName: args.repoName,
         number: args.number,
         defaultBranch: args.defaultBranch,
@@ -1175,12 +1183,13 @@ async function resolveConflictsWithCodex(args: {
         detail,
         analysis,
         operation: args.operation
-      }),
-      env: { CODEX_HOME: codexHome, GH_TOKEN: args.token, GH_HOST: "github.com" },
-      timeoutMs: 20 * 60_000,
-      redact: [args.token]
-    }
+      })
+    },
+    { timeoutMs: 20 * 60_000, redact: [args.token] }
   );
+  if (output.isError) throw new CommandError(`${invocation.label} failed while resolving conflicts: ${output.text}`, result);
+  // Surface the agent's final message (not a JSON envelope) in the preview log.
+  return { ...result, stdout: output.text || result.stdout };
 }
 
 async function continueOrSkipEmptyRebase(args: {
@@ -1261,14 +1270,7 @@ Target base branch: ${args.defaultBranch}
 Conflicted files:
 ${args.conflicts.map((file) => `- ${file}`).join("\n")}
 
-Rules:
-- Resolve only the current ${args.operation} conflicts.
-- Preserve the PR intent and all already-reviewed fixes.
-- Preserve changes from the target base branch unless they directly conflict with the PR intent.
-- Do not add unrelated refactors.
-- Remove all conflict markers.
-- Do not run git rebase, git merge, git commit, git push, or destructive git commands.
-- After editing, inspect the conflicted files and stop. The app will stage files and ${args.operation === "merge" ? "create the merge preview commit" : "continue the rebase"}, then show a preview for human approval before any push.
+${conflictResolutionRules(args.operation)}
 
 PR context:
 ${prContext}
@@ -1319,7 +1321,7 @@ function compactRebaseAnalysis(analysis: unknown): unknown {
 function boundedJson(value: unknown, limit: number): string {
   const text = JSON.stringify(value ?? null, null, 2) ?? "null";
   if (text.length <= limit) return text;
-  return `${text.slice(0, Math.max(0, limit - 1200))}\n... truncated for Codex rebase context limit ...\n${JSON.stringify({
+  return `${text.slice(0, Math.max(0, limit - 1200))}\n... truncated for agent rebase context limit ...\n${JSON.stringify({
     note: "MNLens truncated this PR context because the PR is very large. Resolve only the currently conflicted files shown above and inspect the local files for exact code."
   }, null, 2)}`;
 }
@@ -1400,10 +1402,10 @@ function normalizeSearchItem(item: GhSearchPr, queue: PrQueue): PrListItem {
     repo,
     number: item.number,
     title: item.title ?? "",
-    url: item.url ?? `https://github.com/${fullName}/pull/${item.number}`,
+    url: item.url ?? `${githubWebUrl()}/${fullName}/pull/${item.number}`,
     repository: fullName,
     author: item.author?.login ?? "unknown",
-    authorUrl: item.author?.url ?? (item.author?.login ? `https://github.com/${item.author.login}` : undefined),
+    authorUrl: item.author?.url ?? (item.author?.login ? `${githubWebUrl()}/${item.author.login}` : undefined),
     labels: normalizeLabels(item.labels),
     queues: [queue],
     state: item.state ?? "UNKNOWN",
@@ -1420,7 +1422,7 @@ async function fetchConversationComments(
   repo: string,
   number: number
 ): Promise<ExistingComment[]> {
-  const result = await runGh(["api", `repos/${owner}/${repo}/issues/${number}/comments`, "--hostname", "github.com"], token);
+  const result = await runGh(["api", `repos/${owner}/${repo}/issues/${number}/comments`, "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as GhIssueComment[];
   return raw.map((comment) => ({
     id: comment.id,
@@ -1439,7 +1441,7 @@ async function fetchReviewComments(
   number: number
 ): Promise<ExistingReviewComment[]> {
   const [result, reviewThreads] = await Promise.all([
-    runGh(["api", `repos/${owner}/${repo}/pulls/${number}/comments`, "--hostname", "github.com"], token),
+    runGh(["api", `repos/${owner}/${repo}/pulls/${number}/comments`, "--hostname", githubHost()], token),
     fetchReviewThreadResolution(token, owner, repo, number).catch(() => new Map<number, { threadId?: string; isResolved?: boolean }>())
   ]);
   const raw = JSON.parse(result.stdout) as GhReviewComment[];
@@ -1485,7 +1487,7 @@ async function fetchReviewThreadResolution(
     }
   `;
   const result = await runGh(
-    ["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `repo=${repo}`, "-F", `number=${number}`, "--hostname", "github.com"],
+    ["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `repo=${repo}`, "-F", `number=${number}`, "--hostname", githubHost()],
     token
   );
   const raw = JSON.parse(result.stdout) as {
@@ -1518,7 +1520,7 @@ async function fetchReviewSummaries(
   repo: string,
   number: number
 ): Promise<ExistingReviewSummary[]> {
-  const result = await runGh(["api", `repos/${owner}/${repo}/pulls/${number}/reviews`, "--hostname", "github.com"], token);
+  const result = await runGh(["api", `repos/${owner}/${repo}/pulls/${number}/reviews`, "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as GhReview[];
   return raw
     .filter((review) => (review.body ?? "").trim().length > 0)
@@ -1553,7 +1555,7 @@ function normalizeReviewerStatuses(raw: GhPrView): PrReviewerStatus[] {
     if (!login) continue;
     reviewers.set(login.toLowerCase(), {
       login,
-      url: review.author?.url ?? `https://github.com/${login}`,
+      url: review.author?.url ?? `${githubWebUrl()}/${login}`,
       status: normalizeReviewState(review.state),
       source: "review",
       submittedAt: review.submittedAt
@@ -1566,7 +1568,7 @@ function normalizeReviewerStatuses(raw: GhPrView): PrReviewerStatus[] {
     if (reviewers.has(key)) continue;
     reviewers.set(key, {
       login,
-      url: request.url ?? (request.__typename === "User" ? `https://github.com/${login}` : undefined),
+      url: request.url ?? (request.__typename === "User" ? `${githubWebUrl()}/${login}` : undefined),
       status: "PENDING",
       source: "request"
     });
@@ -1629,7 +1631,7 @@ async function enrichLinkedIssues(token: string, issues: LinkedIssue[]): Promise
           state: raw.state ?? issue.state,
           body: raw.body ?? issue.body,
           author: raw.author?.login,
-          authorUrl: raw.author?.url ?? (raw.author?.login ? `https://github.com/${raw.author.login}` : undefined),
+          authorUrl: raw.author?.url ?? (raw.author?.login ? `${githubWebUrl()}/${raw.author.login}` : undefined),
           commentsCount: Array.isArray(raw.comments) ? raw.comments.length : issue.commentsCount,
           labels: normalizeLabels(raw.labels as GhLabel[] | undefined),
           createdAt: raw.createdAt,
@@ -1643,7 +1645,7 @@ async function enrichLinkedIssues(token: string, issues: LinkedIssue[]): Promise
 }
 
 async function fetchPrCommits(token: string, owner: string, repo: string, number: number): Promise<PrCommit[]> {
-  const result = await runGh(["api", `repos/${owner}/${repo}/pulls/${number}/commits`, "--paginate", "--hostname", "github.com"], token);
+  const result = await runGh(["api", `repos/${owner}/${repo}/pulls/${number}/commits`, "--paginate", "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as GhPullCommit[];
   const commits = await Promise.all(
     raw.map(async (commit) => {
@@ -1667,7 +1669,7 @@ async function fetchPrCommits(token: string, owner: string, repo: string, number
 }
 
 async function fetchCommitFiles(token: string, owner: string, repo: string, sha: string): Promise<PrCommitFile[]> {
-  const result = await runGh(["api", `repos/${owner}/${repo}/commits/${sha}`, "--hostname", "github.com"], token);
+  const result = await runGh(["api", `repos/${owner}/${repo}/commits/${sha}`, "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as GhCommitDetail;
   return (raw.files ?? []).map((file) => ({
     path: file.filename ?? "",
@@ -1706,7 +1708,7 @@ async function runGh(args: string[], token: string, input?: string) {
   assertGithubRateLimitAvailable();
   try {
     return await runCommand("gh", args, {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       input,
       redact: [token],
       timeoutMs: 120_000
@@ -2012,7 +2014,7 @@ async function fetchHeadCheckRuns(token: string, owner: string, repo: string, nu
   const pr = await runGh(["pr", "view", String(number), "-R", repoName, "--json", "headRefOid"], token);
   const headRefOid = (JSON.parse(pr.stdout) as { headRefOid?: string }).headRefOid;
   if (!headRefOid) return [];
-  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/commits/${headRefOid}/check-runs`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/commits/${headRefOid}/check-runs`, "-F", "per_page=100", "--hostname", githubHost()], token);
   const raw = JSON.parse(result.stdout) as GhCheckRunList;
   return raw.check_runs ?? [];
 }
@@ -2061,14 +2063,14 @@ function checkRunSummary(run: GhCheckRun): string {
 }
 
 async function fetchCheckRunAnnotations(token: string, owner: string, repo: string, id: number): Promise<GhCheckRunAnnotation[]> {
-  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", "github.com"], token);
+  const result = await runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", githubHost()], token);
   return JSON.parse(result.stdout) as GhCheckRunAnnotation[];
 }
 
 async function fetchCheckRunOutput(token: string, owner: string, repo: string, id: string): Promise<string> {
   const [run, annotations] = await Promise.all([
-    runGh(["api", `repos/${owner}/${repo}/check-runs/${id}`, "--hostname", "github.com"], token),
-    runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", "github.com"], token).catch(() => ({ stdout: "[]" }))
+    runGh(["api", `repos/${owner}/${repo}/check-runs/${id}`, "--hostname", githubHost()], token),
+    runGh(["api", "-X", "GET", `repos/${owner}/${repo}/check-runs/${id}/annotations`, "-F", "per_page=100", "--hostname", githubHost()], token).catch(() => ({ stdout: "[]" }))
   ]);
   const checkRun = JSON.parse(run.stdout) as GhCheckRun;
   const checkAnnotations = JSON.parse(annotations.stdout) as GhCheckRunAnnotation[];
@@ -2101,7 +2103,7 @@ function checkRunDetails(run: EnrichedCheckRun | undefined): string | undefined 
 }
 
 function checkRunLink(owner: string, repo: string, number: number, check: GhCiCheck, run: EnrichedCheckRun | undefined): string {
-  if (run?.id) return `https://github.com/${owner}/${repo}/pull/${number}/checks?check_run_id=${run.id}`;
+  if (run?.id) return `${githubWebUrl()}/${owner}/${repo}/pull/${number}/checks?check_run_id=${run.id}`;
   return check.link ?? "";
 }
 
@@ -2113,7 +2115,7 @@ function isGenericExternalCheckLink(link: string): boolean {
   if (!link) return false;
   try {
     const url = new URL(link);
-    return !url.hostname.endsWith("github.com");
+    return !url.hostname.endsWith(githubHost());
   } catch {
     return false;
   }

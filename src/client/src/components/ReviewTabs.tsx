@@ -7,11 +7,14 @@ const tabs: Tab[] = ["overview", "plan", "diff", "commits", "research", "fix", "
 export function ReviewTabs({
   active,
   refreshing,
+  agentLabel,
   onChange,
   onRefresh
 }: {
   active: Tab;
   refreshing: boolean;
+  /** Display name of the selected coding agent; labels the Fix tab (defaults to "Codex"). */
+  agentLabel?: string;
   onChange: (tab: Tab) => void;
   onRefresh: () => void;
 }) {
@@ -20,7 +23,7 @@ export function ReviewTabs({
       <div className="tab-list">
         {tabs.map((tab) => (
           <button key={tab} className={active === tab ? "active" : ""} onClick={() => onChange(tab)}>
-            {tabLabel(tab)}
+            {tabLabel(tab, agentLabel)}
           </button>
         ))}
       </div>
@@ -31,7 +34,7 @@ export function ReviewTabs({
   );
 }
 
-function tabLabel(tab: Tab): string {
-  if (tab === "fix") return "Codex";
+function tabLabel(tab: Tab, agentLabel = "Codex"): string {
+  if (tab === "fix") return agentLabel;
   return tab.charAt(0).toUpperCase() + tab.slice(1);
 }

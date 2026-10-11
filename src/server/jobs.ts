@@ -1,6 +1,7 @@
 import type { AnalyzeRequest, Job, PrRef } from "../shared/types.js";
 import { readJob, readJobs, writeJob } from "./cache.js";
 import { analyzePr } from "./codex.js";
+import { publishEvent } from "./events.js";
 import { CommandError } from "./command.js";
 import { getFastPrAnalysis, getPrDetail } from "./gh.js";
 import { randomUUID } from "node:crypto";
@@ -45,7 +46,7 @@ export async function enqueueAnalysis(request: AnalyzeRequest): Promise<Job[]> {
       mode: request.mode ?? "deep",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      statusMessage: request.mode === "fast" ? "Queued for fast score analysis." : "Queued for Codex review analysis.",
+      statusMessage: request.mode === "fast" ? "Queued for fast score analysis." : "Queued for deep agent review analysis.",
       stdout: "",
       stderr: ""
     };
@@ -164,6 +165,7 @@ function updateJob(job: Job, patch: Partial<Job>): void {
   Object.assign(job, patch, { updatedAt: new Date().toISOString() });
   jobs.set(job.id, job);
   void writeJob(job);
+  publishEvent("analysis", job, job.id);
 }
 
 function appendJobOutput(job: Job, stream: "stdout" | "stderr", chunk: string): void {

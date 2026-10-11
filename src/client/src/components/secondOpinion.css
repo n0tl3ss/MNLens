@@ -1,0 +1,39 @@
+.second-opinion {
+  display: grid;
+  gap: 8px;
+}
+
+.second-opinion-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.second-opinion-group {
+  display: grid;
+  gap: 4px;
+}
+
+.second-opinion-group ul,
+.second-opinion details ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.second-opinion-group li .badge {
+  margin-right: 4px;
+}
+
+.second-opinion-error {
+  margin: 0;
+  color: #9a2e3f;
+  font-size: 13px;
+}
+
+[data-theme="dark"] .second-opinion-error {
+  color: #ff9db0;
+}

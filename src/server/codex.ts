@@ -1,16 +1,24 @@
-import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, ReviewInsight, SourceLink } from "../shared/types.js";
+import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewInsight, SourceLink } from "../shared/types.js";
+import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
 import { readAnalysis, writeAnalysis } from "./cache.js";
 import { runCommand } from "./command.js";
+import { githubCliEnv, githubHost, hardenWorktreeCredentials } from "./githubHost.js";
 import { readGithubToken } from "./keychain.js";
-import { cacheDir, codexSchemaPath, projectRoot } from "./paths.js";
+import { cacheDir, projectRoot } from "./paths.js";
+import { getPrStack, stackPromptContext } from "./stacks.js";
+import { analysisContextHash } from "../shared/analysisContext.js";
+import { calibrationPromptBlock } from "./reviewMemory.js";
+import { readRepoRules } from "./cache.js";
+import { exactMatchPattern, loadResearchProfiles, matchingProfiles, profileRelevance, type ResearchProfile } from "./researchProfiles.js";
+
+// Re-exported for modules that still import the Codex home from here.
+export { codexHome, ensureCodexHome } from "./agent.js";
 
 const maxDiffChars = 70_000;
-export const codexHome = join(cacheDir, "codex-home");
 
 const sourceSchema = z.object({
   title: z.string().default(""),
@@ -80,58 +88,66 @@ export async function analyzePr(
   } = {}
 ): Promise<AnalysisResult> {
   const cached = await readAnalysis(detail.key);
-  if (!force && cached?.diffHash === detail.diffHash) {
-    hooks.onStatus?.("Using cached analysis for the current PR diff.");
+  const contextHash = analysisContextHash(detail);
+  if (!force && cached?.diffHash === detail.diffHash && (!cached.contextHash || cached.contextHash === contextHash)) {
+    hooks.onStatus?.("Using cached analysis for the current PR diff and discussion state.");
     return cached;
   }
+  if (!force && cached?.diffHash === detail.diffHash) {
+    hooks.onStatus?.("Comments, reviews or linked issues changed since the cached analysis; refreshing it.");
+  }
 
-  hooks.onStatus?.("Preparing Codex analysis schema and local session state.");
-  await ensureCodexSchema();
-  await ensureCodexHome();
-  const outputPath = join(cacheDir, "codex-output", `${detail.key}-${Date.now()}.json`);
+  hooks.onStatus?.("Preparing analysis schema and local agent session state.");
+  const outputPath = join(cacheDir, "agent-output", `${detail.key}-${Date.now()}.json`);
   await mkdir(dirname(outputPath), { recursive: true });
+  const schema = analysisJsonSchema();
+  await writeFile(codexSchemaPathFor(outputPath), JSON.stringify(schema, null, 2));
+
+  hooks.onStatus?.("Checking whether this PR is part of a stack.");
+  const stack = await getPrStack(detail.owner, detail.repo, detail.number).catch((): PrStack | undefined => undefined);
 
   hooks.onStatus?.("Collecting targeted research candidates from the changed files.");
-  const researchCandidates = await targetedResearchCandidates(detail);
-  const prompt = buildPrompt(detail, researchCandidates);
-  hooks.onStatus?.("Running Codex analysis with PR diff, comments, linked issues, CI, and local review policy context.");
-  const result = await runCommand(
-    "codex",
-    [
-      "--search",
-      "--ask-for-approval",
-      "never",
-      "exec",
-      "--skip-git-repo-check",
-      "--sandbox",
-      "read-only",
-      "--output-schema",
-      codexSchemaPath,
-      "--output-last-message",
-      outputPath,
-      "-"
-    ],
+  const profiles = matchingProfiles(detail, await loadResearchProfiles(), maxDiffChars);
+  const researchCandidates = await targetedResearchCandidates(detail, profiles);
+  const calibration = await calibrationPromptBlock(detail.repository).catch(() => "");
+  const repoRules = (await readRepoRules(detail.repository).catch(() => [])).filter((rule) => rule.enabled);
+  const prompt = buildPrompt(detail, researchCandidates, stack, profiles, { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`) });
+  hooks.onStatus?.("Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context.");
+  const { invocation, result, output } = await runAgent(
     {
+      task: "deep-analysis",
+      prKey: detail.key,
+      prompt,
+      access: "read-only",
       cwd: projectRoot,
-      env: { CODEX_HOME: codexHome },
-      input: prompt,
-      timeoutMs: 10 * 60_000,
-      onStdout: hooks.onStdout,
-      onStderr: hooks.onStderr
-    }
+      webSearch: true,
+      outputSchema: schema,
+      outputLastMessagePath: outputPath
+    },
+    { timeoutMs: 10 * 60_000, onStdout: hooks.onStdout, onStderr: hooks.onStderr }
   );
+  if (output.isError) throw new Error(output.text || `${invocation.label} reported an error without a message.`);
 
-  hooks.onStatus?.("Parsing and normalizing Codex review guidance.");
-  const rawText = await readOutput(outputPath, result.stdout);
-  const parsed = parseCodexOutput(rawText);
+  hooks.onStatus?.(`Parsing and normalizing ${agentDisplayName(invocation.agent)} review guidance.`);
+  const parsed =
+    output.structured && typeof output.structured === "object"
+      ? analysisSchema.parse(output.structured)
+      : parseCodexOutput(invocation.agent === "codex" ? await readOutput(outputPath, result.stdout) : output.text);
   const normalized = await normalizeAnalysisWithLocalGradleChecks(detail, normalizeAnalysisForDetail(detail, parsed));
   const analysis: AnalysisResult = {
     prKey: detail.key,
     diffHash: detail.diffHash,
+    contextHash,
     ...normalized,
     docs: cleanSources(normalized.docs),
-    similarImplementations: cleanSources(mergeResearchCandidates(normalized.similarImplementations, researchCandidates)),
-    generatedAt: new Date().toISOString()
+    similarImplementations: cleanSources(mergeResearchCandidates(normalized.similarImplementations, researchCandidates, profiles)),
+    generatedAt: new Date().toISOString(),
+    agent: invocation.agent,
+    model: invocation.model,
+    costUsd: output.costUsd,
+    stack: stack?.isStacked
+      ? { parentNumber: stack.parent?.number, parentTitle: stack.parent?.title, position: stack.position, size: stack.chain.length }
+      : undefined
   };
   await writeAnalysis(analysis);
   hooks.onStatus?.("Analysis complete.");
@@ -139,65 +155,36 @@ export async function analyzePr(
 }
 
 export async function askRisk(detail: PrDetail, risk: ReviewInsight | { observation: string }, question: string): Promise<string> {
-  await ensureCodexHome();
-  const prompt = buildRiskQuestionPrompt(detail, risk, question);
-  const result = await runCommand(
-    "codex",
-    ["--search", "--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
-    {
-      cwd: projectRoot,
-      env: { CODEX_HOME: codexHome },
-      input: prompt,
-      timeoutMs: 5 * 60_000
-    }
+  const { invocation, output } = await runAgent(
+    { task: "quick-answer", prKey: detail.key, prompt: buildRiskQuestionPrompt(detail, risk, question), access: "read-only", cwd: projectRoot, webSearch: true },
+    { timeoutMs: 5 * 60_000 }
   );
-  return result.stdout.trim() || "Codex did not return an answer.";
+  return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
 }
 
 export async function askCiFailure(detail: PrDetail, check: CiCheck, log = ""): Promise<string> {
-  await ensureCodexHome();
-  const result = await runCommand(
-    "codex",
-    ["--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
-    {
-      cwd: projectRoot,
-      env: { CODEX_HOME: codexHome },
-      input: buildCiFailurePrompt(detail, check, log),
-      timeoutMs: 5 * 60_000
-    }
+  const { invocation, output } = await runAgent(
+    { task: "ci-explain", prKey: detail.key, prompt: buildCiFailurePrompt(detail, check, log), access: "read-only", cwd: projectRoot },
+    { timeoutMs: 5 * 60_000 }
   );
-  return result.stdout.trim() || "Codex did not return an answer.";
+  return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
 }
 
 export async function askResearch(detail: PrDetail, source: SourceLink, question: string): Promise<string> {
-  await ensureCodexHome();
-  const result = await runCommand(
-    "codex",
-    ["--search", "--ask-for-approval", "never", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"],
-    {
-      cwd: projectRoot,
-      env: { CODEX_HOME: codexHome },
-      input: buildResearchQuestionPrompt(detail, source, question),
-      timeoutMs: 5 * 60_000
-    }
+  const { invocation, output } = await runAgent(
+    { task: "research-answer", prKey: detail.key, prompt: buildResearchQuestionPrompt(detail, source, question), access: "read-only", cwd: projectRoot, webSearch: true },
+    { timeoutMs: 5 * 60_000 }
   );
-  return result.stdout.trim() || "Codex did not return an answer.";
+  return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
 }
 
-export async function ensureCodexHome(): Promise<void> {
-  await mkdir(join(codexHome, "sessions"), { recursive: true });
-  await chmod(codexHome, 0o700).catch(() => undefined);
-  for (const file of ["auth.json", "config.toml"]) {
-    const source = join(homedir(), ".codex", file);
-    const target = join(codexHome, file);
-    if (existsSync(source)) {
-      await copyFile(source, target);
-      await chmod(target, 0o600).catch(() => undefined);
-    }
-  }
-}
-
-export function buildPrompt(detail: PrDetail, researchCandidates: SourceLink[] = []): string {
+export function buildPrompt(
+  detail: PrDetail,
+  researchCandidates: SourceLink[] = [],
+  stack?: PrStack,
+  profiles: ResearchProfile[] = [],
+  context: { calibration?: string; repoRules?: string[] } = {}
+): string {
   const diff =
     detail.diff.length > maxDiffChars
       ? `${detail.diff.slice(0, maxDiffChars)}\n\n[Diff truncated from ${detail.diff.length} characters.]`
@@ -222,7 +209,8 @@ export function buildPrompt(detail: PrDetail, researchCandidates: SourceLink[] =
       files: detail.files
     },
     diff,
-    targetedResearchCandidates: researchCandidates
+    targetedResearchCandidates: researchCandidates,
+    stack: stackPromptContext(stack)
   };
 
   return `You are helping a human review a GitHub pull request made by an agent.
@@ -232,15 +220,15 @@ Classify the PR as exactly one of: feature, bug, improvement, refactor, docs, te
 Return only JSON that matches the provided schema. Do not wrap it in Markdown.
 
 Behavior rules:
+- If a \`stack\` object is present, the PR is stacked on a parent PR: judge only the incremental diff against the parent branch, mention the parent PR number in the summary, and treat "depends on parent being correct" as a caveat rather than a risk.
 - Treat the PR body and linked issues as primary intent evidence. If linked issues exist, compare the PR against the issue request/bug report before judging completeness, risks, tests, and review comments.
 - For bug PRs, explain previous behavior and new behavior when inferable.
 - For feature PRs, search for authoritative docs and similar GitHub implementations when useful. Include source URLs. Call out caveats and edge cases.
-- For instrumentation, framework integration, telemetry, messaging, database, or library-support PRs, research comparable implementations in mature projects before filling similarImplementations. Prefer the current ecosystem first, then comparable frameworks such as Spring, Quarkus, OpenTelemetry instrumentation, Micrometer, or official examples.
 - Use targetedResearchCandidates first. If a candidate contains the exact API/class introduced by the PR, it should usually outrank broader framework docs or generic OpenTelemetry examples.
 - For each similarImplementation, include the framework/ecosystem, repository, filePath, URL, a comparison to this PR, and a caveat or reviewer check.
 - codeSnippet must be an exact excerpt copied from the linked implementation or documentation, not inferred usage. Set snippetSourceUrl to the exact blob/raw/docs URL used for the snippet. If you cannot verify an exact snippet, leave codeSnippet and snippetSourceUrl empty and explain the gap in caveat.
 - Keep snippets small, usually 5-25 lines. Do not paste whole files.
-- For Oracle UCP, JDBC, datasource, or tracing PRs, explicitly look for Oracle UCP/OpenTelemetry instrumentation examples and comparable Spring/Quarkus/Micrometer support, then compare semantic attributes, span names, lifecycle hooks, wrappers/proxies, error handling, and test coverage against the PR. For Oracle UCP specifically, prioritize sources that mention OracleUcpTelemetry, UniversalConnectionPool, registerMetrics, or unregisterMetrics. Treat generic OpenTelemetry instrumentation examples as lower relevance unless they directly explain the same lifecycle or metric signal.
+${profiles.flatMap((profile) => profile.promptGuidance).map((line) => `- ${line}`).join("\n")}
 - For improvement PRs, explain what changed, why it helps, and tradeoffs.
 - For every PR, produce concrete reviewer focus areas, risks, tests to check, and a draft review comment.
 - Scale the amount of analysis to the source-code change, not the total PR size. If most changes are tests/docs and production/source code is tiny, keep reviewerFocus, risks, caveats, and draftComment short. Do not make the human read more AI text than the source change warrants.
@@ -258,7 +246,7 @@ Behavior rules:
 - Only write "Manual verification:" items when automation is not realistic, such as requiring real cloud resources, external credentials/accounts, paid services, release permissions, visual/UX judgment, or infrastructure that cannot be provisioned locally. Manual items must include pass/fail criteria.
 - Be explicit when evidence is missing. Do not invent docs or source links.
 - Prefer concise, review-useful language over broad summaries.
-
+${context.repoRules && context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}
 PR packet:
 ${JSON.stringify(payload, null, 2)}
 `;
@@ -450,12 +438,8 @@ ${JSON.stringify(source, null, 2)}
 `;
 }
 
-async function ensureCodexSchema(): Promise<void> {
-  await mkdir(dirname(codexSchemaPath), { recursive: true });
-  await writeFile(
-    codexSchemaPath,
-    JSON.stringify(
-      {
+export function analysisJsonSchema(): Record<string, unknown> {
+  return {
         type: "object",
         additionalProperties: false,
         required: [
@@ -501,11 +485,7 @@ async function ensureCodexSchema(): Promise<void> {
           draftComment: { type: "string" },
           modelNote: { type: "string" }
         }
-      },
-      null,
-      2
-    )
-  );
+  };
 }
 
 function sourceJsonSchema() {
@@ -646,7 +626,7 @@ export async function normalizeAnalysisWithLocalGradleChecks<T extends RawAnalys
   };
 }
 
-async function ensureAnalysisWorktree(detail: PrDetail): Promise<string> {
+export async function ensureAnalysisWorktree(detail: PrDetail): Promise<string> {
   const token = await readGithubToken();
   if (!token) throw new Error("GitHub token is required to prepare a PR checkout for Gradle project validation.");
   const repoDir = join(cacheDir, "analysis-worktrees", detail.key);
@@ -654,14 +634,15 @@ async function ensureAnalysisWorktree(detail: PrDetail): Promise<string> {
   if (!existsSync(join(repoDir, ".git"))) {
     await rm(repoDir, { recursive: true, force: true });
     await runCommand("gh", ["repo", "clone", detail.repository, repoDir, "--", "--depth", "1"], {
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       timeoutMs: 10 * 60_000,
       redact: [token]
     });
+    await hardenWorktreeCredentials(repoDir);
   }
   await runCommand("gh", ["pr", "checkout", String(detail.number), "--detach"], {
     cwd: repoDir,
-    env: { GH_TOKEN: token, GH_HOST: "github.com" },
+    env: githubCliEnv(token),
     timeoutMs: 5 * 60_000,
     redact: [token]
   });
@@ -710,19 +691,24 @@ function closestGradleProject(requestedProject: string, projects: Set<string>): 
   const requestedLeaf = requestedProject.split(":").filter(Boolean).at(-1) ?? requestedProject;
   const requestedNorm = normalizeGradleProjectName(requestedLeaf);
   const candidates = [...projects];
+  const leafOf = (project: string) => project.split(":").filter(Boolean).at(-1) ?? project;
   return (
     candidates.find((project) => project.endsWith(`:${requestedLeaf}`)) ??
-    candidates.find((project) => normalizeGradleProjectName(project.split(":").filter(Boolean).at(-1) ?? project) === requestedNorm) ??
+    candidates.find((project) => normalizeGradleProjectName(leafOf(project)) === requestedNorm) ??
+    // Many multi-project builds prefix every module with the product name (`micronaut-core`, `spring-boot-actuator`).
+    // Only the *candidate* side drops its leading word, so `:data-jdbc` never collapses onto an unrelated `:jdbc`.
+    candidates.find((project) => stripLeadingWord(normalizeGradleProjectName(leafOf(project), false)) === requestedNorm) ??
     candidates.find((project) => normalizeGradleProjectName(project).endsWith(requestedNorm))
   );
 }
 
-function normalizeGradleProjectName(value: string): string {
-  return value
-    .replace(/^:+/, "")
-    .toLowerCase()
-    .replace(/^micronaut[-_]/, "")
-    .replace(/[^a-z0-9]/g, "");
+function stripLeadingWord(value: string): string {
+  return value.replace(/^[a-z][a-z0-9]*[-_](?=[a-z])/, "").replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeGradleProjectName(value: string, collapse = true): string {
+  const lower = value.replace(/^:+/, "").toLowerCase();
+  return collapse ? lower.replace(/[^a-z0-9]/g, "") : lower;
 }
 
 function escapeRegExp(value: string): string {
@@ -816,75 +802,61 @@ export function extractJson(text: string): string {
   const first = trimmed.indexOf("{");
   const last = trimmed.lastIndexOf("}");
   if (first >= 0 && last > first) return trimmed.slice(first, last + 1);
-  throw new Error("Codex did not return a JSON object");
+  throw new Error("The agent did not return a JSON object");
 }
 
 function cleanSources(sources: SourceLink[]): SourceLink[] {
   return sources.filter((source) => source.url.trim().length > 0 || source.title.trim().length > 0);
 }
 
-async function targetedResearchCandidates(detail: PrDetail): Promise<SourceLink[]> {
-  if (!needsTargetedOracleUcpResearch(detail)) return [];
+async function targetedResearchCandidates(detail: PrDetail, profiles: ResearchProfile[]): Promise<SourceLink[]> {
+  if (profiles.length === 0) return [];
+  const curated = profiles.flatMap((profile) => profile.curatedSources);
+  const queries = profiles.flatMap((profile) => profile.codeSearchQueries);
   const token = await readGithubToken();
-  if (!token) return [];
-  const queries = [
-    "\"UCPTelemetry\" \"OracleUcpTelemetry\" owner:oracle",
-    "\"OracleUcpTelemetry\" \"cloudbank\"",
-    "\"OracleUcpTelemetry\" \"registerMetrics\"",
-    "\"OracleUcpTelemetry\" \"UniversalConnectionPool\"",
-    "\"OracleUcpTelemetry.create\"",
-    "\"opentelemetry-oracle-ucp-11.2\""
-  ];
   const results: SourceLink[] = [];
-  for (const query of queries) {
-    const found = await searchGithubCode(query, token).catch(() => []);
-    results.push(...found);
-    if (dedupeSources(results).length >= 8) break;
+  if (token && queries.length > 0) {
+    for (const query of queries) {
+      const found = await searchGithubCode(query, token, profiles).catch(() => []);
+      results.push(...found);
+      if (dedupeSources(results).length >= 8) break;
+    }
   }
-  return dedupeSources([...oracleUcpCuratedSources(), ...results])
-    .sort((a, b) => sourceRelevance(b, detail) - sourceRelevance(a, detail))
+  return dedupeSources([...curated, ...results])
+    .sort((a, b) => sourceRelevance(b, profiles, detail) - sourceRelevance(a, profiles, detail))
     .slice(0, 8);
 }
 
-function needsTargetedOracleUcpResearch(detail: PrDetail): boolean {
-  const text = `${detail.title}\n${detail.body}\n${detail.files.map((file) => file.path).join("\n")}\n${detail.diff.slice(0, maxDiffChars)}`.toLowerCase();
-  return (
-    text.includes("oracleucptelemetry") ||
-    text.includes("oracle ucp") ||
-    text.includes("universalconnectionpool") ||
-    text.includes("opentelemetry-oracle-ucp") ||
-    text.includes("ucp.enabled")
-  );
-}
-
-async function searchGithubCode(query: string, token: string): Promise<SourceLink[]> {
+async function searchGithubCode(query: string, token: string, profiles: ResearchProfile[]): Promise<SourceLink[]> {
   const result = await runCommand(
     "gh",
     ["api", "search/code", "-f", `q=${query}`, "-H", "Accept: application/vnd.github.text-match+json"],
     {
       cwd: projectRoot,
-      env: { GH_TOKEN: token, GH_HOST: "github.com" },
+      env: githubCliEnv(token),
       redact: [token],
       timeoutMs: 90_000
     }
   );
   const payload = JSON.parse(result.stdout) as { items?: Array<Record<string, unknown>> };
   const items = payload.items ?? [];
-  return items.map((item) => sourceFromCodeSearchItem(item, query)).filter((item): item is SourceLink => Boolean(item));
+  return items.map((item) => sourceFromCodeSearchItem(item, query, profiles)).filter((item): item is SourceLink => Boolean(item));
 }
 
-function sourceFromCodeSearchItem(item: Record<string, unknown>, query: string): SourceLink | undefined {
+function sourceFromCodeSearchItem(item: Record<string, unknown>, query: string, profiles: ResearchProfile[]): SourceLink | undefined {
   const path = String(item.path ?? "");
   const url = String(item.url ?? "");
   const repository = repositoryName(item.repository);
   if (!path && !url) return undefined;
   const codeSnippet = snippetFromTextMatches(item.textMatches);
-  const exact = /OracleUcpTelemetry|UniversalConnectionPool|registerMetrics|unregisterMetrics/.test(`${path}\n${codeSnippet}`);
+  const pattern = exactMatchPattern(profiles);
+  const exact = pattern ? pattern.test(`${path}\n${codeSnippet}`) : false;
+  const subject = profiles.map((profile) => profile.subject).join(" / ") || "the PR's subject";
   return {
     title: `${repository || "GitHub"} ${path.split("/").pop() || "code result"}`,
     url,
     reason: exact
-      ? `Targeted GitHub code search result for ${query}; contains Oracle UCP/OpenTelemetry lifecycle API usage.`
+      ? `Targeted GitHub code search result for ${query}; contains ${subject} API usage.`
       : `Targeted GitHub code search result for ${query}; inspect for relevance before relying on it.`,
     framework: "GitHub code search",
     repository,
@@ -892,11 +864,11 @@ function sourceFromCodeSearchItem(item: Record<string, unknown>, query: string):
     codeSnippet,
     snippetSourceUrl: url,
     comparison: exact
-      ? "Compare how this code creates OracleUcpTelemetry and registers/unregisters UCP pools against the PR's Micronaut lifecycle listener."
-      : "Use only if it directly matches the Oracle UCP telemetry lifecycle in this PR.",
+      ? `Compare how this code handles ${subject} against the PR's implementation (construction, lifecycle, error handling, tests).`
+      : `Use only if it directly matches ${subject} in this PR.`,
     caveat: exact
       ? "This is a code-search candidate; reviewer should still verify repository context and whether the implementation is production quality."
-      : "Lower relevance because it may be generic OpenTelemetry code rather than Oracle UCP telemetry."
+      : `Lower relevance because it may be generic code rather than ${subject}.`
   };
 }
 
@@ -919,34 +891,11 @@ function snippetFromTextMatches(value: unknown): string {
     .slice(0, 2_000);
 }
 
-function oracleUcpCuratedSources(): SourceLink[] {
-  const path = "cloudbank-v5/common/src/main/java/com/example/common/ucp/UCPTelemetry.java";
-  return [
-    {
-      title: "Oracle CloudBank UCPTelemetry",
-      url: `https://github.com/oracle/microservices-datadriven/blob/main/${path}`,
-      reason: "Known Oracle example that wraps OpenTelemetry Oracle UCP telemetry in an application-specific UCPTelemetry helper.",
-      framework: "Oracle example application",
-      repository: "oracle/microservices-datadriven",
-      filePath: path,
-      codeSnippet: `private OpenTelemetry openTelemetry;
-
-public UCPTelemetry(OpenTelemetry openTelemetry) {
-    this.ucpTelemetry = OracleUcpTelemetry.create(openTelemetry);
-    this.openTelemetry = openTelemetry;
-}`,
-      snippetSourceUrl: `https://github.com/oracle/microservices-datadriven/blob/main/${path}`,
-      comparison: "This is not a Micronaut integration, but it is directly relevant because it shows the same OracleUcpTelemetry construction pattern that the PR automates through Micronaut bean lifecycle hooks.",
-      caveat: "Use it as an Oracle UCP telemetry usage reference, not as evidence that Micronaut lifecycle registration, unregister behavior, or metric attributes are correct."
-    }
-  ];
-}
-
-function mergeResearchCandidates(sources: SourceLink[], candidates: SourceLink[]): SourceLink[] {
+function mergeResearchCandidates(sources: SourceLink[], candidates: SourceLink[], profiles: ResearchProfile[]): SourceLink[] {
   if (candidates.length === 0) return sources;
-  const relevantSources = sources.filter((source) => sourceRelevance(source) > 0);
+  const relevantSources = sources.filter((source) => sourceRelevance(source, profiles) > 0);
   const merged = dedupeSources([...candidates, ...relevantSources]);
-  return merged.sort((a, b) => sourceRelevance(b) - sourceRelevance(a)).slice(0, 8);
+  return merged.sort((a, b) => sourceRelevance(b, profiles) - sourceRelevance(a, profiles)).slice(0, 8);
 }
 
 function dedupeSources(sources: SourceLink[]): SourceLink[] {
@@ -961,18 +910,9 @@ function dedupeSources(sources: SourceLink[]): SourceLink[] {
   return result;
 }
 
-function sourceRelevance(source: SourceLink, detail?: PrDetail): number {
-  const text = `${source.title}\n${source.repository}\n${source.filePath}\n${source.reason}\n${source.codeSnippet}\n${source.comparison}\n${detail?.title ?? ""}`.toLowerCase();
-  let score = 0;
-  if (text.includes("oracleucptelemetry")) score += 10;
-  if (text.includes("universalconnectionpool")) score += 8;
-  if (text.includes("registermetrics")) score += 6;
-  if (text.includes("unregistermetrics")) score += 6;
-  if (text.includes("oracle ucp") || text.includes("oracle-ucp")) score += 5;
-  if (text.includes("opentelemetry")) score += 2;
-  if (text.includes("micronaut")) score += 2;
-  if (text.includes("spring") || text.includes("quarkus") || text.includes("micrometer")) score += 1;
-  return score;
+function sourceRelevance(source: SourceLink, profiles: ResearchProfile[], detail?: PrDetail): number {
+  const text = `${source.title}\n${source.repository}\n${source.filePath}\n${source.reason}\n${source.codeSnippet}\n${source.comparison}\n${detail?.title ?? ""}`;
+  return profileRelevance(text, profiles);
 }
 
 export function typeDisplayName(type: AnalysisType): string {
