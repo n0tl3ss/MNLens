@@ -828,6 +828,10 @@ async function prepareWorkspace(
     redact: [token]
   });
   await hardenWorktreeCredentials(repoDir);
+  // --depth implies --single-branch, which narrows the remote's fetch refspec to the default branch.
+  // `gh pr checkout` then fetches the PR branch fine but `git checkout --track origin/<branch>` refuses
+  // with "starting point ... is not a branch". Restore the normal refspec (the clone stays shallow).
+  await runStreaming(job, "git", ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], { cwd: repoDir, redact: [token] });
   update(job, { phase: "checking-out", statusMessage: `Checking out PR #${request.number}.` });
   await runStreaming(job, "gh", ["pr", "checkout", String(request.number)], {
     cwd: repoDir,
