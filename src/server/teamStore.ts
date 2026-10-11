@@ -1,5 +1,6 @@
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { hostname, userInfo } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { TeamSettings, TeamStatus, UpdateTeamSettingsRequest } from "../shared/types.js";
@@ -75,8 +76,16 @@ export async function teamStatus(): Promise<TeamStatus> {
   return status;
 }
 
-/** Stable per-machine id used as the memory file name; no secrets, just enough to avoid collisions. */
+let cachedMemberId: string | undefined;
+
+/**
+ * Stable per-machine id used as the memory file name; no secrets, just enough
+ * to avoid collisions. `user@host` when the host name is a real name; when it
+ * is an IP address or empty (common on laptops that roam networks) a random
+ * suffix is generated once and kept in the cache so the id never churns.
+ */
 export function memberId(): string {
+  if (cachedMemberId) return cachedMemberId;
   const user = (() => {
     try {
       return userInfo().username;
@@ -84,7 +93,26 @@ export function memberId(): string {
       return "user";
     }
   })();
-  return `${user}@${hostname()}`.replace(/[^a-zA-Z0-9_.@-]/g, "_").slice(0, 80);
+  let host = hostname().split(".")[0];
+  if (!host || /^\d+(-\d+){3}$|^\d+$|^[0-9a-f:]+$/i.test(host.replace(/\./g, "-"))) host = stableMachineSuffix();
+  cachedMemberId = `${user}@${host}`.replace(/[^a-zA-Z0-9_.@-]/g, "_").slice(0, 80);
+  return cachedMemberId;
+}
+
+function stableMachineSuffix(): string {
+  const file = join(cacheDir, "member-id");
+  try {
+    if (existsSync(file)) {
+      const stored = readFileSync(file, "utf8").trim();
+      if (stored) return stored;
+    }
+    const generated = `machine-${randomBytes(3).toString("hex")}`;
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(file, generated);
+    return generated;
+  } catch {
+    return "machine";
+  }
 }
 
 export function repositoryFolder(repository: string): string {
