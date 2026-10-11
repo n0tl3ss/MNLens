@@ -131,7 +131,12 @@ export function SetupScreen({
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "limited" && <span>GitHub is authenticated with public repository access. Private repositories and some push workflows may need a fine-grained token or classic `repo`.</span>}
           {!loading && missingRequired.length === 0 && githubReady && auth?.scopeCheck === "missing" && <span>GitHub is authenticated, but token permissions look too narrow for repository review workflows.</span>}
           {!loading && missingRequired.length === 0 && missingRecommended.length > 0 && <span>{plural(missingRecommended.length, "recommended tool")} missing. You can continue, but some local verification may need manual setup later.</span>}
-          {!loading && status && agentsAvailable.length > 0 && <span>Agent{agentsAvailable.length > 1 ? "s" : ""} ready: {agentsAvailable.join(", ")}. Using {status.selectedAgent}; change it later under “Agent &amp; models”.</span>}
+          {!loading && status && agentsAvailable.length > 0 && (
+            <span>
+              Agent{agentsAvailable.length > 1 ? "s" : ""} ready: {agentsAvailable.join(", ")}. Using <strong>{status.selectedAgent}</strong>
+              {agentsAvailable.includes(status.selectedAgent) ? "; change it later under “Agent & models”." : ", which is not ready — switch under “Agent & models” after continuing."}
+            </span>
+          )}
           {!loading && status?.ready && githubReady && missingRecommended.length === 0 && <span>All local review tools are ready.</span>}
         </div>
 

@@ -1,5 +1,5 @@
 import type { AgentId, DependencyCheck, SetupStatus } from "../shared/types.js";
-import { agentIds, readAgentSettings } from "./agentSettings.js";
+import { agentIds, readAgentSettings, updateAgentSettings } from "./agentSettings.js";
 import { CommandError, runCommand } from "./command.js";
 
 interface DependencySpec {
@@ -27,8 +27,12 @@ export async function getSetupStatus(): Promise<SetupStatus> {
       auth.installHint = `Install the ${cli.name} first (see above), then sign in.`;
     }
   }
-  const settings = await readAgentSettings();
+  let settings = await readAgentSettings();
   const availableAgents = agentIds.filter((agent) => agentReady(dependencies, agent));
+  // Never-configured install: prefer an agent that is actually installed and signed in over the default.
+  if (availableAgents.length > 0 && !availableAgents.includes(settings.agent) && settings.updatedAt === new Date(0).toISOString()) {
+    settings = await updateAgentSettings({ agent: availableAgents[0] });
+  }
   return {
     checkedAt: new Date().toISOString(),
     platform: process.platform,
