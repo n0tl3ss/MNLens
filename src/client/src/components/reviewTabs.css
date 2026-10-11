@@ -9,9 +9,54 @@
 
 .tab-list {
   display: flex;
-  gap: 6px;
+  gap: 10px;
   min-width: 0;
   overflow-x: auto;
+}
+
+.tab-group {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding-top: 14px;
+}
+
+.tab-group + .tab-group {
+  padding-left: 10px;
+  border-left: 1px dashed #c6d9df;
+}
+
+.tab-group-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #60717c;
+}
+
+.tab-group + .tab-group .tab-group-label {
+  left: 10px;
+}
+
+.tab-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(20, 34, 49, 0.12);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.tabs .active .tab-badge {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .tabs button {
@@ -33,6 +78,18 @@
 
 [data-theme="dark"] .tabs {
   border-color: #233846;
+}
+
+[data-theme="dark"] .tab-group + .tab-group {
+  border-color: #284557;
+}
+
+[data-theme="dark"] .tab-group-label {
+  color: #9fb4bf;
+}
+
+[data-theme="dark"] .tab-badge {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 [data-theme="dark"] .tabs .active {

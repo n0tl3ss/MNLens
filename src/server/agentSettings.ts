@@ -25,6 +25,7 @@ export const agentTasks: AgentTask[] = [
   "manual-check",
   "second-opinion",
   "acceptance-contract",
+  "review-draft",
   "setup-probe"
 ];
 
@@ -80,6 +81,7 @@ export const defaultTaskTiers: Record<AgentTask, ModelTier> = {
   "manual-check": "economy",
   "second-opinion": "economy",
   "acceptance-contract": "standard",
+  "review-draft": "standard",
   "setup-probe": "economy"
 };
 
@@ -100,6 +102,7 @@ export const taskDescriptions: Record<AgentTask, string> = {
   "manual-check": "Investigate a manual verification item",
   "second-opinion": "Second opinion: other agent audits an analysis",
   "acceptance-contract": "Acceptance contract: map issue/PR criteria to evidence",
+  "review-draft": "Review draft: suggested inline comments and final verdict",
   "setup-probe": "Setup screen auth/model probe"
 };
 

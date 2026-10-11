@@ -291,6 +291,7 @@ export type AgentTask =
   | "manual-check"
   | "second-opinion"
   | "acceptance-contract"
+  | "review-draft"
   | "setup-probe";
 
 export interface TierModel {
@@ -388,6 +389,52 @@ export interface AcceptanceContractRequest extends PrRef {
 export interface UpdateCriterionRequest {
   status?: CriterionStatus | null;
   note?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Review draft (where the comments go, and the final verdict)
+// ---------------------------------------------------------------------------
+
+export type SuggestedCommentKind = "blocking" | "important" | "suggestion" | "nit" | "question" | "praise";
+
+export interface SuggestedReviewComment {
+  id: string;
+  path: string;
+  /** Line on the given side of the diff; absent when the agent could not anchor the comment to a changed line. */
+  line?: number;
+  side: "LEFT" | "RIGHT";
+  kind: SuggestedCommentKind;
+  title: string;
+  /** Comment text as the PR author would read it. */
+  body: string;
+  /** Why the reviewer should post this (not sent to GitHub). */
+  rationale: string;
+  /** Acceptance criterion this comment relates to, if any. */
+  criterion?: string;
+  /** Agent-supplied anchor that MNLens could not match to a changed line. */
+  unanchored?: boolean;
+}
+
+export interface ReviewDraft {
+  prKey: string;
+  diffHash: string;
+  generatedAt: string;
+  agent: AgentId;
+  model: string;
+  costUsd?: number;
+  decision: ReviewDecision | "COMMENT";
+  decisionRationale: string;
+  /** The final review comment the agent would post (summary body of the GitHub review). */
+  finalComment: string;
+  comments: SuggestedReviewComment[];
+  /** Ordered checklist the agent thinks the human must / should / may do before deciding. */
+  mustDo: string[];
+  shouldDo: string[];
+  optional: string[];
+}
+
+export interface ReviewDraftRequest extends PrRef {
+  force?: boolean;
 }
 
 // ---------------------------------------------------------------------------

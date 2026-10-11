@@ -1,4 +1,4 @@
-import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewProgress, RepoReviewRule, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, RepoReviewRule, VerificationJob } from "../../../shared/types";
 import { buildOverviewLinePins } from "../planHelpers";
 import type { Tab } from "../reviewTypes";
 import { reviewReplay, type ReviewReplay } from "./ReviewDeltaSection";
@@ -12,6 +12,7 @@ import { ResearchTab } from "./ResearchTab";
 import { FixSection } from "./CodexTab";
 import { CommentTab, type DraftReviewComment } from "./CommentTab";
 import { HandoffTab } from "./HandoffTab";
+import { ReviewTab } from "./ReviewTab";
 
 export function DetailTab({
   tab,
@@ -26,6 +27,12 @@ export function DetailTab({
   acceptanceError,
   onGenerateAcceptance,
   onOverrideCriterion,
+  reviewDraft,
+  reviewDraftBusy,
+  reviewDraftError,
+  onGenerateReviewDraft,
+  onUseFinalComment,
+  onGoToTab,
   memory,
   onFindingFeedback,
   feedbackPreview,
@@ -93,6 +100,12 @@ export function DetailTab({
   acceptanceError?: string;
   onGenerateAcceptance?: (force: boolean) => void;
   onOverrideCriterion?: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
+  reviewDraft?: ReviewDraft | null;
+  reviewDraftBusy?: boolean;
+  reviewDraftError?: string;
+  onGenerateReviewDraft?: (force: boolean) => void;
+  onUseFinalComment?: (body: string) => void;
+  onGoToTab?: (tab: Tab) => void;
   memory?: ReviewMemorySummary;
   onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
   feedbackPreview?: string;
@@ -155,6 +168,30 @@ export function DetailTab({
   buildHandoffMarkdown: (args: HandoffMarkdownArgs) => string;
 }) {
   if (!detail) return <p className="empty wide">Loading PR details...</p>;
+  if (tab === "review") {
+    return (
+      <ReviewTab
+        detail={detail}
+        analysis={analysis}
+        acceptance={acceptance}
+        draft={reviewDraft}
+        draftBusy={Boolean(reviewDraftBusy)}
+        draftError={reviewDraftError}
+        progress={progress}
+        reviewComments={reviewComments}
+        verificationJobs={verificationJobs}
+        ciChecks={ciChecks}
+        secondOpinionBusy={secondOpinionBusy}
+        onGenerateDraft={(force) => onGenerateReviewDraft?.(force)}
+        onGenerateAcceptance={onGenerateAcceptance}
+        onRequestSecondOpinion={onRequestSecondOpinion}
+        onAddReviewComment={onAddReviewComment}
+        onUseFinalComment={(body) => onUseFinalComment?.(body)}
+        onSaveProgress={onSaveProgress}
+        onGoToTab={(next) => onGoToTab?.(next)}
+      />
+    );
+  }
   if (tab === "plan") {
     return (
       <ReviewPlan

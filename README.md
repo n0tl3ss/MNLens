@@ -28,9 +28,10 @@ On first launch the setup screen checks `git`, `gh`, your agent CLI and the OS c
 1. **Queue** — Fast Analyze scores the visible PRs from metadata (no agent call); stacked PRs show a `2/3` badge.
 2. **Deep Analyze** — the agent (standard tier) returns a structured review: classification, evidence, reviewer focus, risks, test assessment, research, draft comment. Repo rules and your past 👍/👎 verdicts calibrate the prompt.
 3. **Acceptance contract** — criteria from the linked issue / PR body are mapped to proof (tests, `path:line`, CI, local runs). Unproven holds, failed blocks; you can override.
-4. **Second opinion** (optional, economy tier) — the other vendor's model audits the analysis and reports disputes and misses.
-5. **Verify / Fix** — run the suggested commands locally, or let the agent prepare a patch through the research → implementation → tests/QA → docs → security → final-review pipeline in a disposable worktree. Nothing is committed or pushed until you approve.
-6. **Handoff** — copy the handoff note, or post one structured **Feedback to author** comment (criteria table, kept findings, verification) with your identity.
+4. **Review tab** — the review the agent would actually post: inline comments anchored to diff lines (blocking / important / question / suggestion / nit / praise), a final review comment, and a verdict, laid out as an ordered procedure with **Mandatory → Recommended → Optional → Decide** tiers. "Add to my review" copies a suggested comment into your own draft; "Use as review comment" fills the review dialog. You still choose Approve / Request changes yourself.
+5. **Second opinion** (optional, economy tier) — the other vendor's model audits the analysis and reports disputes and misses.
+6. **Verify / Fix** — run the suggested commands locally, or let the agent prepare a patch through the research → implementation → tests/QA → docs → security → final-review pipeline in a disposable worktree. Nothing is committed or pushed until you approve.
+7. **Handoff** — copy the handoff note, or post one structured **Feedback to author** comment (criteria table, kept findings, verification) with your identity.
 
 ## Why It Exists
 
@@ -48,6 +49,8 @@ Code review work is usually scattered across GitHub tabs, CI logs, local termina
 - **Review queue:** assigned PRs, review-requested PRs, optionally your own PRs.
 - **Pluggable coding agent:** run every AI step on **Codex CLI** or **Claude Code**. Same prompts, same JSON schemas, same approval gates; switch under *Agent & models*.
 - **Cost-tiered model routing:** each task is mapped to an *economy / standard / premium* tier (see below), so Q&A, docs and triage run on ~20x cheaper models than code edits.
+- **Recommended review (Review tab):** the agent drafts the review it would post — line-anchored comments with a kind, body and reviewer-only rationale, the final comment, and an APPROVE / REQUEST_CHANGES / COMMENT verdict — plus a must / should / optional checklist for the human. Anchors are validated against the diff, so a suggested comment drops into your draft without GitHub rejecting it; anything the agent could not anchor is flagged "place manually". Nothing is posted until you submit.
+- **Review-flow tab layout:** tabs are grouped **Understand** (Overview, Research, Commits) → **Review** (Review, Plan, Diff) → **Act** (agent fix, Comment, Handoff), with counters for suggested and drafted comments.
 - **Acceptance contract:** the agent extracts acceptance criteria from linked issues and the PR body, then marks each one proven / unproven / failed / n/a with concrete evidence (test name, `path:line`, CI check, local run). You can override any verdict; unproven criteria hold the recommendation, failed ones block it. The contract flows into the handoff and the author comment.
 - **Review memory:** 👍 / 👎 on any finding records your verdict per repository. Verdicts calibrate future Deep Analyze prompts ("reviewers dismissed this 4x"), surface as patterns, and can be promoted to repo rules in one click.
 - **Feedback to author:** build a single structured, human-edited comment (criteria table with evidence, kept findings, second-opinion notes, local verification) and post it to the PR with your identity.
@@ -133,7 +136,7 @@ Every task is assigned a **tier**, and every tier maps to a model per agent:
 | Tier | Claude default | Codex default | Used for |
 | --- | --- | --- | --- |
 | economy | `haiku` (low effort) | `gpt-6-luna` (low) | risk/CI/research Q&A, fix-session questions, research & docs passes, QA failure classification, manual-check investigation, setup probe |
-| standard | `sonnet` (medium) | `gpt-6.1-sol` (medium) | Deep Analyze, implementation, tests/QA, security and final-review passes, rebase/merge conflict resolution |
+| standard | `sonnet` (medium) | `gpt-6.1-sol` (medium) | Deep Analyze, review draft, acceptance contract, implementation, tests/QA, security and final-review passes, rebase/merge conflict resolution |
 | premium | `opus` (high) | `gpt-6-astra` (high) | never by default; opt in per task for unusually hard PRs |
 
 At Oct 2026 list prices the economy tier is roughly 20x cheaper than standard on both vendors (≈$0.10/$0.50 vs ≈$2/$10 per 1M input/output tokens), and premium is 2–5x standard. Claude aliases always resolve to the newest model in that family; OpenAI ids are explicit and should match what your account exposes to Codex. Environment overrides: `MNLENS_AGENT=codex|claude`, `MNLENS_AGENT_SETTINGS_JSON='{...}'`, `MNLENS_CLAUDE_CONFIG_DIR`.

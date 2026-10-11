@@ -33,6 +33,7 @@ import type {
   UpdateRepoReviewRuleRequest,
   UpdateAgentSettingsRequest,
   UpdateReviewProgressRequest,
+  ReviewDraftRequest,
   VerificationRequest
 } from "../shared/types.js";
 import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, readRepoRules, stats, writeAnalysis, writeProgress, writeRepoRules } from "./cache.js";
@@ -50,6 +51,7 @@ import { getPrStack, getStackSummaries } from "./stacks.js";
 import { usageSummary } from "./usage.js";
 import { secondOpinionFor } from "./secondOpinion.js";
 import { generateAcceptanceContract, readAcceptanceContract, updateCriterion } from "./acceptance.js";
+import { generateReviewDraft, readReviewDraft } from "./reviewDraft.js";
 import { recordFindingFeedback, reviewMemorySummary } from "./reviewMemory.js";
 import { buildFeedbackComment } from "./feedback.js";
 import { mergeStackStep, stackMergePlan } from "./stacks.js";
@@ -356,6 +358,20 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
         res.status(404).json({ error: error.message });
         return;
       }
+      next(error);
+    }
+  });
+
+  app.get("/api/review-draft/:key", async (req, res) => {
+    res.json((await readReviewDraft(req.params.key)) ?? null);
+  });
+
+  app.post("/api/review-draft", async (req, res, next) => {
+    try {
+      const body = req.body as ReviewDraftRequest;
+      const detail = await getPrDetail(body.owner, body.repo, Number(body.number));
+      res.json(await generateReviewDraft(detail, { force: Boolean(body.force) }));
+    } catch (error) {
       next(error);
     }
   });

@@ -1,1 +1,1 @@
-export type Tab = "overview" | "plan" | "diff" | "commits" | "research" | "fix" | "comment" | "handoff";
+export type Tab = "overview" | "review" | "plan" | "diff" | "commits" | "research" | "fix" | "comment" | "handoff";

@@ -55,6 +55,43 @@ index 0000000..2222222
 +}
 `;
 
+const reviewDraft = {
+  prKey: "micronaut-projects__micronaut-tracing__839",
+  diffHash: "test-diff",
+  generatedAt: "2026-01-01T00:00:00.000Z",
+  agent: "claude",
+  model: "claude-sonnet-4-5",
+  costUsd: 0.012,
+  decision: "REQUEST_CHANGES",
+  decisionRationale: "The listener never registers anything, so the module is inert.",
+  finalComment: "Thanks for the module. The listener is wired but `register()` is empty, so no telemetry is emitted yet.",
+  comments: [
+    {
+      id: "c1",
+      path: "tracing-opentelemetry-ucp/src/main/java/io/micronaut/tracing/opentelemetry/instrument/ucp/UniversalConnectionPoolBeanEventListener.java",
+      line: 4,
+      side: "RIGHT",
+      kind: "blocking",
+      title: "register() is empty",
+      body: "`register()` does nothing, so the pool is never instrumented. Register the OpenTelemetry listener here.",
+      rationale: "The only method in the new class has an empty body."
+    },
+    {
+      id: "c2",
+      path: "tracing-opentelemetry-ucp/src/test/groovy/io/micronaut/tracing/opentelemetry/instrument/ucp/OracleUcpTelemetryBeanCreationSpec.groovy",
+      line: 3,
+      side: "RIGHT",
+      kind: "suggestion",
+      title: "Spec has no assertions",
+      body: "Consider asserting that the bean is created when the UCP data source is present.",
+      rationale: "Empty spec class."
+    }
+  ],
+  mustDo: ["Confirm a UCP data source actually triggers the listener (run OracleUcpTelemetryBeanCreationSpec once it has assertions)."],
+  shouldDo: ["Check the module is listed in the docs navigation."],
+  optional: ["Consider a Testcontainers-based integration test for a follow-up."]
+};
+
 const detail = {
   ...pr,
   body: "Adds a Micronaut OpenTelemetry Oracle UCP module.",
@@ -332,6 +369,7 @@ test("renders the core review tabs from mocked PR data", async ({ page }) => {
 
   const tabExpectations = [
     ["Overview", "Review Summary"],
+    ["Review", "Recommended Review"],
     ["Plan", "Changed Files"],
     ["Diff", "Changed Files"],
     ["Commits", "Commit Story"],
@@ -342,9 +380,31 @@ test("renders the core review tabs from mocked PR data", async ({ page }) => {
   ] as const;
 
   for (const [tab, expectedText] of tabExpectations) {
-    await page.getByRole("button", { name: tab, exact: true }).click();
+    // Tab labels may carry a small counter badge (e.g. "Review 2").
+    await page.getByRole("button", { name: new RegExp(`^${tab}\\s*\\d*$`) }).click();
     await expect(page.getByText(expectedText).first()).toBeVisible();
   }
+});
+
+test("Review tab turns the agent's draft into the reviewer's own comments", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
+
+  await page.getByRole("button", { name: /^Review\s*2$/ }).click();
+  await expect(page.getByText("Recommended Review")).toBeVisible();
+  await expect(page.getByText("Request changes").first()).toBeVisible();
+  await expect(page.getByText("register() is empty")).toBeVisible();
+  await expect(page.locator(".review-tier-must").first()).toBeVisible();
+  if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/review-tab.png`, fullPage: true });
+
+  const blocking = page.locator(".review-comment.kind-blocking");
+  await blocking.getByRole("button", { name: "Add to my review" }).click();
+  await expect(blocking.getByRole("button", { name: "In my review" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^Comment\s*1$/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Use as review comment" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog").locator("textarea")).toHaveValue(/register\(\)` is empty/);
 });
 
 test("supports dark theme and the mobile review queue layout", async ({ page }) => {
@@ -592,6 +652,11 @@ async function mockApi(page: Page, options: MockApiOptions = {}) {
     }
     if (path === "/api/repo-rules/micronaut-projects/micronaut-tracing") return json([]);
     if (path === "/api/cache") return json({ prCount: 1, analysisCount: 1, cacheDir: "/tmp/mnlens" });
+    if (path === `/api/review-draft/${prKey}`) return json(reviewDraft);
+    if (path === "/api/review-draft" && route.request().method() === "POST") return json(reviewDraft);
+    if (path === `/api/acceptance/${prKey}`) return json(null);
+    if (path.startsWith("/api/review-memory/")) return json({ repository: "micronaut-projects/micronaut-tracing", totalVerdicts: 0, kept: 0, dismissed: 0, patterns: [], suggestedRules: [] });
+    if (path.startsWith("/api/usage/")) return json({ prKey, totalCostUsd: 0, runs: [] });
 
     return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: `Unhandled ${path}` }) });
   });

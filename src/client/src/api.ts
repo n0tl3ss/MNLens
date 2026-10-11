@@ -1,6 +1,8 @@
 import type {
   AcceptanceContract,
   AcceptanceContractRequest,
+  ReviewDraft,
+  ReviewDraftRequest,
   FeedbackCommentPreview,
   FindingVerdict,
   RecordFindingFeedbackRequest,
@@ -433,6 +435,14 @@ export function getAcceptanceContract(prKey: string): Promise<AcceptanceContract
 
 export function generateAcceptanceContract(payload: AcceptanceContractRequest): Promise<AcceptanceContract> {
   return request<AcceptanceContract>("/api/acceptance", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getReviewDraft(prKey: string): Promise<ReviewDraft | null> {
+  return request<ReviewDraft | null>(`/api/review-draft/${prKey}`);
+}
+
+export function generateReviewDraft(payload: ReviewDraftRequest): Promise<ReviewDraft> {
+  return request<ReviewDraft>("/api/review-draft", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export function updateAcceptanceCriterion(prKey: string, criterionId: string, payload: UpdateCriterionRequest): Promise<AcceptanceContract> {

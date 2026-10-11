@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AcceptanceContract,
   AcceptanceCriterion,
+  ReviewDraft,
   CriterionStatus,
   ReviewMemorySummary,
   StackMergeMethod,
@@ -47,6 +48,8 @@ import {
   getAgentUsage,
   getAcceptanceContract,
   generateAcceptanceContract,
+  getReviewDraft,
+  generateReviewDraft,
   updateAcceptanceCriterion,
   getReviewMemory,
   recordFindingFeedback,
@@ -162,6 +165,9 @@ export function App() {
   const [acceptance, setAcceptance] = useState<Record<string, AcceptanceContract | null>>({});
   const [acceptanceBusy, setAcceptanceBusy] = useState(false);
   const [acceptanceError, setAcceptanceError] = useState<string | undefined>();
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft | null>>({});
+  const [reviewDraftBusy, setReviewDraftBusy] = useState(false);
+  const [reviewDraftError, setReviewDraftError] = useState<string | undefined>();
   const [memory, setMemory] = useState<Record<string, ReviewMemorySummary>>({});
   const [feedbackPreview, setFeedbackPreview] = useState<Record<string, string>>({});
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -385,6 +391,7 @@ export function App() {
       if (nextGithubProjects.length > 0) setGithubProjectsError(undefined);
       void loadStack(pr);
       void getAcceptanceContract(pr.key).then((contract) => setAcceptance((current) => ({ ...current, [pr.key]: contract }))).catch(() => undefined);
+      void getReviewDraft(pr.key).then((draft) => setReviewDrafts((current) => ({ ...current, [pr.key]: draft }))).catch(() => undefined);
       void getReviewMemory(pr.owner, pr.repo, pr.number).then((summary) => setMemory((current) => ({ ...current, [pr.key]: summary }))).catch(() => undefined);
       void getAgentUsage(pr.key).then((summary) => setUsage((current) => ({ ...current, [pr.key]: summary }))).catch(() => undefined);
       setDetail(next);
@@ -815,6 +822,26 @@ export function App() {
     } finally {
       setAcceptanceBusy(false);
     }
+  }
+
+  async function buildReviewDraft(force: boolean) {
+    if (!selected) return;
+    setReviewDraftBusy(true);
+    setReviewDraftError(undefined);
+    try {
+      const draft = await generateReviewDraft({ owner: selected.owner, repo: selected.repo, number: selected.number, force });
+      setReviewDrafts((current) => ({ ...current, [selected.key]: draft }));
+      void getAgentUsage(selected.key).then((summary) => setUsage((current) => ({ ...current, [selected.key]: summary }))).catch(() => undefined);
+    } catch (err) {
+      setReviewDraftError(messageOf(err));
+    } finally {
+      setReviewDraftBusy(false);
+    }
+  }
+
+  function useDraftFinalComment(body: string) {
+    setReviewBody(body);
+    setReviewDialogOpen(true);
   }
 
   async function overrideCriterion(criterion: AcceptanceCriterion, status: CriterionStatus | null) {
@@ -1471,6 +1498,10 @@ export function App() {
               active={tab}
               refreshing={refreshingSelected}
               agentLabel={selectedAgentLabel}
+              badges={{
+                comment: selectedComments.filter((comment) => comment.body.trim()).length,
+                review: reviewDrafts[selected.key]?.comments.length ?? 0
+              }}
               onChange={setTab}
               onRefresh={() => void refreshSelectedData()}
             />
@@ -1488,6 +1519,12 @@ export function App() {
               acceptanceError={acceptanceError}
               onGenerateAcceptance={(force) => void buildAcceptance(force)}
               onOverrideCriterion={(criterion, status) => void overrideCriterion(criterion, status)}
+              reviewDraft={reviewDrafts[selected.key]}
+              reviewDraftBusy={reviewDraftBusy}
+              reviewDraftError={reviewDraftError}
+              onGenerateReviewDraft={(force) => void buildReviewDraft(force)}
+              onUseFinalComment={useDraftFinalComment}
+              onGoToTab={setTab}
               memory={memory[selected.key]}
               onFindingFeedback={(kind, title, observation, verdict) => void giveFindingFeedback(kind, title, observation, verdict)}
               feedbackPreview={feedbackPreview[selected.key]}
