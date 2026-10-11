@@ -1,10 +1,9 @@
-import { Loader2, MessageSquare, Send, Sparkles } from "lucide-react";
+import { ChevronDown, Loader2, MessageSquare, Send, Sparkles } from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AnalysisResult, PrDetail, ReviewComment, ReviewInsight, ReviewProgress } from "../../../shared/types";
 import { askRisk } from "../api";
-import { insightScope, insightScopeLabel } from "../reviewHelpers";
 import { Badge } from "./uiBits";
 
 export function InsightSection({
@@ -92,7 +91,6 @@ export function InsightSection({
                     )}
                     <div className="inline-actions">
                       <Badge tone={toneForSeverity(item.severity)}>{item.severity ?? "info"}</Badge>
-                      <Badge tone={insightScope(item) === "test-maintainability" ? "queue" : "feature"}>{insightScopeLabel(item)}</Badge>
                       {onFeedback && (() => {
                         const kind = tone === "evidence" ? "evidence" : tone === "focus" ? "focus" : "risk";
                         const current = verdicts?.[verdictKey(kind, heading)];
@@ -110,7 +108,7 @@ export function InsightSection({
                       {onSaveProgress && (
                         <label className="insight-done-check" title={checked ? "Reopen this review point" : "Mark this review point complete"}>
                           <input type="checkbox" checked={checked} onChange={() => toggleInsight(id)} />
-                          {checked ? "Done" : "Mark done"}
+                          Done
                         </label>
                       )}
                     </div>
@@ -172,6 +170,7 @@ export function InsightQuestionBox({
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
   const label = insightSourceKind(tone).toLowerCase();
 
   async function ask(nextQuestion = question) {
@@ -196,34 +195,45 @@ export function InsightQuestionBox({
     }
   }
 
+  if (!open && !answer) {
+    return (
+      <div className="risk-question collapsed">
+        <button type="button" className="text-button" onClick={() => setOpen(true)}>
+          <ChevronDown size={14} /> Ask the agent about this
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="risk-question">
       <textarea
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
-        placeholder={`Ask Codex for more context about this ${label}...`}
+        placeholder={`Ask the agent about this ${label}...`}
       />
       <div>
-        <button disabled={loading} onClick={() => void ask(`Explain this ${label} in more detail. Is it likely still valid, what evidence supports it, what would resolve it, and what should I inspect next?`)}>
+        <button disabled={loading || question.trim().length === 0} onClick={() => void ask()}>
           {loading ? <Loader2 size={14} className="spin" /> : <MessageSquare size={14} />}
+          Ask
+        </button>
+        <button className="ghost" disabled={loading} onClick={() => void ask(`Explain this ${label} in more detail. Is it likely still valid, what evidence supports it, what would resolve it, and what should I inspect next?`)}>
           Explain more
         </button>
         {onStartFix && (
-          <button onClick={() => onStartFix(buildInsightFixInstructions(insight, label), undefined, sourceLabel)}>
+          <button className="ghost" onClick={() => onStartFix(buildInsightFixInstructions(insight, label), undefined, sourceLabel)}>
             <Sparkles size={14} />
-            Address with Codex
+            Fix with the agent
           </button>
         )}
-        <button disabled={loading || question.trim().length === 0} onClick={() => void ask()}>
-          {loading ? <Loader2 size={14} className="spin" /> : <MessageSquare size={14} />}
-          Ask Codex
-        </button>
         {answer && onDraftComment && (
           <button onClick={() => onDraftComment(answer, reviewCommentTarget(insight))}>
             <Send size={14} />
             {draftCommentLabel}
           </button>
         )}
+        <button type="button" className="text-button" onClick={() => { setOpen(false); setAnswer(""); setError(""); }}>
+          Hide
+        </button>
       </div>
       {error && <p className="risk-answer error-text">{error}</p>}
       {answer && (

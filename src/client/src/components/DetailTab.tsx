@@ -4,7 +4,6 @@ import type { Tab } from "../reviewTypes";
 import { reviewReplay, type ReviewReplay } from "./ReviewDeltaSection";
 import type { ReviewRecommendation } from "./OverviewSections";
 import { OverviewTab } from "./OverviewTab";
-import { ReviewPlan } from "./PlanTab";
 import { DiffTab } from "./DiffTab";
 import { ReviewTraceSection } from "./ReviewTraceSection";
 import { CommitTimeline } from "./CommitTimeline";
@@ -36,6 +35,7 @@ export function DetailTab({
   memory,
   onFindingFeedback,
   onCopyRepoRulesFile,
+  onAnalyze,
   feedbackPreview,
   feedbackBusy,
   feedbackError,
@@ -58,13 +58,11 @@ export function DetailTab({
   attentionMode,
   openingEditor,
   expandedFile,
-  wizardStep,
   onSaveProgress,
   onAttachGithubProject,
   onAddRepoRule,
   onSetRepoRuleEnabled,
   onToggleExpandedFile,
-  onWizardStepChange,
   onAddReviewComment,
   onUpdateReviewComment,
   onDeleteReviewComment,
@@ -110,6 +108,7 @@ export function DetailTab({
   memory?: ReviewMemorySummary;
   onFindingFeedback?: (kind: "evidence" | "focus" | "risk" | "draft-comment", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) => void;
   onCopyRepoRulesFile?: () => void;
+  onAnalyze?: () => void;
   feedbackPreview?: string;
   feedbackBusy?: boolean;
   feedbackError?: string;
@@ -135,13 +134,11 @@ export function DetailTab({
   attentionMode: boolean;
   openingEditor?: EditorKind;
   expandedFile?: string;
-  wizardStep: number;
   onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems" | "reviewedFiles" | "ignoredRuleIds" | "manualChecks" | "project" | "issueProjects" | "notes" | "lastReviewedAt">>) => void;
   onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
   onAddRepoRule: (rule: { title: string; body: string; tone?: string; source?: string }) => void;
   onSetRepoRuleEnabled: (id: string, enabled: boolean) => void;
   onToggleExpandedFile: (path: string) => void;
-  onWizardStepChange: (step: number) => void;
   onAddReviewComment: (comment: ReviewComment) => void;
   onUpdateReviewComment: (id: string, body: string) => void;
   onDeleteReviewComment: (id: string) => void;
@@ -193,24 +190,6 @@ export function DetailTab({
         onUseFinalComment={(body) => onUseFinalComment?.(body)}
         onSaveProgress={onSaveProgress}
         onGoToTab={(next) => onGoToTab?.(next)}
-      />
-    );
-  }
-  if (tab === "plan") {
-    return (
-      <ReviewPlan
-        detail={detail}
-        analysis={analysis}
-        progress={progress}
-        comments={reviewComments}
-        canApproveWithoutComments={canApproveWithoutComments}
-        wizardStep={wizardStep}
-        onWizardStepChange={onWizardStepChange}
-        onSaveProgress={onSaveProgress}
-        onAddComment={onAddReviewComment}
-        onUpdateComment={onUpdateReviewComment}
-        onDeleteComment={onDeleteReviewComment}
-        onOpenReviewDialog={onOpenReviewDialog}
       />
     );
   }
@@ -341,6 +320,9 @@ export function DetailTab({
       memory={memory}
       onFindingFeedback={onFindingFeedback}
       onCopyRepoRulesFile={onCopyRepoRulesFile}
+      onAnalyze={onAnalyze}
+      onGoToTab={(next) => onGoToTab?.(next)}
+      analysisRunning={analysisJobs.some((job) => job.status === "queued" || job.status === "running")}
       attentionMode={attentionMode}
       canApproveWithoutComments={canApproveWithoutComments}
       ciChecks={ciChecks}

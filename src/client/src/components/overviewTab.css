@@ -111,7 +111,7 @@
 
 .overview-columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   align-items: start;
   gap: 14px;
 }
@@ -903,4 +903,28 @@
 [data-theme="dark"] .overview-group {
   border-color: #284557;
   background: rgba(255, 255, 255, 0.02);
+}
+
+/* First-run guidance on the Overview before an analysis exists */
+.start-here {
+  display: grid;
+  gap: 10px;
+  border-left: 4px solid var(--mn-primary, #159bd3);
+}
+
+.start-here ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.start-here li strong {
+  display: block;
+}
+
+.start-here-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

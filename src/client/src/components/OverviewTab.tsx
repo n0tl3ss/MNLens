@@ -42,6 +42,9 @@ export function OverviewTab({
   memory,
   onFindingFeedback,
   onCopyRepoRulesFile,
+  onAnalyze,
+  onGoToTab,
+  analysisRunning,
   attentionMode,
   canApproveWithoutComments,
   ciChecks,
@@ -83,6 +86,9 @@ export function OverviewTab({
   onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
   /** Copies the enabled rules as `.mnlens/review-rules.json` so maintainers can commit them. */
   onCopyRepoRulesFile?: () => void;
+  onAnalyze?: () => void;
+  onGoToTab?: (tab: "review" | "diff") => void;
+  analysisRunning?: boolean;
   attentionMode: boolean;
   canApproveWithoutComments: boolean;
   ciChecks: CiCheck[];
@@ -113,6 +119,43 @@ export function OverviewTab({
   const reviewerFocusDetails = mergeReviewerFocusDetails(detail, analysis, attentionMode);
   return (
     <div className="panel overview-panel">
+      {!analysis && !attentionMode && (
+        <section className="summary-card start-here">
+          <div className="panel-title">
+            <div>
+              <h3>Start here</h3>
+              <p className="muted">Three steps; the agent never posts anything on its own.</p>
+            </div>
+            <Sparkles size={18} />
+          </div>
+          <ol>
+            <li>
+              <strong>Deep Analyze</strong>
+              <span className="muted">The agent reads the diff, linked issues and discussion and explains the change, the risks and what to verify (standard tier, usually well under a dollar).</span>
+            </li>
+            <li>
+              <strong>Open the Review tab</strong>
+              <span className="muted">Draft the review: line-anchored comments, a verdict and a mandatory → optional checklist. Keep what you agree with.</span>
+            </li>
+            <li>
+              <strong>Submit it yourself</strong>
+              <span className="muted">Approve or request changes from the Comment tab. Until then nothing reaches GitHub.</span>
+            </li>
+          </ol>
+          <div className="start-here-actions">
+            {onAnalyze && (
+              <button type="button" className="primary" onClick={onAnalyze} disabled={analysisRunning}>
+                <Sparkles size={14} /> {analysisRunning ? "Analyzing..." : "Deep Analyze this PR"}
+              </button>
+            )}
+            {onGoToTab && (
+              <button type="button" className="ghost" onClick={() => onGoToTab("diff")}>
+                Just read the diff
+              </button>
+            )}
+          </div>
+        </section>
+      )}
       <FinalRecommendationSection recommendation={recommendation} />
       {attentionMode && (
         <AttentionPanel

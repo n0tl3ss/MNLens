@@ -8,6 +8,7 @@ import {
   Moon,
   RefreshCw,
   Search,
+  Settings,
   Sparkles,
   Users,
   Sun,
@@ -19,6 +20,7 @@ import type { PrRepositoryGroup, PrSortField, SortDirection } from "../reviewHel
 import { hasAnalysisSignal, sortDirectionLabel, sortFieldLabel, triageForPr } from "../reviewHelpers";
 import type { Tab } from "../reviewTypes";
 import { AuthBanner } from "./AuthBanner";
+import { ActionMenu } from "./ActionMenu";
 import type { WorkActivityItem } from "./WorkActivityPanel";
 import { WorkActivityPanel } from "./WorkActivityPanel";
 import { AuthorLink, Badge, plural, relativeDate } from "./uiBits";
@@ -168,6 +170,16 @@ export function PrQueueSidebar({
           <button className="icon-button" onClick={onRefreshPrs} title="Refresh PRs">
             <RefreshCw size={18} />
           </button>
+          <ActionMenu
+            icon={<Settings size={18} />}
+            title="Settings: agent & models, team sharing, data"
+            items={[
+              { label: <><Bot size={14} /> Agent & models{agentLabel ? ` (${agentLabel})` : ""}</>, onSelect: onOpenAgentSettings },
+              ...(onOpenTeamSettings ? [{ label: <><Users size={14} /> Team sharing</>, onSelect: onOpenTeamSettings }] : []),
+              { label: "Export data", onSelect: onExportData },
+              { label: "Clear local data", danger: true, onSelect: onClearAllData }
+            ]}
+          />
         </div>
       </header>
 
@@ -241,18 +253,10 @@ export function PrQueueSidebar({
           {bulkAnalyzeMode === "deep" ? "Deep Analyze visible" : "Fast Analyze visible"}
           {unanalyzedVisibleCount > 0 && <span>{unanalyzedVisibleCount} new first</span>}
         </button>
-        <button type="button" onClick={onOpenAgentSettings} title="Choose Codex or Claude Code and the model tier per task">
-          <Bot size={16} />
-          {agentLabel ? `Agent: ${agentLabel}` : "Agent & models"}
+        <button type="button" className="ghost agent-chip" onClick={onOpenAgentSettings} title="Choose Codex or Claude Code and the model tier per task">
+          <Bot size={14} />
+          {agentLabel ? `Agent: ${agentLabel}` : "Choose agent"}
         </button>
-        {onOpenTeamSettings && (
-          <button type="button" onClick={onOpenTeamSettings} title="Share repo rules and review memory with your team through a synced folder">
-            <Users size={16} />
-            Team sharing
-          </button>
-        )}
-        <button type="button" onClick={onExportData}>Export data</button>
-        <button type="button" className="danger" onClick={onClearAllData}>Clear local data</button>
       </div>
 
       <section className="pr-list" aria-busy={busy}>

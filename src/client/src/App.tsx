@@ -188,7 +188,6 @@ export function App() {
   const [secondOpinionError, setSecondOpinionError] = useState<string | undefined>();
   const [reviewComments, setReviewComments] = useState<Record<string, DraftReviewComment[]>>({});
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [wizardStep, setWizardStep] = useState(0);
   const [reviewBody, setReviewBody] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [notice, setNotice] = useState<string | undefined>();
@@ -1577,6 +1576,7 @@ export function App() {
               memory={memory[selected.key]}
               onFindingFeedback={(kind, title, observation, verdict, commentKind) => void giveFindingFeedback(kind, title, observation, verdict, commentKind)}
               onCopyRepoRulesFile={() => void copyRepoRulesFile()}
+              onAnalyze={() => void startAnalysis([selected], false, "deep")}
               feedbackPreview={feedbackPreview[selected.key]}
               feedbackBusy={feedbackBusy}
               feedbackError={feedbackError}
@@ -1599,8 +1599,6 @@ export function App() {
               attentionMode={attentionMode}
               openingEditor={openingEditor}
               expandedFile={selectedKey ? expandedFiles[selectedKey] : undefined}
-              wizardStep={wizardStep}
-              onWizardStepChange={setWizardStep}
               onSaveProgress={(patch) => void saveProgress(patch)}
               onAttachGithubProject={(projectId, includeLinkedIssues) => void attachSelectedToGithubProject(projectId, includeLinkedIssues)}
               onAddRepoRule={(rule) => void addRepoRule(rule)}

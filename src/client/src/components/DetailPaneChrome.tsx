@@ -44,6 +44,17 @@ function EmptyState() {
     <div className="empty-state">
       <GitPullRequest size={32} />
       <p>Select a PR from the queue.</p>
+      <ol className="empty-state-steps">
+        <li>
+          <strong>Deep Analyze</strong> — the agent reads the diff, the issue and the discussion.
+        </li>
+        <li>
+          <strong>Review tab</strong> — walk the mandatory → optional steps and keep the comments you agree with.
+        </li>
+        <li>
+          <strong>Submit</strong> — you choose Approve / Request changes; nothing is posted before that.
+        </li>
+      </ol>
     </div>
   );
 }

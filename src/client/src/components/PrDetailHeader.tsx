@@ -1,4 +1,5 @@
-import { Check, GitBranch, Loader2, RefreshCw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { Check, GitBranch, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { ActionMenu } from "./ActionMenu";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { AnalysisResult, Job, PrDetail, PrListItem, RepositoryBranch } from "../../../shared/types";
@@ -144,44 +145,32 @@ export function PrDetailHeader({
             <a className="button-like" href={pr.url} target="_blank" rel="noreferrer">
               Open PR
             </a>
-            <button className={attentionMode ? "active" : ""} onClick={onToggleAttention} title="Show only the highest-value review work.">
-              <ShieldAlert size={16} />
-              {attentionMode ? "Attention: On" : "Attention mode"}
-            </button>
-            <button
-              className={needsDeepAnalysis ? "deep-analyze-suggested" : ""}
-              onClick={onAnalyze}
-              title={needsDeepAnalysis ? "Run full Codex review guidance for this PR. Fast scores are only queue estimates." : "Run full Codex review guidance for this PR."}
-            >
-              <Sparkles size={16} />
-              {needsDeepAnalysis ? "Deep Analyze recommended" : "Deep Analyze"}
-            </button>
-            <button onClick={onReanalyze}>
-              <RefreshCw size={16} />
-              Deep Reanalyze
-            </button>
-            <button
-              className={needsBranchWork ? "branch-work-suggested" : ""}
-              disabled={rebasing}
-              onClick={onUpdateBranch}
-              title="Prepare a branch update preview. MNLens chooses rebase for small PRs and merge for large or conflict-heavy PRs. Nothing is pushed until you approve."
-            >
-              {rebasing ? <Loader2 size={16} className="spin" /> : <GitBranch size={16} />}
-              {rebasing ? "Preparing update" : needsBranchWork ? "Update branch" : "Update branch"}
-            </button>
-            {isOwnedByCurrentUser && (
-              <button
-                disabled={selectedFixRunning}
-                onClick={onImprovePr}
-                title="Ask Codex to address actionable review comments, failing checks, test gaps, and score blockers. It prepares code only; it does not commit or push."
-              >
-                {selectedFixRunning ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
-                Improve PR
+            {analysis ? (
+              <button onClick={onReanalyze} title="Run Deep Analyze again on the current diff and discussion.">
+                <RefreshCw size={16} />
+                Re-analyze
+              </button>
+            ) : (
+              <button className={needsDeepAnalysis ? "deep-analyze-suggested" : ""} onClick={onAnalyze} title="Run the agent's full review guidance for this PR. Fast scores are only queue estimates.">
+                <Sparkles size={16} />
+                {needsDeepAnalysis ? "Deep Analyze — start here" : "Deep Analyze"}
               </button>
             )}
-            <button className="icon-button danger" onClick={onClearCache} title="Clear cache">
-              <Trash2 size={16} />
-            </button>
+            {needsBranchWork && (
+              <button className="branch-work-suggested" disabled={rebasing} onClick={onUpdateBranch} title="Prepare a branch update preview. MNLens chooses rebase for small PRs and merge for large or conflict-heavy PRs. Nothing is pushed until you approve.">
+                {rebasing ? <Loader2 size={16} className="spin" /> : <GitBranch size={16} />}
+                {rebasing ? "Preparing update" : "Update branch"}
+              </button>
+            )}
+            <ActionMenu
+              title="More actions"
+              items={[
+                { label: attentionMode ? "Attention mode: on" : "Attention mode", checked: attentionMode, onSelect: onToggleAttention, title: "Show only the highest-value review work." },
+                ...(needsBranchWork ? [] : [{ label: rebasing ? "Preparing branch update..." : "Update branch", disabled: rebasing, onSelect: onUpdateBranch, title: "Prepare a rebase/merge preview; nothing is pushed until you approve." }]),
+                ...(isOwnedByCurrentUser ? [{ label: selectedFixRunning ? "Improving PR..." : "Improve PR with the agent", disabled: selectedFixRunning, onSelect: onImprovePr, title: "Ask the agent to address review comments, failing checks and test gaps. It prepares code only; it does not push." }] : []),
+                { label: "Clear cached data for this PR", danger: true, onSelect: onClearCache }
+              ]}
+            />
           </div>
           {reviewScore && <PrScoreCard score={reviewScore} />}
         </div>

@@ -370,7 +370,6 @@ test("renders the core review tabs from mocked PR data", async ({ page }) => {
   const tabExpectations = [
     ["Overview", "Review Summary"],
     ["Review", "Recommended Review"],
-    ["Plan", "Changed Files"],
     ["Diff", "Changed Files"],
     ["Commits", "Commit Story"],
     ["Research", "Similar Implementations"],
@@ -399,7 +398,8 @@ test("Overview keeps secondary sections collapsed and opens them on demand", asy
   await expect(page.getByText("Repo Review Memory")).toBeVisible();
   await expect(page.getByRole("button", { name: /Copy as \.mnlens\/review-rules\.json/ })).toBeVisible();
   if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview.png`, fullPage: true });
-  await page.getByRole("button", { name: "Team sharing" }).click();
+  await page.getByRole("button", { name: /Settings: agent & models/ }).click();
+  await page.getByRole("menuitem", { name: "Team sharing" }).click();
   await expect(page.getByRole("dialog", { name: "Team sharing" })).toBeVisible();
   await expect(page.getByText("local only")).toBeVisible();
 });
@@ -494,7 +494,7 @@ test("surfaces GitHub rate-limit state and starts an explicit deep analysis", as
 
   await expect(page.getByText(/GitHub API 4230\/5000 left/)).toBeVisible();
   await expect(page.locator(".bulk-actions").getByRole("button", { name: /Fast Analyze visible/i })).toBeVisible();
-  await page.getByRole("button", { name: "Deep Analyze recommended" }).click();
+  await page.getByRole("button", { name: /^Deep Analyze/ }).click();
 
   await expect.poll(() => analyzeRequests.length).toBe(1);
   expect(analyzeRequests[0]).toMatchObject({ mode: "deep", force: false });
@@ -512,7 +512,8 @@ test("promotes unresolved line comments into Reviewer Focus and sends them to Co
   await expect(focus).toContainText("can this use the existing lifecycle registration helper");
   await expect(page.locator(".insight-section.focus").getByText("resolved old comment that should not drive the current review plan")).toHaveCount(0);
 
-  await focus.getByRole("button", { name: "Address with Codex" }).click();
+  await focus.getByRole("button", { name: "Ask the agent about this" }).click();
+  await focus.getByRole("button", { name: "Fix with the agent" }).click();
 
   await expect.poll(() => fixRequests.length).toBe(1);
   expect(fixRequests[0]).toMatchObject({

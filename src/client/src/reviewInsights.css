@@ -233,3 +233,17 @@
 .risk-answer.error-text {
   color: #9b352b;
 }
+
+.risk-question.collapsed {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.risk-question.collapsed .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+}

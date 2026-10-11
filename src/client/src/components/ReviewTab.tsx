@@ -74,7 +74,7 @@ export function ReviewTab({
   onRequestSecondOpinion?: () => void;
   onAddReviewComment: (comment: ReviewComment) => void;
   onUseFinalComment: (body: string) => void;
-  onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems">>) => void;
+  onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems" | "notes">>) => void;
   onGoToTab: (tab: "overview" | "diff" | "comment") => void;
 }) {
   const analysisFresh = Boolean(analysis && analysis.diffHash === detail.diffHash);
@@ -308,6 +308,10 @@ export function ReviewTab({
               <p className="muted review-footnote">"Use as review comment" fills the review dialog; you still pick Approve / Request changes / Comment yourself.</p>
             </>
           )}
+          <label className="review-notes-field">
+            <span className="muted">Private notes (never posted)</span>
+            <textarea value={progress?.notes ?? ""} placeholder="Things to remember for this review..." onChange={(event) => onSaveProgress({ notes: event.target.value })} />
+          </label>
         </Step>
       </ol>
     </div>

@@ -402,3 +402,16 @@
   opacity: 0.6;
   padding: 6px 12px;
 }
+
+.review-notes-field {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.review-notes-field textarea {
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+}

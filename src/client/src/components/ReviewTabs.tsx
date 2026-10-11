@@ -5,12 +5,12 @@ import "./reviewTabs.css";
 /**
  * Tabs are grouped in the order a review actually runs:
  *   Understand  → what changed and why (Overview, Research, Commits)
- *   Review      → the agent's recommended review, the guided plan, the diff
+ *   Review      → the agent's recommended review and the diff
  *   Act         → fix with the agent, draft comments, hand off
  */
 const tabGroups: { label: string; tabs: Tab[] }[] = [
   { label: "Understand", tabs: ["overview", "research", "commits"] },
-  { label: "Review", tabs: ["review", "plan", "diff"] },
+  { label: "Review", tabs: ["review", "diff"] },
   { label: "Act", tabs: ["fix", "comment", "handoff"] }
 ];
 
@@ -19,7 +19,6 @@ const tabTitles: Record<Tab, string> = {
   research: "Docs and similar implementations the agent found for this change.",
   commits: "Commit-by-commit timeline of the PR.",
   review: "The review the agent would post: inline comments, final comment, verdict — and what you must / should / may do first.",
-  plan: "Guided step-by-step review checklist.",
   diff: "Read the diff and leave your own comments.",
   fix: "Let the agent fix findings in a sandboxed checkout; you approve the push.",
   comment: "Your draft review comments and the PR conversation.",
