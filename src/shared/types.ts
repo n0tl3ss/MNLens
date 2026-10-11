@@ -448,13 +448,19 @@ export interface FindingFeedback {
   prKey: string;
   repository: string;
   author?: string;
-  kind: "evidence" | "focus" | "risk" | "test" | "criterion";
+  kind: FindingKind;
   title: string;
   observation?: string;
   verdict: FindingVerdict;
   reason?: string;
   at: string;
+  /** Who recorded the verdict (machine/user id in a shared team folder). */
+  member?: string;
+  /** For draft-comment verdicts: the comment kind the agent assigned (blocking, nit, ...). */
+  commentKind?: SuggestedCommentKind;
 }
+
+export type FindingKind = "evidence" | "focus" | "risk" | "test" | "criterion" | "draft-comment";
 
 export interface RecordFindingFeedbackRequest extends PrRef {
   kind: FindingFeedback["kind"];
@@ -462,6 +468,14 @@ export interface RecordFindingFeedbackRequest extends PrRef {
   observation?: string;
   verdict: FindingVerdict | null;
   reason?: string;
+  commentKind?: SuggestedCommentKind;
+}
+
+/** How often the agent's suggested review comments were kept vs dismissed in a repository. */
+export interface DraftCommentAccuracy {
+  kept: number;
+  dismissed: number;
+  byKind: Partial<Record<SuggestedCommentKind, { kept: number; dismissed: number }>>;
 }
 
 export interface ReviewMemoryPattern {
@@ -482,6 +496,45 @@ export interface ReviewMemorySummary {
   patterns: ReviewMemoryPattern[];
   /** Verdicts for the current PR, keyed by `${kind}:${normalized title}`. */
   prVerdicts: Record<string, FindingVerdict>;
+  draftComments: DraftCommentAccuracy;
+  /** Distinct reviewers who contributed verdicts (1 when memory is local only). */
+  members: number;
+  /** True when verdicts are read from / written to the shared team folder. */
+  shared: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Team sharing (shared folder for rules + review memory; repo-committed rules)
+// ---------------------------------------------------------------------------
+
+export interface TeamSettings {
+  /** Shared folder (git checkout, Dropbox, network drive). Undefined = local only. */
+  dir?: string;
+  updatedAt: string;
+}
+
+export interface TeamStatus {
+  dir?: string;
+  /** Where the folder setting came from. */
+  source: "env" | "settings" | "none";
+  exists: boolean;
+  writable: boolean;
+  /** This machine's id inside the team folder (memory files are per member to avoid write conflicts). */
+  memberId: string;
+  repositories: string[];
+  error?: string;
+}
+
+export interface UpdateTeamSettingsRequest {
+  /** New folder path, or null to go back to local-only. */
+  dir?: string | null;
+}
+
+export interface RepoRulesExport {
+  /** Path inside the repository where maintainers commit the file. */
+  path: string;
+  content: string;
+  rules: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -994,6 +1047,8 @@ export interface RepoReviewRule {
   source?: string;
   createdAt: string;
   updatedAt: string;
+  /** Where the rule lives: this machine, the shared team folder, or committed in the repository (`.mnlens/review-rules.json`). */
+  origin?: "local" | "team" | "repository";
 }
 
 export interface CreateRepoReviewRuleRequest {

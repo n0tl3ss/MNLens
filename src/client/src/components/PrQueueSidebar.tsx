@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Users,
   Sun,
   X
 } from "lucide-react";
@@ -73,6 +74,7 @@ export function PrQueueSidebar({
   onClearAllData,
   onExportData,
   onOpenAgentSettings,
+  onOpenTeamSettings,
   agentLabel,
   stackSummaries,
   onSelectActivity,
@@ -129,6 +131,7 @@ export function PrQueueSidebar({
   onClearAllData: () => void;
   onExportData: () => void;
   onOpenAgentSettings: () => void;
+  onOpenTeamSettings?: () => void;
   agentLabel?: string;
   stackSummaries?: PrStackSummaryMap;
   onSelectActivity: (item: WorkActivityItem) => void;
@@ -242,6 +245,12 @@ export function PrQueueSidebar({
           <Bot size={16} />
           {agentLabel ? `Agent: ${agentLabel}` : "Agent & models"}
         </button>
+        {onOpenTeamSettings && (
+          <button type="button" onClick={onOpenTeamSettings} title="Share repo rules and review memory with your team through a synced folder">
+            <Users size={16} />
+            Team sharing
+          </button>
+        )}
         <button type="button" onClick={onExportData}>Export data</button>
         <button type="button" className="danger" onClick={onClearAllData}>Clear local data</button>
       </div>

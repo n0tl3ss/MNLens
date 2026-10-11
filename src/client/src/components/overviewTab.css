@@ -813,3 +813,72 @@
   background: #2a2412;
   color: #e9d7a3;
 }
+
+/* Collapsible secondary groups (context/readiness, rules/memory) */
+.overview-group {
+  margin-top: 14px;
+  border: 1px solid #c6d9df;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.overview-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+}
+
+.overview-group-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overview-group-toggle span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.overview-group-toggle em {
+  font-style: normal;
+  font-size: 12.5px;
+}
+
+.overview-group-chevron {
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: transform 0.15s ease;
+}
+
+.overview-group.open .overview-group-chevron {
+  transform: rotate(180deg);
+}
+
+.overview-group-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.overview-group-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 10px 10px;
+}
+
+[data-theme="dark"] .overview-group {
+  border-color: #284557;
+  background: rgba(255, 255, 255, 0.02);
+}

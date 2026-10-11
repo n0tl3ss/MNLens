@@ -3,6 +3,9 @@ import type {
   AcceptanceContractRequest,
   ReviewDraft,
   ReviewDraftRequest,
+  RepoRulesExport,
+  TeamStatus,
+  UpdateTeamSettingsRequest,
   FeedbackCommentPreview,
   FindingVerdict,
   RecordFindingFeedbackRequest,
@@ -435,6 +438,18 @@ export function getAcceptanceContract(prKey: string): Promise<AcceptanceContract
 
 export function generateAcceptanceContract(payload: AcceptanceContractRequest): Promise<AcceptanceContract> {
   return request<AcceptanceContract>("/api/acceptance", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getTeamStatus(): Promise<TeamStatus> {
+  return request<TeamStatus>("/api/team");
+}
+
+export function updateTeamSettings(payload: UpdateTeamSettingsRequest): Promise<TeamStatus> {
+  return request<TeamStatus>("/api/team", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function exportRepoRules(owner: string, repo: string): Promise<RepoRulesExport> {
+  return request<RepoRulesExport>(`/api/repo-rules/${owner}/${repo}/export`);
 }
 
 export function getReviewDraft(prKey: string): Promise<ReviewDraft | null> {

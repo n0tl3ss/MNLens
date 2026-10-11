@@ -50,6 +50,8 @@ Code review work is usually scattered across GitHub tabs, CI logs, local termina
 - **Pluggable coding agent:** run every AI step on **Codex CLI** or **Claude Code**. Same prompts, same JSON schemas, same approval gates; switch under *Agent & models*.
 - **Cost-tiered model routing:** each task is mapped to an *economy / standard / premium* tier (see below), so Q&A, docs and triage run on ~20x cheaper models than code edits.
 - **Recommended review (Review tab):** the agent drafts the review it would post — line-anchored comments with a kind, body and reviewer-only rationale, the final comment, and an APPROVE / REQUEST_CHANGES / COMMENT verdict — plus a must / should / optional checklist for the human. Anchors are validated against the diff, so a suggested comment drops into your draft without GitHub rejecting it; anything the agent could not anchor is flagged "place manually". Nothing is posted until you submit.
+- **Focused Overview:** the first screen is the decision — recommendation, summary, acceptance contract, second opinion and the evidence / focus / risk columns. PR context, project, readiness and the rules & memory tooling sit in collapsible groups that remember their state.
+- **Team sharing:** rules committed in the repo (`.mnlens/review-rules.json`), a shared team folder for rules + review memory (per-machine memory files merged on read), and a per-repo agent-accuracy score from kept/dismissed suggested comments. See *Team Use*.
 - **Review-flow tab layout:** tabs are grouped **Understand** (Overview, Research, Commits) → **Review** (Review, Plan, Diff) → **Act** (agent fix, Comment, Handoff), with counters for suggested and drafted comments.
 - **Acceptance contract:** the agent extracts acceptance criteria from linked issues and the PR body, then marks each one proven / unproven / failed / n/a with concrete evidence (test name, `path:line`, CI check, local run). You can override any verdict; unproven criteria hold the recommendation, failed ones block it. The contract flows into the handoff and the author comment.
 - **Review memory:** 👍 / 👎 on any finding records your verdict per repository. Verdicts calibrate future Deep Analyze prompts ("reviewers dismissed this 4x"), surface as patterns, and can be promoted to repo rules in one click.
@@ -160,6 +162,24 @@ A stack is a chain of open PRs where each PR's base branch is the previous PR's 
 - Deep Analyze receives the stack context, so the agent reviews the incremental diff and does not flag parent-PR code as missing.
 - When a parent is merged and its branch deleted, GitHub retargets the child to the trunk; MNLens tells you the diff scope changed and to re-run analysis.
 
+## Team Use
+
+MNLens is local-first, but rules and review memory are more useful shared:
+
+- **Rules committed in the repository** — maintainers commit `.mnlens/review-rules.json` (Overview → *Repository rules & review memory* → *Copy as .mnlens/review-rules.json* produces it from your current rules). MNLens reads it from the default branch for every reviewer, applies it to Deep Analyze and the review draft, and shows those rules with a `repo file` badge. They can be switched off locally without editing the file.
+- **Shared team folder** — *Team sharing* in the sidebar (or `MNLENS_TEAM_DIR`) points MNLens at a folder the team already syncs: a git checkout, Dropbox / iCloud Drive, a network share. Repo rules are read from and written to `<folder>/<owner>__<repo>/rules.json`; review memory is written per machine (`memory/<user@host>.json`) and merged on read, so reviewers never overwrite each other and every 👍/👎 calibrates everyone's prompts. Turn it off and everything falls back to the local cache.
+- **Agent accuracy** — every suggested comment you *Add to my review* or *Dismiss* on the Review tab is recorded. After three verdicts the tab shows the keep rate for the repository (and per comment kind in the tooltip); the calibration block tells the agent which kinds of comments reviewers rarely keep, so it raises fewer of them.
+
+```json
+{
+  "version": 1,
+  "rules": [
+    { "id": "no-todo", "title": "No TODO markers", "body": "Do not add TODO/FIXME comments; open an issue instead.", "tone": "strict" },
+    { "id": "tests", "title": "Tests for behavior changes", "body": "Every behavior change needs a test that fails without it." }
+  ]
+}
+```
+
 ## GitHub Token Permissions
 
 Prefer a fine-grained PAT limited to the repositories and organizations you review.
@@ -263,7 +283,7 @@ MNLens stores local state under `.pra-cache` in development and under the app us
 - analysis results
 - review progress
 - agent (Codex/Claude) logs, session ids and worktrees
-- agent model settings (`agent-settings.json`), usage ledger (`agent-usage.json`)
+- agent model settings (`agent-settings.json`), usage ledger (`agent-usage.json`), team folder setting (`team-settings.json`)
 - acceptance contracts (`acceptance/`), review memory per repository (`review-memory/`), research profiles
 - verification logs
 - rendered docs/screenshots/artifacts

@@ -7,7 +7,8 @@ import { annotateDiff, resolveAnchor, type AnnotatedDiff } from "../shared/diffL
 import { readAcceptanceContract, effectiveStatus } from "./acceptance.js";
 import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
 import { reviewDraftInstructions } from "./agentSkills.js";
-import { readAnalysis, readRepoRules } from "./cache.js";
+import { readAnalysis } from "./cache.js";
+import { listRepoRules } from "./repoRules.js";
 import { extractJson } from "./codex.js";
 import { cacheDir, projectRoot } from "./paths.js";
 import { calibrationPromptBlock } from "./reviewMemory.js";
@@ -108,7 +109,7 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
   const [analysis, acceptance, rules, calibration] = await Promise.all([
     readAnalysis(detail.key),
     readAcceptanceContract(detail.key),
-    readRepoRules(detail.repository).catch(() => [] as RepoReviewRule[]),
+    listRepoRules(detail.repository).catch(() => [] as RepoReviewRule[]),
     calibrationPromptBlock(detail.repository).catch(() => "")
   ]);
   const annotated = annotateDiff(detail.diff);

@@ -215,3 +215,35 @@
     display: none;
   }
 }
+
+/* Team sharing dialog */
+.team-folder {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.team-folder span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.team-folder input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.team-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.team-repos {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+}

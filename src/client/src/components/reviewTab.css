@@ -390,3 +390,15 @@
     padding-left: 0;
   }
 }
+
+.review-accuracy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.review-comment.dismissed {
+  opacity: 0.6;
+  padding: 6px 12px;
+}

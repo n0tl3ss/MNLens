@@ -4,6 +4,8 @@ import type {
   AcceptanceContract,
   AcceptanceCriterion,
   ReviewDraft,
+  SuggestedCommentKind,
+  TeamStatus,
   CriterionStatus,
   ReviewMemorySummary,
   StackMergeMethod,
@@ -50,6 +52,9 @@ import {
   generateAcceptanceContract,
   getReviewDraft,
   generateReviewDraft,
+  getTeamStatus,
+  updateTeamSettings,
+  exportRepoRules,
   updateAcceptanceCriterion,
   getReviewMemory,
   recordFindingFeedback,
@@ -94,6 +99,7 @@ import {
   type AgentSettingsResponse
 } from "./api";
 import { AgentSettingsDialog, agentLabels } from "./components/AgentSettingsDialog";
+import { TeamDialog } from "./components/TeamDialog";
 import { StackPanel } from "./components/StackPanel";
 import { type DraftReviewComment } from "./components/CommentTab";
 import { DetailTab } from "./components/DetailTab";
@@ -168,6 +174,10 @@ export function App() {
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, ReviewDraft | null>>({});
   const [reviewDraftBusy, setReviewDraftBusy] = useState(false);
   const [reviewDraftError, setReviewDraftError] = useState<string | undefined>();
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [teamStatus, setTeamStatus] = useState<TeamStatus | undefined>();
+  const [teamSaving, setTeamSaving] = useState(false);
+  const [teamError, setTeamError] = useState<string | undefined>();
   const [memory, setMemory] = useState<Record<string, ReviewMemorySummary>>({});
   const [feedbackPreview, setFeedbackPreview] = useState<Record<string, string>>({});
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -839,6 +849,44 @@ export function App() {
     }
   }
 
+  async function openTeamSettings() {
+    setTeamOpen(true);
+    setTeamError(undefined);
+    try {
+      setTeamStatus(await getTeamStatus());
+    } catch (err) {
+      setTeamError(messageOf(err));
+    }
+  }
+
+  async function saveTeamSettings(dir: string | null) {
+    setTeamSaving(true);
+    setTeamError(undefined);
+    try {
+      setTeamStatus(await updateTeamSettings({ dir }));
+      if (selected) {
+        void getRepoRules(selected.owner, selected.repo).then(setRepoRules).catch(() => undefined);
+        void getReviewMemory(selected.owner, selected.repo, selected.number).then((summary) => setMemory((current) => ({ ...current, [selected.key]: summary }))).catch(() => undefined);
+      }
+      setNotice(dir ? "Team folder saved. Rules and review memory are now shared from there." : "Team sharing turned off; rules and memory stay on this machine.");
+    } catch (err) {
+      setTeamError(messageOf(err));
+    } finally {
+      setTeamSaving(false);
+    }
+  }
+
+  async function copyRepoRulesFile() {
+    if (!selected) return;
+    try {
+      const exported = await exportRepoRules(selected.owner, selected.repo);
+      await navigator.clipboard.writeText(exported.content);
+      setNotice(`Copied ${exported.rules} rule(s) as ${exported.path}. Commit that file to the repository so every reviewer and agent run follows the same rules.`);
+    } catch (err) {
+      setError(messageOf(err));
+    }
+  }
+
   function useDraftFinalComment(body: string) {
     setReviewBody(body);
     setReviewDialogOpen(true);
@@ -855,10 +903,10 @@ export function App() {
     }
   }
 
-  async function giveFindingFeedback(kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) {
+  async function giveFindingFeedback(kind: "evidence" | "focus" | "risk" | "draft-comment", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) {
     if (!selected) return;
     try {
-      const summary = await recordFindingFeedback({ owner: selected.owner, repo: selected.repo, number: selected.number, kind, title, observation, verdict });
+      const summary = await recordFindingFeedback({ owner: selected.owner, repo: selected.repo, number: selected.number, kind, title, observation, verdict, commentKind });
       setMemory((current) => ({ ...current, [selected.key]: summary }));
     } catch (err) {
       setError(messageOf(err));
@@ -1396,6 +1444,7 @@ export function App() {
         onClearAllData={() => void clearAllReviewData()}
         onExportData={() => void exportLocalReviewData()}
         onOpenAgentSettings={() => void openAgentSettings()}
+        onOpenTeamSettings={() => void openTeamSettings()}
         agentLabel={setupStatus?.selectedAgent ? selectedAgentLabel : undefined}
         stackSummaries={stackSummaries}
         onSelectActivity={(item) => {
@@ -1526,7 +1575,8 @@ export function App() {
               onUseFinalComment={useDraftFinalComment}
               onGoToTab={setTab}
               memory={memory[selected.key]}
-              onFindingFeedback={(kind, title, observation, verdict) => void giveFindingFeedback(kind, title, observation, verdict)}
+              onFindingFeedback={(kind, title, observation, verdict, commentKind) => void giveFindingFeedback(kind, title, observation, verdict, commentKind)}
+              onCopyRepoRulesFile={() => void copyRepoRulesFile()}
               feedbackPreview={feedbackPreview[selected.key]}
               feedbackBusy={feedbackBusy}
               feedbackError={feedbackError}
@@ -1600,6 +1650,7 @@ export function App() {
           </>
         ) : null}
       </DetailPaneChrome>
+      {teamOpen && <TeamDialog status={teamStatus} saving={teamSaving} error={teamError} onClose={() => setTeamOpen(false)} onSave={(dir) => void saveTeamSettings(dir)} />}
           {agentSettingsOpen && (
         <AgentSettingsDialog
           data={agentSettings}

@@ -23,6 +23,7 @@ The app is intentionally human-in-the-loop. Do not add behavior that commits, pu
   - `githubHost.ts` is the only place that knows the GitHub host, builds MNLens's own `gh`/`git` auth env, and defines what agents may NOT inherit (reviewer tokens).
   - `researchProfiles.ts` turns technology-specific research heuristics into data; `secondOpinion.ts` runs the cross-agent audit; `usage.ts` is the per-PR cost ledger.
   - `acceptance.ts` builds the acceptance-criteria contract (criteria → evidence → status, with human overrides); `reviewMemory.ts` stores reviewer verdicts and produces calibration text and rule suggestions; `feedback.ts` renders the author comment; `events.ts` is the SSE bus.
+  - `teamStore.ts` is the optional shared folder (`MNLENS_TEAM_DIR` / `team-settings.json`); `repoRules.ts` merges rules from the repo file (`.mnlens/review-rules.json`), the team folder and the local cache — always read rules through `listRepoRules`, never `cache.readRepoRules` directly.
   - `reviewDraft.ts` produces the Review tab's draft (line-anchored comments, final comment, verdict, must/should/optional checklist); anchors are validated with `src/shared/diffLines.ts`.
   - `stacks.ts` reconstructs stacked-PR chains from open PRs' base/head branches.
 - `src/shared/analysisContext.ts` - discussion-state fingerprint shared by server cache checks and client staleness badges.
@@ -124,7 +125,9 @@ If E2E tests fail because a stale dev server is running, stop the old server and
 2. Review memory keys findings with `verdictKey(kind, title)`; the client mirrors it in `InsightSection.tsx`. Keep both in sync.
 3. The author comment is a preview the human edits and posts; never post it automatically.
 4. Job updates must go through the existing `update*` helpers so `publishEvent` fires.
-5. Review-draft comments must keep passing through `normalizeComments` (anchor validation + `unanchored` flag); the client only offers "Add to my review" for anchored comments so GitHub never rejects a submitted review.
+5. Review memory writes go to this machine's own file (`writeOwnMemory`); reads merge every member's file and drop malformed entries. Never write a merged list back to a shared file.
+6. Draft-comment verdicts carry `commentKind`; `draftCommentAccuracy` and the calibration block depend on it.
+7. Review-draft comments must keep passing through `normalizeComments` (anchor validation + `unanchored` flag); the client only offers "Add to my review" for anchored comments so GitHub never rejects a submitted review.
 
 ### Change stacked-PR behavior
 

@@ -386,6 +386,22 @@ test("renders the core review tabs from mocked PR data", async ({ page }) => {
   }
 });
 
+test("Overview keeps secondary sections collapsed and opens them on demand", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
+  await expect(page.getByText("Review Summary")).toBeVisible();
+  const rulesGroup = page.getByRole("button", { name: /Repository rules & review memory/ });
+  await expect(rulesGroup).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("Repo Review Memory")).toHaveCount(0);
+  await rulesGroup.click();
+  await expect(page.getByText("Repo Review Memory")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Copy as \.mnlens\/review-rules\.json/ })).toBeVisible();
+  if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview.png`, fullPage: true });
+  await page.getByRole("button", { name: "Team sharing" }).click();
+  await expect(page.getByRole("dialog", { name: "Team sharing" })).toBeVisible();
+  await expect(page.getByText("local only")).toBeVisible();
+});
+
 test("Review tab turns the agent's draft into the reviewer's own comments", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
@@ -395,6 +411,7 @@ test("Review tab turns the agent's draft into the reviewer's own comments", asyn
   await expect(page.getByText("Request changes").first()).toBeVisible();
   await expect(page.getByText("register() is empty")).toBeVisible();
   await expect(page.locator(".review-tier-must").first()).toBeVisible();
+  await expect(page.getByText("75% kept")).toBeVisible();
   if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/review-tab.png`, fullPage: true });
 
   const blocking = page.locator(".review-comment.kind-blocking");
@@ -655,7 +672,10 @@ async function mockApi(page: Page, options: MockApiOptions = {}) {
     if (path === `/api/review-draft/${prKey}`) return json(reviewDraft);
     if (path === "/api/review-draft" && route.request().method() === "POST") return json(reviewDraft);
     if (path === `/api/acceptance/${prKey}`) return json(null);
-    if (path.startsWith("/api/review-memory/")) return json({ repository: "micronaut-projects/micronaut-tracing", totalVerdicts: 0, kept: 0, dismissed: 0, patterns: [], suggestedRules: [] });
+    if (path.startsWith("/api/review-memory/") || (path === "/api/review-memory" && route.request().method() === "POST")) {
+      return json({ repository: "micronaut-projects/micronaut-tracing", total: 4, kept: 3, dismissed: 1, patterns: [], prVerdicts: {}, draftComments: { kept: 3, dismissed: 1, byKind: { blocking: { kept: 2, dismissed: 0 }, nit: { kept: 1, dismissed: 1 } } }, members: 2, shared: true });
+    }
+    if (path === "/api/team") return json({ source: "none", exists: false, writable: false, memberId: "me@laptop", repositories: [] });
     if (path.startsWith("/api/usage/")) return json({ prKey, totalCostUsd: 0, runs: [] });
 
     return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: `Unhandled ${path}` }) });

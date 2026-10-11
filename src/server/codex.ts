@@ -12,7 +12,7 @@ import { cacheDir, projectRoot } from "./paths.js";
 import { getPrStack, stackPromptContext } from "./stacks.js";
 import { analysisContextHash } from "../shared/analysisContext.js";
 import { calibrationPromptBlock } from "./reviewMemory.js";
-import { readRepoRules } from "./cache.js";
+import { listRepoRules } from "./repoRules.js";
 import { exactMatchPattern, loadResearchProfiles, matchingProfiles, profileRelevance, type ResearchProfile } from "./researchProfiles.js";
 
 // Re-exported for modules that still import the Codex home from here.
@@ -110,7 +110,7 @@ export async function analyzePr(
   const profiles = matchingProfiles(detail, await loadResearchProfiles(), maxDiffChars);
   const researchCandidates = await targetedResearchCandidates(detail, profiles);
   const calibration = await calibrationPromptBlock(detail.repository).catch(() => "");
-  const repoRules = (await readRepoRules(detail.repository).catch(() => [])).filter((rule) => rule.enabled);
+  const repoRules = (await listRepoRules(detail.repository).catch(() => [])).filter((rule) => rule.enabled);
   const prompt = buildPrompt(detail, researchCandidates, stack, profiles, { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`) });
   hooks.onStatus?.("Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context.");
   const { invocation, result, output } = await runAgent(

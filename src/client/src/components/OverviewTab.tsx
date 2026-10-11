@@ -2,8 +2,8 @@ import { analysisFreshness } from "../../../shared/analysisContext";
 import { SecondOpinionSection } from "./SecondOpinionSection";
 import { AcceptanceSection } from "./AcceptanceSection";
 import { ReviewMemoryCard } from "./ReviewMemoryCard";
-import { Bug, FolderKanban, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bug, ChevronDown, FileJson, FolderKanban, Sparkles } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
 import { fixCurrentSpecialist } from "../fixHelpers";
 import { insightScope, isDocsOnlyReview, latestPushedFix, sourceChangedLines } from "../reviewHelpers";
@@ -41,6 +41,7 @@ export function OverviewTab({
   onOverrideCriterion,
   memory,
   onFindingFeedback,
+  onCopyRepoRulesFile,
   attentionMode,
   canApproveWithoutComments,
   ciChecks,
@@ -80,6 +81,8 @@ export function OverviewTab({
   onOverrideCriterion?: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
   memory?: ReviewMemorySummary;
   onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
+  /** Copies the enabled rules as `.mnlens/review-rules.json` so maintainers can commit them. */
+  onCopyRepoRulesFile?: () => void;
   attentionMode: boolean;
   canApproveWithoutComments: boolean;
   ciChecks: CiCheck[];
@@ -111,34 +114,6 @@ export function OverviewTab({
   return (
     <div className="panel overview-panel">
       <FinalRecommendationSection recommendation={recommendation} />
-      <PrContextSection detail={detail} progress={progress} />
-      <ProjectAssignmentSection
-        detail={detail}
-        progress={progress}
-        githubProjects={githubProjects}
-        githubProjectsError={githubProjectsError}
-        projectAttachBusy={projectAttachBusy}
-        onAttachGithubProject={onAttachGithubProject}
-      />
-      <ReadinessSection
-        readiness={readinessForPr(detail, {
-          detail,
-          analysis,
-          progress,
-          ciChecks,
-          verificationJobs,
-          draftComments: reviewComments,
-          canApproveWithoutComments
-        })}
-      />
-      <ReviewDeltaSection
-        detail={detail}
-        progress={progress}
-        ciChecks={ciChecks}
-        verificationJobs={verificationJobs}
-        fixJobs={fixJobs}
-        onMarkReviewed={() => onSaveProgress({ lastReviewedAt: new Date().toISOString() })}
-      />
       {attentionMode && (
         <AttentionPanel
           detail={detail}
@@ -188,19 +163,6 @@ export function OverviewTab({
             {analysis && onRequestSecondOpinion && (
               <SecondOpinionSection analysis={analysis} diffHash={detail.diffHash} busy={Boolean(secondOpinionBusy)} error={secondOpinionError} onRequest={onRequestSecondOpinion} />
             )}
-            <ReviewMemoryCard memory={memory} onAddRepoRule={onAddRepoRule} />
-            <PolicySection
-              detail={detail}
-              analysis={analysis}
-              progress={progress}
-              repoRules={repoRules}
-              ciChecks={ciChecks}
-              verificationJobs={verificationJobs}
-              fixJobs={fixJobs}
-              onSaveProgress={onSaveProgress}
-              onAddRepoRule={onAddRepoRule}
-              onSetRepoRuleEnabled={onSetRepoRuleEnabled}
-            />
           </>
         )}
         <div className="overview-columns">
@@ -272,6 +234,72 @@ export function OverviewTab({
           </div>
         </div>
       </div>
+
+      <CollapsibleGroup
+        id="context"
+        title="PR context, project & readiness"
+        hint="Description, linked issues, GitHub project, readiness checklist and what changed since your last look."
+        defaultOpen={!analysis}
+      >
+        <PrContextSection detail={detail} progress={progress} />
+        <ProjectAssignmentSection
+          detail={detail}
+          progress={progress}
+          githubProjects={githubProjects}
+          githubProjectsError={githubProjectsError}
+          projectAttachBusy={projectAttachBusy}
+          onAttachGithubProject={onAttachGithubProject}
+        />
+        <ReadinessSection
+          readiness={readinessForPr(detail, {
+            detail,
+            analysis,
+            progress,
+            ciChecks,
+            verificationJobs,
+            draftComments: reviewComments,
+            canApproveWithoutComments
+          })}
+        />
+        <ReviewDeltaSection
+          detail={detail}
+          progress={progress}
+          ciChecks={ciChecks}
+          verificationJobs={verificationJobs}
+          fixJobs={fixJobs}
+          onMarkReviewed={() => onSaveProgress({ lastReviewedAt: new Date().toISOString() })}
+        />
+      </CollapsibleGroup>
+
+      {!attentionMode && (
+        <CollapsibleGroup
+          id="rules"
+          title="Repository rules & review memory"
+          hint={`${repoRules.filter((rule) => rule.enabled).length} rule(s) active${repoRules.some((rule) => rule.origin === "repository") ? " · some committed in the repo" : ""}${memory?.shared ? " · memory shared with the team" : ""}. Rules and verdicts calibrate every agent run.`}
+          defaultOpen={false}
+          actions={
+            onCopyRepoRulesFile && (
+              <button type="button" className="ghost" onClick={(event) => { event.preventDefault(); onCopyRepoRulesFile(); }} title="Copy the enabled rules as .mnlens/review-rules.json; commit it so every reviewer and agent run follows the same rules">
+                <FileJson size={14} /> Copy as .mnlens/review-rules.json
+              </button>
+            )
+          }
+        >
+          <ReviewMemoryCard memory={memory} onAddRepoRule={onAddRepoRule} />
+          <PolicySection
+            detail={detail}
+            analysis={analysis}
+            progress={progress}
+            repoRules={repoRules}
+            ciChecks={ciChecks}
+            verificationJobs={verificationJobs}
+            fixJobs={fixJobs}
+            onSaveProgress={onSaveProgress}
+            onAddRepoRule={onAddRepoRule}
+            onSetRepoRuleEnabled={onSetRepoRuleEnabled}
+          />
+        </CollapsibleGroup>
+      )}
     </div>
   );
 }
@@ -521,7 +549,7 @@ function PolicySection({
               </span>
               <span className="policy-actions">
                 <Badge tone={item.tone}>{item.tone}</Badge>
-                {item.source === "saved" && <Badge tone="added">memory</Badge>}
+                {item.source === "saved" && <Badge tone={item.origin === "repository" ? "label" : item.origin === "team" ? "queue" : "added"}>{item.origin === "repository" ? "repo file" : item.origin === "team" ? "team" : "memory"}</Badge>}
                 <button type="button" onClick={() => toggleIgnored(item.id)}>{isIgnored ? "Use" : "Skip"}</button>
                 {item.source === "saved" && <button type="button" onClick={() => onSetRepoRuleEnabled(item.id.replace(/^policy:/, ""), false)}>Disable</button>}
               </span>
@@ -561,6 +589,47 @@ function PolicySection({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Secondary Overview content lives in collapsible groups so the first screen
+ * is the decision: recommendation, summary, acceptance, second opinion, and
+ * the insight columns. Open/closed state is remembered per group.
+ */
+function CollapsibleGroup({ id, title, hint, defaultOpen, actions, children }: { id: string; title: string; hint?: string; defaultOpen: boolean; actions?: ReactNode; children: ReactNode }) {
+  const storageKey = `mnlens-overview-group:${id}`;
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      return stored === null ? defaultOpen : stored === "open";
+    } catch {
+      return defaultOpen;
+    }
+  });
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(storageKey, next ? "open" : "closed");
+    } catch {
+      // Per-viewer convenience only.
+    }
+  }
+  return (
+    <section className={`overview-group ${open ? "open" : ""}`}>
+      <div className="overview-group-head">
+        <button type="button" className="overview-group-toggle" onClick={toggle} aria-expanded={open}>
+          <ChevronDown size={16} className="overview-group-chevron" />
+          <span>
+            <strong>{title}</strong>
+            {hint && <em className="muted">{hint}</em>}
+          </span>
+        </button>
+        {actions && <div className="overview-group-actions">{actions}</div>}
+      </div>
+      {open && <div className="overview-group-body">{children}</div>}
     </section>
   );
 }
@@ -623,17 +692,17 @@ function attentionItems(
 
 function reviewPolicies(detail: PrDetail, analysis: AnalysisResult | undefined, ciChecks: CiCheck[], repoRules: RepoReviewRule[]): {
   scope: string;
-  items: Array<{ id: string; title: string; body: string; tone: string; source: "generated" | "saved" }>;
+  items: Array<{ id: string; title: string; body: string; tone: string; source: "generated" | "saved"; origin?: RepoReviewRule["origin"] }>;
 } {
   const repo = detail.repository.toLowerCase();
   const text = `${detail.title} ${detail.body} ${detail.files.map((file) => file.path).join(" ")} ${(analysis?.summary ?? "")}`.toLowerCase();
-  const items: Array<{ id: string; title: string; body: string; tone: string; source: "generated" | "saved" }> = [];
+  const items: Array<{ id: string; title: string; body: string; tone: string; source: "generated" | "saved"; origin?: RepoReviewRule["origin"] }> = [];
   const add = (title: string, body: string, tone = "queue") => {
     const id = `policy:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     if (!items.some((item) => item.id === id)) items.push({ id, title, body, tone, source: "generated" });
   };
   for (const rule of repoRules.filter((rule) => rule.enabled)) {
-    items.push({ id: `policy:${rule.id}`, title: rule.title, body: rule.body, tone: rule.tone ?? "queue", source: "saved" });
+    items.push({ id: `policy:${rule.id}`, title: rule.title, body: rule.body, tone: rule.tone ?? "queue", source: "saved", origin: rule.origin });
   }
   if (repo.includes("micronaut")) {
     add("Micronaut lifecycle proof", "For bean/listener/configuration changes, verify enable/disable behavior and lifecycle cleanup are tested.", "queue");

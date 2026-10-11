@@ -1,6 +1,6 @@
-import { Check, CheckCircle2, Circle, ClipboardCheck, Copy, FileSearch, Gavel, Loader2, MessageSquarePlus, RefreshCw, Scale, Sparkles, Users } from "lucide-react";
+import { Check, CheckCircle2, Circle, ClipboardCheck, Copy, FileSearch, Gavel, Loader2, MessageSquarePlus, RefreshCw, Scale, Sparkles, Target, Users, X } from "lucide-react";
 import type { ReactNode } from "react";
-import type { AcceptanceContract, AnalysisResult, CiCheck, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, SuggestedCommentKind, SuggestedReviewComment, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AnalysisResult, CiCheck, FindingVerdict, PrDetail, ReviewComment, ReviewDraft, ReviewMemorySummary, ReviewProgress, SuggestedCommentKind, SuggestedReviewComment, VerificationJob } from "../../../shared/types";
 import type { DraftReviewComment } from "./CommentTab";
 import { acceptanceTotals } from "./AcceptanceSection";
 import { Badge } from "./uiBits";
@@ -45,6 +45,8 @@ export function ReviewTab({
   verificationJobs,
   ciChecks,
   secondOpinionBusy,
+  memory,
+  onCommentVerdict,
   onGenerateDraft,
   onGenerateAcceptance,
   onRequestSecondOpinion,
@@ -64,6 +66,9 @@ export function ReviewTab({
   verificationJobs: VerificationJob[];
   ciChecks: CiCheck[];
   secondOpinionBusy?: boolean;
+  memory?: ReviewMemorySummary;
+  /** Records whether the reviewer kept or dismissed a suggested comment (null = undo). Feeds the per-repo agent accuracy score. */
+  onCommentVerdict?: (comment: SuggestedReviewComment, verdict: FindingVerdict | null) => void;
   onGenerateDraft: (force: boolean) => void;
   onGenerateAcceptance?: (force: boolean) => void;
   onRequestSecondOpinion?: () => void;
@@ -91,9 +96,15 @@ export function ReviewTab({
     onSaveProgress({ checkedItems: [...next] });
   }
 
+  const verdicts = memory?.prVerdicts ?? {};
+  const verdictOf = (comment: SuggestedReviewComment): FindingVerdict | undefined => verdicts[verdictKey("draft-comment", comment.title)];
+  const accuracy = memory?.draftComments;
+  const accuracyTotal = accuracy ? accuracy.kept + accuracy.dismissed : 0;
+
   function addSuggested(comment: SuggestedReviewComment) {
     if (comment.line === undefined) return;
     onAddReviewComment({ path: comment.path, line: comment.line, side: comment.side, body: comment.body });
+    onCommentVerdict?.(comment, "kept");
   }
 
   function addAll(list: SuggestedReviewComment[]) {
@@ -118,6 +129,7 @@ export function ReviewTab({
                 {draft.agent === "claude" ? "Claude" : "Codex"} ({draft.model}){typeof draft.costUsd === "number" ? ` · ~$${draft.costUsd.toFixed(3)}` : ""} · {comments.length} suggested comments
               </span>
               {draftStale && <Badge tone="review-needed">diff changed</Badge>}
+              <AccuracyBadge memory={memory} />
               <button type="button" className="ghost" onClick={() => onGenerateDraft(true)} disabled={draftBusy} title="Draft again from the current diff, analysis and acceptance contract">
                 {draftBusy ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} {draftStale ? "Re-draft for new diff" : "Re-draft"}
               </button>
@@ -130,6 +142,7 @@ export function ReviewTab({
               <button type="button" className="primary" onClick={() => onGenerateDraft(false)} disabled={draftBusy}>
                 {draftBusy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {draftBusy ? "Drafting review..." : "Draft the review"}
               </button>
+              <AccuracyBadge memory={memory} />
             </>
           )}
         </div>
@@ -213,7 +226,7 @@ export function ReviewTab({
             </p>
           ) : (
             <>
-              <CommentList comments={byTier("must")} addedKeys={addedKeys} onAdd={addSuggested} />
+              <CommentList comments={byTier("must")} addedKeys={addedKeys} verdictOf={verdictOf} onAdd={addSuggested} onVerdict={onCommentVerdict} />
               <div className="review-actions">
                 <button type="button" onClick={() => addAll(byTier("must"))}>
                   Add all to my review
@@ -262,12 +275,12 @@ export function ReviewTab({
         </Step>
 
         <Step tier="should" index={6} icon={<Scale size={16} />} title="Questions and suggestions" count={draft ? byTier("should").length : undefined}>
-          {draft && byTier("should").length > 0 && <CommentList comments={byTier("should")} addedKeys={addedKeys} onAdd={addSuggested} />}
+          {draft && byTier("should").length > 0 && <CommentList comments={byTier("should")} addedKeys={addedKeys} verdictOf={verdictOf} onAdd={addSuggested} onVerdict={onCommentVerdict} />}
           <Checklist draft={draft} tier="should" items={draft?.shouldDo ?? []} checked={checked} onToggle={toggleChecked} empty={draft ? "Nothing extra recommended." : "Draft the review to see recommended checks."} />
         </Step>
 
         <Step tier="optional" index={7} icon={<Sparkles size={16} />} title="Nits, praise and follow-ups" count={draft ? byTier("optional").length : undefined}>
-          {draft && byTier("optional").length > 0 && <CommentList comments={byTier("optional")} addedKeys={addedKeys} onAdd={addSuggested} />}
+          {draft && byTier("optional").length > 0 && <CommentList comments={byTier("optional")} addedKeys={addedKeys} verdictOf={verdictOf} onAdd={addSuggested} onVerdict={onCommentVerdict} />}
           <Checklist draft={draft} tier="optional" items={draft?.optional ?? []} checked={checked} onToggle={toggleChecked} empty={draft ? "No optional items." : "Draft the review to see optional items."} />
         </Step>
 
@@ -334,11 +347,41 @@ function DecisionBadge({ decision }: { decision: ReviewDraft["decision"] }) {
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-function CommentList({ comments, addedKeys, onAdd }: { comments: SuggestedReviewComment[]; addedKeys: Set<string>; onAdd: (comment: SuggestedReviewComment) => void }) {
+function CommentList({
+  comments,
+  addedKeys,
+  verdictOf,
+  onAdd,
+  onVerdict
+}: {
+  comments: SuggestedReviewComment[];
+  addedKeys: Set<string>;
+  verdictOf: (comment: SuggestedReviewComment) => FindingVerdict | undefined;
+  onAdd: (comment: SuggestedReviewComment) => void;
+  onVerdict?: (comment: SuggestedReviewComment, verdict: FindingVerdict | null) => void;
+}) {
   return (
     <ul className="review-comments">
       {comments.map((comment) => {
         const added = comment.line !== undefined && addedKeys.has(`${comment.path}|${comment.side}|${comment.line}`);
+        const verdict = verdictOf(comment);
+        const dismissed = verdict === "dismissed";
+        if (dismissed) {
+          return (
+            <li key={comment.id} className={`review-comment kind-${comment.kind} dismissed`}>
+              <div className="review-comment-head">
+                <Badge tone={kindMeta[comment.kind].tone}>{kindMeta[comment.kind].label}</Badge>
+                <s>{comment.title}</s>
+                <span className="muted">dismissed — counted against the agent's accuracy</span>
+                {onVerdict && (
+                  <button type="button" className="link-button" onClick={() => onVerdict(comment, null)}>
+                    Undo
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        }
         return (
           <li key={comment.id} className={`review-comment kind-${comment.kind} ${added ? "added" : ""}`}>
             <div className="review-comment-head">
@@ -368,11 +411,53 @@ function CommentList({ comments, addedKeys, onAdd }: { comments: SuggestedReview
               <button type="button" className="ghost" onClick={() => void navigator.clipboard.writeText(comment.body)}>
                 <Copy size={14} /> Copy
               </button>
+              {onVerdict && !added && (
+                <button type="button" className="ghost" onClick={() => onVerdict(comment, "dismissed")} title="Not worth posting. Recorded so the agent raises fewer comments like this in this repository.">
+                  <X size={14} /> Dismiss
+                </button>
+              )}
+              {verdict === "kept" && !added && <span className="muted">kept</span>}
             </div>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/** Mirrors server/reviewMemory.ts verdictKey so the client can look up this PR's verdicts. */
+export function verdictKey(kind: string, title: string): string {
+  return `${kind}:${title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+}
+
+/**
+ * Agent accuracy = share of suggested comments reviewers kept in this repo.
+ * Shown once there are a few verdicts; the per-kind breakdown is in the tooltip.
+ */
+function AccuracyBadge({ memory }: { memory?: ReviewMemorySummary }) {
+  const stat = memory?.draftComments;
+  if (!stat) return null;
+  const total = stat.kept + stat.dismissed;
+  if (total < 3) {
+    return (
+      <span className="muted review-accuracy" title="Add or dismiss suggested comments; after 3 verdicts MNLens shows how often this agent's comments were worth posting in this repository.">
+        <Target size={13} /> accuracy: {total}/3 verdicts so far
+      </span>
+    );
+  }
+  const rate = Math.round((stat.kept / total) * 100);
+  const tone = rate >= 70 ? "added" : rate >= 40 ? "review-needed" : "danger";
+  const breakdown = Object.entries(stat.byKind)
+    .map(([kind, item]) => `${kind}: ${item.kept}/${item.kept + item.dismissed} kept`)
+    .join("\n");
+  return (
+    <span className="review-accuracy" title={`${stat.kept} of ${total} suggested comments kept in ${memory?.repository}${memory?.members && memory.members > 1 ? ` across ${memory.members} reviewers` : ""}.\n${breakdown}`}>
+      <Target size={13} />
+      <Badge tone={tone}>{rate}% kept</Badge>
+      <span className="muted">
+        {stat.kept}/{total} suggestions{memory?.shared ? " · team" : ""}
+      </span>
+    </span>
   );
 }
 

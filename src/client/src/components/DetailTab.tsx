@@ -1,4 +1,4 @@
-import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, RepoReviewRule, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, RepoReviewRule, SuggestedCommentKind, VerificationJob } from "../../../shared/types";
 import { buildOverviewLinePins } from "../planHelpers";
 import type { Tab } from "../reviewTypes";
 import { reviewReplay, type ReviewReplay } from "./ReviewDeltaSection";
@@ -35,6 +35,7 @@ export function DetailTab({
   onGoToTab,
   memory,
   onFindingFeedback,
+  onCopyRepoRulesFile,
   feedbackPreview,
   feedbackBusy,
   feedbackError,
@@ -107,7 +108,8 @@ export function DetailTab({
   onUseFinalComment?: (body: string) => void;
   onGoToTab?: (tab: Tab) => void;
   memory?: ReviewMemorySummary;
-  onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
+  onFindingFeedback?: (kind: "evidence" | "focus" | "risk" | "draft-comment", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) => void;
+  onCopyRepoRulesFile?: () => void;
   feedbackPreview?: string;
   feedbackBusy?: boolean;
   feedbackError?: string;
@@ -182,6 +184,8 @@ export function DetailTab({
         verificationJobs={verificationJobs}
         ciChecks={ciChecks}
         secondOpinionBusy={secondOpinionBusy}
+        memory={memory}
+        onCommentVerdict={(comment, verdict) => onFindingFeedback?.("draft-comment", comment.title, comment.body, verdict, comment.kind)}
         onGenerateDraft={(force) => onGenerateReviewDraft?.(force)}
         onGenerateAcceptance={onGenerateAcceptance}
         onRequestSecondOpinion={onRequestSecondOpinion}
@@ -336,6 +340,7 @@ export function DetailTab({
       onOverrideCriterion={onOverrideCriterion}
       memory={memory}
       onFindingFeedback={onFindingFeedback}
+      onCopyRepoRulesFile={onCopyRepoRulesFile}
       attentionMode={attentionMode}
       canApproveWithoutComments={canApproveWithoutComments}
       ciChecks={ciChecks}

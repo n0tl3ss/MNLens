@@ -33,7 +33,7 @@ export function ReviewMemoryCard({
         <div>
           <h3>Review Memory</h3>
           <p className="muted">
-            {memory.total} verdicts in {memory.repository}: {memory.kept} kept, {memory.dismissed} dismissed. Future analyses are calibrated with these.
+            {memory.total} verdicts in {memory.repository}{memory.shared ? ` from ${memory.members} reviewer${memory.members === 1 ? "" : "s"} (team folder)` : ""}: {memory.kept} kept, {memory.dismissed} dismissed. Future analyses are calibrated with these.
           </p>
         </div>
         <Brain size={18} />

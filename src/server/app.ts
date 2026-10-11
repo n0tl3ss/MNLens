@@ -34,9 +34,10 @@ import type {
   UpdateAgentSettingsRequest,
   UpdateReviewProgressRequest,
   ReviewDraftRequest,
+  UpdateTeamSettingsRequest,
   VerificationRequest
 } from "../shared/types.js";
-import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, readRepoRules, stats, writeAnalysis, writeProgress, writeRepoRules } from "./cache.js";
+import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, stats, writeAnalysis, writeProgress } from "./cache.js";
 import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, resolveReviewThread, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
 import { cancelAnalysisJob, enqueueAnalysis, getJob, jobStatusForPr, recoverAnalysisJobs } from "./jobs.js";
 import { cancelVerificationJob, enqueueManualVerification, enqueueVerification, getVerificationJob, listVerificationJobs } from "./verification.js";
@@ -52,6 +53,8 @@ import { usageSummary } from "./usage.js";
 import { secondOpinionFor } from "./secondOpinion.js";
 import { generateAcceptanceContract, readAcceptanceContract, updateCriterion } from "./acceptance.js";
 import { generateReviewDraft, readReviewDraft } from "./reviewDraft.js";
+import { createRepoRule, exportRepoRules, listRepoRules, updateRepoRule } from "./repoRules.js";
+import { teamStatus, updateTeamSettings } from "./teamStore.js";
 import { recordFindingFeedback, reviewMemorySummary } from "./reviewMemory.js";
 import { buildFeedbackComment } from "./feedback.js";
 import { mergeStackStep, stackMergePlan } from "./stacks.js";
@@ -861,7 +864,15 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
 
   app.get("/api/repo-rules/:owner/:repo", async (req, res, next) => {
     try {
-      res.json(await readRepoRules(`${req.params.owner}/${req.params.repo}`));
+      res.json(await listRepoRules(`${req.params.owner}/${req.params.repo}`));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/repo-rules/:owner/:repo/export", async (req, res, next) => {
+    try {
+      res.json(await exportRepoRules(`${req.params.owner}/${req.params.repo}`));
     } catch (error) {
       next(error);
     }
@@ -869,27 +880,12 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
 
   app.post("/api/repo-rules/:owner/:repo", async (req, res, next) => {
     try {
-      const repository = `${req.params.owner}/${req.params.repo}`;
       const body = req.body as CreateRepoReviewRuleRequest;
       if (!body.title?.trim() || !body.body?.trim()) {
         res.status(400).json({ error: "Rule title and body are required." });
         return;
       }
-      const rules = await readRepoRules(repository);
-      const now = new Date().toISOString();
-      const rule = {
-        id: `rule:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
-        repository,
-        title: body.title.trim(),
-        body: body.body.trim(),
-        tone: body.tone?.trim() || "neutral",
-        enabled: true,
-        source: body.source?.trim() || "manual",
-        createdAt: now,
-        updatedAt: now
-      };
-      await writeRepoRules(repository, [rule, ...rules]);
-      res.json(rule);
+      res.json(await createRepoRule(`${req.params.owner}/${req.params.repo}`, body));
     } catch (error) {
       next(error);
     }
@@ -897,27 +893,33 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
 
   app.put("/api/repo-rules/:owner/:repo/:id", async (req, res, next) => {
     try {
-      const repository = `${req.params.owner}/${req.params.repo}`;
-      const body = req.body as UpdateRepoReviewRuleRequest;
-      const rules = await readRepoRules(repository);
-      const index = rules.findIndex((rule) => rule.id === req.params.id);
-      if (index < 0) {
+      const rule = await updateRepoRule(`${req.params.owner}/${req.params.repo}`, req.params.id, req.body as UpdateRepoReviewRuleRequest);
+      if (!rule) {
         res.status(404).json({ error: "Rule not found." });
         return;
       }
-      const current = rules[index];
-      const nextRule = {
-        ...current,
-        title: body.title?.trim() || current.title,
-        body: body.body?.trim() || current.body,
-        tone: body.tone?.trim() || current.tone,
-        enabled: typeof body.enabled === "boolean" ? body.enabled : current.enabled,
-        updatedAt: new Date().toISOString()
-      };
-      rules[index] = nextRule;
-      await writeRepoRules(repository, rules);
-      res.json(nextRule);
+      res.json(rule);
     } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/team", async (_req, res, next) => {
+    try {
+      res.json(await teamStatus());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/team", async (req, res, next) => {
+    try {
+      res.json(await updateTeamSettings((req.body ?? {}) as UpdateTeamSettingsRequest));
+    } catch (error) {
+      if (error instanceof Error && /absolute path/.test(error.message)) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
       next(error);
     }
   });
