@@ -120,7 +120,7 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
   // Whole files within the budget, omitted files listed by path; the annotation adds line numbers, so its own cap sits above the budget.
   // The draft runs in the same read-only checkout as Deep Analyze, so it can open the files behind a comment before anchoring it.
   const repoDir = await ensureAnalysisWorktree(detail).catch(() => undefined);
-  const annotated = annotateDiff(budgetDiff(detail.diff, 100_000, { hasCheckout: Boolean(repoDir) }).text, { maxChars: 150_000 });
+  const annotated = annotateDiff(budgetDiff(detail.diff, 100_000, { hasCheckout: Boolean(repoDir) }).text, { maxChars: 200_000 });
   // Reuse the analysis checkout when it exists (no git operations here); the draft then follows the repo's own conventions.
   const worktree = join(cacheDir, "analysis-worktrees", detail.key);
   const repoGuidance = existsSync(worktree) ? await readRepoGuidance(worktree).catch(() => [] as RepoGuidance[]) : [];

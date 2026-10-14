@@ -98,11 +98,14 @@ export function parseDiffLines(diff: string): DiffLineRef[] {
 
 /**
  * Render the diff with explicit side/line prefixes so the agent can cite
- * anchors exactly as MNLens will validate them:
+ * anchors exactly as MNLens will validate them. The path appears once per
+ * file (repeating it on every line more than tripled the prompt for a large
+ * PR and pushed half the diff past the cap):
  *
- *   src/app.ts R12 + const x = 1;
- *   src/app.ts L10 -   old();
- *   src/app.ts R13     context();
+ *   ### src/app.ts
+ *   R12 + const x = 1;
+ *   L10 -   old();
+ *   R13     context();
  */
 export function annotateDiff(diff: string, options: { maxChars?: number } = {}): AnnotatedDiff {
   const refs = parseDiffLines(diff);
@@ -124,7 +127,7 @@ export function annotateDiff(diff: string, options: { maxChars?: number } = {}):
       changedLinesByPath.set(ref.path, list);
     }
     const prefix = ref.side === "RIGHT" ? `R${ref.line}` : `L${ref.line}`;
-    lines.push(`${ref.path} ${prefix} ${ref.kind === " " ? " " : ref.kind} ${ref.text}`);
+    lines.push(`${prefix} ${ref.kind === " " ? " " : ref.kind} ${ref.text}`);
   }
   let text = lines.join("\n").trimStart();
   const maxChars = options.maxChars ?? 70_000;

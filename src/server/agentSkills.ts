@@ -118,7 +118,7 @@ export function reviewDraftInstructions(): string {
 Return only JSON matching the provided schema. Do not wrap it in Markdown.
 
 Anchoring rules (strict):
-- The diff below is annotated. Every line starts with "<path> R<line>" (new file, side RIGHT) or "<path> L<line>" (old file, side LEFT) followed by "+", "-" or a space. Use exactly those path/side/line values for comments; MNLens rejects anchors that are not in the diff.
+- The diff below is annotated. Each file starts with a "### <path>" header; every line under it starts with "R<line>" (new file, side RIGHT) or "L<line>" (old file, side LEFT) followed by "+", "-" or a space. Use the header's path and exactly those side/line values for comments; MNLens rejects anchors that are not in the diff.
 - Comment on the changed line that best represents the issue. For a removed line use side LEFT. Never anchor to a file that is not in the diff.
 - One comment per distinct issue; merge duplicates. Do not comment on every nit.
 

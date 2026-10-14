@@ -36,8 +36,9 @@ describe("diff line mapping", () => {
   it("annotates the diff with quotable anchors and lists files", () => {
     const annotated = annotateDiff(diff);
     expect(annotated.files).toEqual(["src/app.ts", "README.md"]);
-    expect(annotated.text).toMatch(/src\/app\.ts R11 \+\s+const b = modern\(\);/);
-    expect(annotated.text).toMatch(/src\/app\.ts L11 -\s+const b = legacy\(\);/);
+    expect(annotated.text).toMatch(/### src\/app\.ts\n(?:.*\n)*?R11 \+\s+const b = modern\(\);/);
+    expect(annotated.text).toMatch(/L11 -\s+const b = legacy\(\);/);
+    expect(annotated.text).not.toMatch(/^src\/app\.ts R/m);
     expect(annotated.anchors.has("README.md|RIGHT|3")).toBe(false);
     expect(annotated.anchors.has("src/app.ts|RIGHT|12")).toBe(true);
     expect(annotated.anchors.has("src/app.ts|RIGHT|99")).toBe(false);
@@ -129,7 +130,8 @@ describe("review draft", () => {
       repoRules: ["No TODOs: comments must not add TODO markers"],
       calibration: "Reviewer calibration: nits about naming were dismissed 3 times."
     });
-    expect(prompt).toMatch(/src\/app\.ts R11 \+\s+const b = modern\(\);/);
+    expect(prompt).toMatch(/### src\/app\.ts/);
+    expect(prompt).toMatch(/R11 \+\s+const b = modern\(\);/);
     expect(prompt).toContain("Replaces legacy() with modern().");
     expect(prompt).toContain('"status": "proven"');
     expect(prompt).toContain('"humanOverride": true');
