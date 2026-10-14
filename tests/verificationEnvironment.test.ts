@@ -21,8 +21,12 @@ describe("verification outcome", () => {
     expect(classifyVerificationOutcome(1, "", gradleJdkFailure)).toEqual({ outcome: "blocked", blockedReason: "the build needs JDK 25 and ran on JDK 21" });
     expect(classifyVerificationOutcome(1, "", "Could not resolve all dependencies for configuration ':core:testRuntimeClasspath'.\n> Could not GET 'https://repo.example/x.pom'").outcome).toBe("blocked");
     expect(classifyVerificationOutcome(1, "TimedLifecycleSpec > records once FAILED\n    Condition not satisfied\n3 tests completed, 1 failed", "").outcome).toBe("test-failed");
+    // Testcontainers without Docker: the tests ran and failed, but for a reason that is not the PR's.
+    const noDocker = "ConsulReRegistrationSpec > the service de-registers FAILED\n  java.lang.IllegalStateException: Previous attempts to find a Docker environment failed. Will not retry.\n" + "x\n".repeat(5000) + "6 tests completed, 5 failed\nBUILD FAILED in 38s";
+    expect(classifyVerificationOutcome(1, noDocker, "")).toEqual({ outcome: "blocked", blockedReason: "the tests need Docker, which is not running on this machine" });
     expect(classifyVerificationOutcome(1, "something else went wrong", "").outcome).toBe("test-failed");
     expect(classifyVerificationOutcome(127, "", "zsh: command not found: ./mvnw")).toMatchObject({ outcome: "blocked" });
+    expect(classifyVerificationOutcome(1, "$ gh pr checkout 13888 --detach\n", "fatal: couldn't find remote ref refs/heads/fix/codec-exception-write-error\nfailed to run git: exit status 128")).toMatchObject({ outcome: "blocked", blockedReason: "the PR could not be checked out for the run" });
     expect(classifyVerificationOutcome(1, "", "* What went wrong:\nProject 'micronaut-micrometer-core' not found in root project 'micrometer-parent'.")).toMatchObject({ outcome: "blocked", blockedReason: expect.stringContaining("micronaut-micrometer-core") });
   });
 

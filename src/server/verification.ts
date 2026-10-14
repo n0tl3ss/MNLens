@@ -693,12 +693,26 @@ async function preparePrWorktree(pr: PrRef, token: string, job: VerificationJob)
     await hardenWorktreeCredentials(repoDir);
   }
   updateVerificationJob(job, { phase: "checking-out", statusMessage: `Checking out PR #${pr.number}.` });
-  await runStreamingCommand(job, "gh", ["pr", "checkout", String(pr.number), "--detach"], {
-    cwd: repoDir,
-    env: githubCliEnv(token),
-    timeoutMs: 5 * 60_000,
-    redact: [token]
-  });
+  try {
+    await runStreamingCommand(job, "gh", ["pr", "checkout", String(pr.number), "--detach"], {
+      cwd: repoDir,
+      env: githubCliEnv(token),
+      timeoutMs: 5 * 60_000,
+      redact: [token]
+    });
+  } catch (error) {
+    // `gh pr checkout` needs the PR's branch; a merged PR whose branch was deleted, or a fork PR,
+    // only exists as refs/pull/N/head. Same fallback the analysis worktree uses.
+    if (!(error instanceof CommandError)) throw error;
+    updateVerificationJob(job, { statusMessage: `The PR branch is gone; fetching refs/pull/${pr.number}/head instead.` });
+    await runStreamingCommand(job, "git", ["fetch", "--depth", "1", "origin", `refs/pull/${pr.number}/head`], {
+      cwd: repoDir,
+      env: githubCliEnv(token),
+      timeoutMs: 5 * 60_000,
+      redact: [token]
+    });
+    await runStreamingCommand(job, "git", ["checkout", "--detach", "FETCH_HEAD"], { cwd: repoDir, env: githubCliEnv(token), timeoutMs: 60_000, redact: [token] });
+  }
   return repoDir;
 }
 

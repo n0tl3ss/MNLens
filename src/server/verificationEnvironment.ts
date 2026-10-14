@@ -30,14 +30,31 @@ const blockedPatterns: Array<{ pattern: RegExp; reason: (match: RegExpMatchArray
   { pattern: /(?:UnknownHostException|Network is unreachable|Connection refused|Could not (?:GET|HEAD|download) '|Could not connect to|ENOTFOUND|ETIMEDOUT)/i, reason: () => "the build could not reach the network" },
   { pattern: /No matching toolchains found|Cannot find a Java installation|Unable to find a Java installation|toolchain .* (?:could not be found|not found)/i, reason: () => "the Java toolchain the build asks for is not installed" },
   { pattern: /(?:Project|Task) '([^']+)' not found in (?:root )?project|Cannot locate tasks that match '([^']+)'|Project with path '([^']+)' could not be found/i, reason: (m) => `the command names a Gradle project or task that does not exist (${m[1] ?? m[2] ?? m[3]})` },
+  { pattern: /couldn't find remote ref|failed to run git|fatal: (?:unable to access|could not read|repository .* not found|Authentication failed)/i, reason: () => "the PR could not be checked out for the run" },
   { pattern: /(?:command not found|No such file or directory|ENOENT)/i, reason: () => "a tool the command relies on is not installed" },
   { pattern: /Permission denied/i, reason: () => "a tool the command relies on is not executable" }
+];
+
+/**
+ * Tests that fail because the machine lacks what they need (Docker for
+ * Testcontainers, a database, a network service) say nothing about the PR
+ * either. These are checked over the whole output, because the cause is
+ * printed once near the first failing test, not at the end.
+ */
+const infrastructurePatterns: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /Could not find a valid Docker environment|Previous attempts to find a Docker environment failed|Cannot connect to the Docker daemon|Is the docker daemon running|docker: command not found|DockerClientProviderStrategy/i, reason: "the tests need Docker, which is not running on this machine" },
+  { pattern: /Testcontainers.*(?:timed out|could not start|Could not pull|failed to pull)|Container startup failed|ContainerLaunchException/i, reason: "a test container could not be started here" },
+  { pattern: /Connection refused: (?:localhost|127\.0\.0\.1)|Could not open JDBC Connection|java\.net\.ConnectException/i, reason: "the tests need a local service that is not running here" }
 ];
 
 /** Decide what a finished run says. Only the last part of the output is inspected: that is where build tools print the cause. */
 export function classifyVerificationOutcome(exitCode: number | null | undefined, stdout: string, stderr: string): { outcome: VerificationOutcome; blockedReason?: string } {
   if (exitCode === 0) return { outcome: "passed" };
   const text = `${stderr.slice(-8_000)}\n${stdout.slice(-8_000)}`;
+  const everything = `${stderr}\n${stdout}`;
+  for (const { pattern, reason } of infrastructurePatterns) {
+    if (pattern.test(everything)) return { outcome: "blocked", blockedReason: reason };
+  }
   // A test report means the build got as far as running tests, so the failure is the PR's.
   if (/\d+ tests? completed, \d+ failed|Tests run: \d+, Failures: [1-9]|FAILED\s*$|AssertionError|Condition not satisfied|expected:.*but was|✗|FAIL\s+\S+\.test/m.test(text)) return { outcome: "test-failed" };
   for (const { pattern, reason } of blockedPatterns) {
