@@ -5,6 +5,7 @@ import type {
   AcceptanceCriterion,
   ReviewDraft,
   SuggestedCommentKind,
+  FindingKind,
   TeamStatus,
   CriterionStatus,
   ReviewMemorySummary,
@@ -15,7 +16,6 @@ import type {
   AnalysisResult,
   CiCheck,
   FixJob,
-  GithubProject,
   Job,
   PrDetail,
   PrListItem,
@@ -34,7 +34,6 @@ import type {
   VerificationJob
 } from "../../shared/types";
 import {
-  attachGithubProject,
   analyzePrs,
   askFix,
   cancelAnalysis,
@@ -68,7 +67,6 @@ import {
   getFixJob,
   getFixLiveDiff,
   getFixJobs,
-  getGithubProjects,
   getJob,
   getPrDetail,
   getPrStack,
@@ -125,7 +123,7 @@ import {
   type SortDirection
 } from "./reviewHelpers";
 import { readinessForPr, reviewScoreForPr, type ReviewScore } from "./reviewScoring";
-import { buildHandoffMarkdown, finalReviewRecommendation } from "./reviewRecommendation";
+import { finalReviewRecommendation } from "./reviewRecommendation";
 import type { Tab } from "./reviewTypes";
 import {
   ciSummary,
@@ -133,7 +131,7 @@ import {
 } from "./verificationHelpers";
 import { useJobPolling } from "./useJobPolling";
 import { useServerEvents } from "./useServerEvents";
-import { availableAgentsFrom } from "./setupAgents";
+import { agentHealthFrom, availableAgentsFrom } from "./setupAgents";
 import { useSetupAuth } from "./useSetupAuth";
 
 type Theme = "light" | "dark";
@@ -208,16 +206,12 @@ export function App() {
   // New storage key: the old default was dark and got auto-saved under "pra-theme", so honouring it would keep everyone in dark mode.
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("mnlens-theme") === "dark" ? "dark" : "light"));
   const [bulkAnalyzeMode, setBulkAnalyzeMode] = useState<BulkAnalyzeMode>(() => (localStorage.getItem("mnlens-bulk-analyze-mode") === "deep" ? "deep" : "fast"));
-  const [attentionMode, setAttentionMode] = useState(() => localStorage.getItem("pra-attention-mode") === "true");
   const [mobileQueueOpen, setMobileQueueOpen] = useState(false);
   const [highlightedFixJobId, setHighlightedFixJobId] = useState<string | undefined>();
   const [openConversationReplies, setOpenConversationReplies] = useState<Record<number, boolean>>({});
   const [conversationReplyDrafts, setConversationReplyDrafts] = useState<Record<number, string>>({});
   const [postingConversationReply, setPostingConversationReply] = useState<Record<number, boolean>>({});
   const [resolvingReviewThreads, setResolvingReviewThreads] = useState<Record<string, boolean>>({});
-  const [githubProjects, setGithubProjects] = useState<GithubProject[]>([]);
-  const [githubProjectsError, setGithubProjectsError] = useState<string | undefined>();
-  const [projectAttachBusy, setProjectAttachBusy] = useState(false);
   const [targetBranches, setTargetBranches] = useState<Record<string, RepositoryBranch[]>>({});
   const [targetChanging, setTargetChanging] = useState(false);
   const autoRefreshingRef = useRef(false);
@@ -231,6 +225,7 @@ export function App() {
     savingAuthToken,
     shouldShowSetup,
     refreshAuth,
+    refreshRateLimit,
     refreshSetupStatus,
     saveGithubToken,
     setAuthTokenInput,
@@ -247,6 +242,8 @@ export function App() {
   const selectedCiChecks = selectedKey ? (ciChecks[selectedKey] ?? []) : [];
   const selectedIsOwnedByCurrentUser = Boolean(selected && auth?.username && selected.author.toLowerCase() === auth.username.toLowerCase());
   const selectedFixRunning = selectedFixJobs.some((job) => job.status === "queued" || job.status === "running");
+  const selectedStack = selected ? stacks[selected.key] : undefined;
+  const selectedStackAvailable = Boolean(selectedStack?.isStacked);
   const workActivity = workActivityForPrs(prs, Object.values(jobs), Object.values(verificationJobs), Object.values(fixJobs));
   const activeWorkActivity = workActivity.filter(isLiveWorkActivity);
 
@@ -256,8 +253,8 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem("pra-attention-mode", attentionMode ? "true" : "false");
-  }, [attentionMode]);
+    if (tab === "stack" && selectedStack && !selectedStack.isStacked) setTab("overview");
+  }, [tab, selectedStack?.isStacked]);
 
   useEffect(() => {
     localStorage.setItem("mnlens-bulk-analyze-mode", bulkAnalyzeMode);
@@ -321,6 +318,7 @@ export function App() {
 
   const repos = useMemo(() => ["all", ...Array.from(new Set(prs.map((pr) => pr.repository))).sort()], [prs]);
   const selectedAgentLabel = setupStatus?.selectedAgent === "claude" ? "Claude" : "Codex";
+  const agentHealth = agentHealthFrom(setupStatus);
   const { visiblePrs, visiblePrGroups, visibleAnalysisBatch, unanalyzedVisibleCount, latestJobForPr, scoreForPrList } =
     useMemo(
       () =>
@@ -366,6 +364,7 @@ export function App() {
         const freshSelected = next.find((pr) => pr.key === selectedKey);
         if (freshSelected) await loadDetail(freshSelected, true, true);
       }
+      void refreshRateLimit();
     } catch (err) {
       if (!silent) setError(messageOf(err));
     } finally {
@@ -390,11 +389,6 @@ export function App() {
         getRepoRules(pr.owner, pr.repo),
         getRepositoryBranches(pr.owner, pr.repo).catch(() => [] as RepositoryBranch[])
       ]);
-      const nextGithubProjects = await getGithubProjects(pr.owner).catch((error) => {
-        setGithubProjectsError(messageOf(error));
-        return [];
-      });
-      if (nextGithubProjects.length > 0) setGithubProjectsError(undefined);
       void loadStack(pr);
       void getAcceptanceContract(pr.key).then((contract) => setAcceptance((current) => ({ ...current, [pr.key]: contract }))).catch(() => undefined);
       void getReviewDraft(pr.key).then((draft) => setReviewDrafts((current) => ({ ...current, [pr.key]: draft }))).catch(() => undefined);
@@ -407,7 +401,6 @@ export function App() {
       });
       setProgress(savedProgress);
       setRepoRules(savedRepoRules);
-      setGithubProjects(nextGithubProjects);
       setTargetBranches((current) => ({ ...current, [next.repository]: nextBranches }));
       setCiChecks((current) => ({ ...current, [pr.key]: nextCiChecks }));
       setVerificationJobs((current) => ({
@@ -471,6 +464,7 @@ export function App() {
       setSelectedFallbackPr((current) => (current && nextPrs.some((pr) => pr.key === current.key) ? undefined : current));
       const freshSelected = nextPrs.find((pr) => pr.key === selected.key) ?? selected;
       await loadDetail(freshSelected, true);
+      void refreshRateLimit();
       setNotice("PR data refreshed.");
     } catch (err) {
       setError(messageOf(err));
@@ -496,7 +490,18 @@ export function App() {
       const job = await getJob(id);
       setJobs((current) => ({ ...current, [id]: job }));
       if (job.status === "done" && (job.result || job.fast)) {
-        if (job.result && job.prKey === selectedKey) setAnalysis(job.result);
+        if (job.result) {
+          // Deep Analyze also built the acceptance contract and started its test runs; pick both up.
+          void getAcceptanceContract(job.prKey).then((contract) => setAcceptance((current) => ({ ...current, [job.prKey]: contract }))).catch(() => undefined);
+          void getVerificationJobs(job.prKey).then((saved) => setVerificationJobs((current) => ({ ...current, ...Object.fromEntries(saved.map((item) => [item.id, item])) }))).catch(() => undefined);
+        }
+        if (job.result && job.prKey === selectedKey) {
+          setAnalysis(job.result);
+          // A re-analysis may have copied verdicts onto reworded findings; they live in review memory.
+          if (job.result.delta && selected && selected.key === job.prKey) {
+            void getReviewMemory(selected.owner, selected.repo, selected.number).then((summary) => setMemory((current) => ({ ...current, [job.prKey]: summary }))).catch(() => undefined);
+          }
+        }
         setPrs((current) =>
           current.map((pr) =>
             pr.key === job.prKey
@@ -898,7 +903,7 @@ export function App() {
     }
   }
 
-  async function giveFindingFeedback(kind: "evidence" | "focus" | "risk" | "draft-comment", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) {
+  async function giveFindingFeedback(kind: FindingKind, title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) {
     if (!selected) return;
     try {
       const summary = await recordFindingFeedback({ owner: selected.owner, repo: selected.repo, number: selected.number, kind, title, observation, verdict, commentKind });
@@ -1103,6 +1108,13 @@ export function App() {
     }));
   }
 
+  /** Reading-guide navigation: show one file of the diff and switch to the Diff tab. */
+  function openFileInDiff(path: string) {
+    if (!selectedKey) return;
+    setExpandedFiles((current) => ({ ...current, [selectedKey]: path }));
+    setTab("diff");
+  }
+
   function toggleExpandedFile(path: string) {
     if (!selectedKey) return;
     setExpandedFiles((current) => ({
@@ -1122,6 +1134,10 @@ export function App() {
       setError("Add at least one non-empty diff comment before requesting changes.");
       return;
     }
+    if (comments.length === 0 && event === "COMMENT" && !reviewBody.trim()) {
+      setError("Write a summary or add a line comment before posting a comment-only review.");
+      return;
+    }
     setSubmittingReview(true);
     setError(undefined);
     setNotice(undefined);
@@ -1138,7 +1154,7 @@ export function App() {
       setReviewBody("");
       setReviewComments((current) => ({ ...current, [selected.key]: [] }));
       await saveProgress({ lastReviewedAt: response.submittedAt || new Date().toISOString() });
-      setNotice(`Review submitted${response.state ? ` as ${response.state}` : ""}.`);
+      setNotice(selectedIsOwnedByCurrentUser ? "Self-review notes posted on your PR." : `Review submitted${response.state ? ` as ${response.state}` : ""}.`);
     } catch (err) {
       setError(messageOf(err));
     } finally {
@@ -1236,32 +1252,6 @@ export function App() {
     }
   }
 
-  async function attachSelectedToGithubProject(projectId: string, includeLinkedIssues: boolean) {
-    if (!selectedDetail) return;
-    setProjectAttachBusy(true);
-    setError(undefined);
-    try {
-      const response = await attachGithubProject({
-        owner: selectedDetail.owner,
-        repo: selectedDetail.repo,
-        number: selectedDetail.number,
-        projectId,
-        includeLinkedIssues
-      });
-      const project = githubProjects.find((item) => item.id === projectId);
-      if (project?.title) {
-        await saveProgress({
-          project: project.title,
-          issueProjects: linkedIssueProjectsForDetail(selectedDetail, progress, project.title)
-        });
-      }
-      setNotice(`Attached ${response.attached.length} GitHub Project item${response.attached.length === 1 ? "" : "s"}.`);
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setProjectAttachBusy(false);
-    }
-  }
 
   async function exportLocalReviewData() {
     setError(undefined);
@@ -1438,6 +1428,7 @@ export function App() {
         onOpenAgentSettings={() => void openAgentSettings()}
         onOpenTeamSettings={() => void openTeamSettings()}
         agentLabel={setupStatus?.selectedAgent ? selectedAgentLabel : undefined}
+        agentHealth={agentHealth}
         stackSummaries={stackSummaries}
         onSelectActivity={(item) => {
           setSelectedKey(item.prKey);
@@ -1485,7 +1476,6 @@ export function App() {
           <>
             <PrDetailHeader
               analysis={activeDetailAnalysis}
-              attentionMode={attentionMode}
               detail={selectedDetail}
               isOwnedByCurrentUser={selectedIsOwnedByCurrentUser}
               job={selectedJob}
@@ -1502,23 +1492,11 @@ export function App() {
               onImprovePr={() => void startOwnerImprovePr()}
               onReanalyze={() => void startAnalysis([selected], true, "deep")}
               onUpdateBranch={() => void updateSelectedBranch()}
-              onToggleAttention={() => setAttentionMode((value) => !value)}
+              stack={selectedStack}
+              onOpenStack={() => setTab("stack")}
             />
 
-            <StackPanel
-              stack={stacks[selected.key]}
-              plan={mergePlans[selected.key]}
-              loading={stackLoading}
-              busy={rebasing}
-              merging={stackMerging}
-              mergeError={stackMergeError}
-              onSelect={selectStackNode}
-              onRefresh={() => void loadStack(selected, true)}
-              onRestack={() => void updateSelectedBranch()}
-              onMerge={(number, method) => void mergeStack(number, method)}
-            />
-
-            {rebasePreview?.previewId && (
+            {rebasePreview?.previewId && tab !== "stack" && (
               <RebasePreviewPanel
                 preview={rebasePreview}
                 busy={rebasing}
@@ -1540,18 +1518,45 @@ export function App() {
               agentLabel={selectedAgentLabel}
               badges={{
                 comment: selectedComments.filter((comment) => comment.body.trim()).length,
-                review: reviewDrafts[selected.key]?.comments.length ?? 0
+                review: reviewDrafts[selected.key]?.comments.length ?? 0,
+                stack: selectedStack?.isStacked ? `${selectedStack.position}/${selectedStack.chain.length}` : undefined
               }}
+              hidden={selectedStackAvailable ? [] : ["stack"]}
               onChange={setTab}
               onRefresh={() => void refreshSelectedData()}
             />
 
+            {tab === "stack" ? (
+              <StackPanel
+                stack={selectedStack}
+                plan={mergePlans[selected.key]}
+                loading={stackLoading}
+                busy={rebasing}
+                merging={stackMerging}
+                mergeError={stackMergeError}
+                preview={
+                  rebasePreview?.previewId ? (
+                    <RebasePreviewPanel
+                      preview={rebasePreview}
+                      busy={rebasing}
+                      onApprove={() => void approveRebasePreview()}
+                      onDiscard={() => setRebasePreview(undefined)}
+                    />
+                  ) : undefined
+                }
+                onSelect={selectStackNode}
+                onRefresh={() => void loadStack(selected, true)}
+                onRestack={() => void updateSelectedBranch()}
+                onMerge={(number, method) => void mergeStack(number, method)}
+              />
+            ) : (
             <DetailTab
               tab={tab}
               detail={selectedDetail}
               analysis={activeDetailAnalysis}
               usage={usage[selected.key]}
               secondOpinionBusy={secondOpinionBusy}
+              secondOpinionAgentState={agentHealth?.otherState}
               secondOpinionError={secondOpinionError}
               onRequestSecondOpinion={() => void askSecondOpinion()}
               acceptance={acceptance[selected.key]}
@@ -1575,9 +1580,6 @@ export function App() {
               onPreviewFeedback={(note) => void previewAuthorFeedback(note)}
               onPostFeedback={(body) => void postAuthorFeedback(body)}
               progress={progress}
-              githubProjects={githubProjects}
-              githubProjectsError={githubProjectsError}
-              projectAttachBusy={projectAttachBusy}
               repoRules={repoRules}
               reviewComments={selectedComments}
               analysisJobs={selectedAnalysisJobs}
@@ -1588,11 +1590,9 @@ export function App() {
               ciLogs={ciLogs}
               ciLoading={ciLoading}
               canApproveWithoutComments={canApproveWithoutComments}
-              attentionMode={attentionMode}
               openingEditor={openingEditor}
               expandedFile={selectedKey ? expandedFiles[selectedKey] : undefined}
               onSaveProgress={(patch) => void saveProgress(patch)}
-              onAttachGithubProject={(projectId, includeLinkedIssues) => void attachSelectedToGithubProject(projectId, includeLinkedIssues)}
               onAddRepoRule={(rule) => void addRepoRule(rule)}
               onSetRepoRuleEnabled={(id, enabled) => void setRepoRuleEnabled(id, enabled)}
               onToggleExpandedFile={toggleExpandedFile}
@@ -1624,12 +1624,15 @@ export function App() {
               onSubmitConversationReply={(commentId) => void submitConversationReply(commentId)}
               onResolveReviewThread={(threadId) => void resolveSelectedReviewThread(threadId)}
               buildRecommendation={finalReviewRecommendation}
-              buildHandoffMarkdown={buildHandoffMarkdown}
+              selfReview={selectedIsOwnedByCurrentUser}
+              onOpenInDiff={openFileInDiff}
             />
+            )}
             {selected && reviewDialogOpen && (
               <ReviewDialog
                 commentsCount={selectedComments.filter((comment) => comment.body.trim().length > 0).length}
                 canApproveWithoutComments={canApproveWithoutComments}
+                selfReview={selectedIsOwnedByCurrentUser}
                 body={reviewBody}
                 submitting={submittingReview}
                 onBodyChange={setReviewBody}
@@ -1715,10 +1718,3 @@ function activityPrFromRef(ref: Pick<PrListItem, "owner" | "repo" | "number" | "
   };
 }
 
-function linkedIssueProjectsForDetail(detail: PrDetail, progress: ReviewProgress | undefined, project: string): Record<string, string> {
-  const issueProjects = { ...(progress?.issueProjects ?? {}) };
-  for (const issue of detail.linkedIssues ?? []) {
-    issueProjects[`${issue.repository ?? detail.repository}#${issue.number}`] = project;
-  }
-  return issueProjects;
-}

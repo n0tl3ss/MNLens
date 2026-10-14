@@ -7,6 +7,7 @@ import {
   noteGithubRateLimit,
   noteGithubRateLimitBody,
   noteGithubRateLimitHeaders,
+  pickBusiestRateLimitResource,
   resetGithubRateLimitForTests
 } from "../src/server/githubRateLimit";
 
@@ -102,6 +103,73 @@ x-ratelimit-resource: core
       used: 1,
       resource: "core"
     });
+  });
+
+  it("reports the busiest metered resource, not just REST core", () => {
+    noteGithubRateLimitBody({
+      resources: {
+        core: { limit: 5000, remaining: 5000, used: 0, reset: 1778248800 },
+        graphql: { limit: 5000, remaining: 3100, used: 1900, reset: 1778248900 },
+        search: { limit: 30, remaining: 30, used: 0, reset: 1778248860 },
+        integration_manifest: { limit: 5000, remaining: 10, used: 4990, reset: 1778248800 }
+      }
+    });
+
+    const status = githubRateLimitStatus();
+    expect(status).toMatchObject({ limited: false, resource: "graphql", limit: 5000, remaining: 3100, used: 1900 });
+    expect(status.resetAt).toBe(new Date(1778248900 * 1000).toISOString());
+    expect(status.resources?.core).toMatchObject({ remaining: 5000 });
+    expect(status.resources?.search).toMatchObject({ remaining: 30, limit: 30 });
+  });
+
+  it("keeps REST core as the headline when every budget is untouched", () => {
+    expect(
+      pickBusiestRateLimitResource({
+        graphql: { limit: 5000, remaining: 5000, used: 0 },
+        core: { limit: 5000, remaining: 5000, used: 0 }
+      })
+    ).toBe("core");
+    // Per-minute search budgets do not hijack the headline unless they are fully drained.
+    expect(
+      pickBusiestRateLimitResource({
+        core: { limit: 5000, remaining: 4000, used: 1000 },
+        search: { limit: 30, remaining: 2, used: 28 }
+      })
+    ).toBe("core");
+    expect(
+      pickBusiestRateLimitResource({
+        core: { limit: 5000, remaining: 4000, used: 1000 },
+        search: { limit: 30, remaining: 0, used: 30 }
+      })
+    ).toBe("search");
+  });
+
+  it("merges header-derived REST state with the resources already known", () => {
+    noteGithubRateLimitBody({ resources: { graphql: { limit: 5000, remaining: 2000, used: 3000, reset: 1778248900 } } });
+    noteGithubRateLimitHeaders(`HTTP/2 200
+x-ratelimit-limit: 5000
+x-ratelimit-remaining: 4990
+x-ratelimit-used: 10
+x-ratelimit-reset: 1778248800
+x-ratelimit-resource: core
+`);
+
+    const status = githubRateLimitStatus();
+    expect(status.resource).toBe("graphql");
+    expect(status.resources?.core).toMatchObject({ remaining: 4990, used: 10 });
+  });
+
+  it("pauses GitHub work when the GraphQL budget is exhausted", () => {
+    const reset = Math.floor((Date.now() + 60_000) / 1000);
+    noteGithubRateLimitBody({
+      resources: {
+        core: { limit: 5000, remaining: 4800, used: 200, reset },
+        graphql: { limit: 5000, remaining: 0, used: 5000, reset }
+      }
+    });
+
+    expect(githubRateLimitStatus()).toMatchObject({ limited: true, resource: "graphql", remaining: 0 });
+    expect(() => assertGithubRateLimitAvailable()).toThrow(GithubRateLimitError);
   });
 
   it("pauses GitHub work when primary rate-limit headers report zero remaining", () => {

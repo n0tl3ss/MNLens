@@ -4,17 +4,16 @@
   min-width: 0;
   margin: 0 12px 12px;
   padding: 10px;
-  border: 1px solid #cbcdc5;
-  border-left: 4px solid #8d999d;
+  border: 1px solid var(--mn-border);
+  border-left: 4px solid var(--mn-faint);
   border-radius: 7px;
-  background: #f7fafb;
+  background: var(--mn-surface-raised);
 }
 
 .work-activity.active {
-  border-color: #b8cfff;
-  border-left-color: #5d5aa8;
-  background:
-    #ecebf0;
+  border-color: var(--mn-accent-border);
+  border-left-color: var(--mn-accent);
+  background: var(--mn-accent-soft);
 }
 
 .work-activity-header,
@@ -59,13 +58,13 @@ button.work-activity-header {
 }
 
 .work-activity-header strong {
-  color: #2a3437;
+  color: var(--mn-text);
   font-size: 13px;
 }
 
 .work-activity-header span,
 .work-activity-list em {
-  color: #606b6e;
+  color: var(--mn-muted);
   font-size: 12px;
   font-style: normal;
 }
@@ -75,9 +74,9 @@ button.work-activity-header {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 3px;
-  border: 1px solid #d4e0e3;
+  border: 1px solid var(--mn-border);
   border-radius: 7px;
-  background: rgba(246, 245, 241, 0.68);
+  background: var(--mn-inset);
 }
 
 .work-activity-tabs button {
@@ -86,19 +85,20 @@ button.work-activity-header {
   padding: 5px 8px;
   border-color: transparent;
   background: transparent;
-  color: #435255;
+  color: var(--mn-text-soft);
   font-size: 12px;
 }
 
 .work-activity-tabs button span {
-  color: #6d7d82;
+  color: var(--mn-muted);
   font-size: 11px;
 }
 
 .work-activity-tabs button.active {
-  border-color: #b9cbd0;
-  background: #f6f5f1;
-  color: #2a3437;
+  border-color: var(--mn-border);
+  background: var(--mn-surface-raised);
+  color: var(--mn-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .work-activity-list {
@@ -125,8 +125,8 @@ button.work-activity-header {
   min-width: 0;
   min-height: 0;
   padding: 8px;
-  border-color: #c4dcff;
-  background: #f6f5f1;
+  border-color: var(--mn-border);
+  background: var(--mn-surface);
   text-align: left;
 }
 
@@ -135,9 +135,9 @@ button.work-activity-header {
   min-height: 0;
   padding: 0;
   justify-content: center;
-  border-color: #e8b8c1;
-  color: #8f3140;
-  background: #f2e9e7;
+  border-color: var(--mn-danger-border);
+  color: var(--mn-danger-ink);
+  background: var(--mn-danger-soft);
 }
 
 .work-activity-open strong,
@@ -149,65 +149,13 @@ button.work-activity-header {
 }
 
 .work-activity-open b {
-  color: #2a3437;
+  color: var(--mn-text);
   font-size: 12px;
 }
 
 .work-activity-empty {
   margin: 0;
   padding: 6px 2px 2px;
-  color: #606b6e;
+  color: var(--mn-muted);
   font-size: 12px;
-}
-
-[data-theme="dark"] .work-activity {
-  border-color: #3a4146;
-  border-left-color: #6fb3cc;
-  background: #202428;
-}
-
-[data-theme="dark"] .work-activity.active {
-  border-left-color: #9a95d6;
-  background: #24282c;
-}
-
-[data-theme="dark"] .work-activity-header strong,
-[data-theme="dark"] .work-activity-open b {
-  color: #e8ebec;
-}
-
-[data-theme="dark"] .work-activity-header span,
-[data-theme="dark"] .work-activity-open em,
-[data-theme="dark"] .work-activity-empty {
-  color: #9aa4a9;
-}
-
-[data-theme="dark"] .work-activity-tabs {
-  border-color: #3a4146;
-  background: rgba(8, 19, 29, 0.74);
-}
-
-[data-theme="dark"] .work-activity-tabs button {
-  color: #9aa4a9;
-}
-
-[data-theme="dark"] .work-activity-tabs button span {
-  color: #7d95a1;
-}
-
-[data-theme="dark"] .work-activity-tabs button.active {
-  border-color: #36576b;
-  background: #2a2f34;
-  color: #e8ebec;
-}
-
-[data-theme="dark"] .work-activity-open {
-  border-color: #3a4146;
-  background: #2a2f34;
-}
-
-[data-theme="dark"] .work-activity-cancel {
-  border-color: #6a3030;
-  color: #f4b0aa;
-  background: #261719;
 }

@@ -12,12 +12,8 @@ export const agentTasks: AgentTask[] = [
   "deep-analysis",
   "quick-answer",
   "ci-explain",
-  "research-answer",
-  "fix-research",
   "fix-implementation",
   "fix-tests-qa",
-  "fix-docs",
-  "fix-security",
   "fix-final-review",
   "fix-qa-assessment",
   "fix-question",
@@ -60,7 +56,7 @@ export const defaultTierModels: Record<AgentId, Record<ModelTier, TierModel>> = 
  * Rationale: anything that needs to *edit code* or *judge correctness of a
  * patch* runs on the standard tier. Anything that mostly summarizes or
  * explains context MNLens already fetched (risk Q&A, CI log explanation,
- * research triage, docs pass, QA failure classification) runs on the
+ * QA failure classification) runs on the
  * economy tier, where the price is roughly 20x lower. Premium is never the
  * default; reviewers opt in per task when a PR is unusually hard.
  */
@@ -68,12 +64,8 @@ export const defaultTaskTiers: Record<AgentTask, ModelTier> = {
   "deep-analysis": "standard",
   "quick-answer": "economy",
   "ci-explain": "economy",
-  "research-answer": "economy",
-  "fix-research": "economy",
   "fix-implementation": "standard",
   "fix-tests-qa": "standard",
-  "fix-docs": "economy",
-  "fix-security": "standard",
   "fix-final-review": "standard",
   "fix-qa-assessment": "economy",
   "fix-question": "economy",
@@ -89,12 +81,8 @@ export const taskDescriptions: Record<AgentTask, string> = {
   "deep-analysis": "Deep Analyze: structured review guidance for a PR",
   "quick-answer": "Ask about a risk / focus item",
   "ci-explain": "Explain a failing CI check",
-  "research-answer": "Evaluate a research source",
-  "fix-research": "Fix pipeline: research pass",
   "fix-implementation": "Fix pipeline: implementation pass",
   "fix-tests-qa": "Fix pipeline: tests/QA pass",
-  "fix-docs": "Fix pipeline: docs pass",
-  "fix-security": "Fix pipeline: security pass",
   "fix-final-review": "Fix pipeline: final review pass",
   "fix-qa-assessment": "Fix pipeline: classify verification failures",
   "fix-question": "Ask a question about a fix session",
@@ -112,6 +100,7 @@ export function defaultAgentSettings(): AgentSettings {
     tiers: structuredClone(defaultTierModels),
     taskTiers: { ...defaultTaskTiers },
     maxBudgetUsdPerRun: undefined,
+    claudeMcpConfig: undefined,
     updatedAt: new Date(0).toISOString()
   };
 }
@@ -192,12 +181,21 @@ export function mergeSettings(base: AgentSettings, patch: SettingsPatch | undefi
         : typeof patch.maxBudgetUsdPerRun === "number" && Number.isFinite(patch.maxBudgetUsdPerRun) && patch.maxBudgetUsdPerRun > 0
           ? patch.maxBudgetUsdPerRun
           : base.maxBudgetUsdPerRun,
+    claudeMcpConfig:
+      patch.claudeMcpConfig === null
+        ? undefined
+        : typeof patch.claudeMcpConfig === "string"
+          ? patch.claudeMcpConfig.trim() || undefined
+          : base.claudeMcpConfig,
     updatedAt: patch.updatedAt ?? base.updatedAt
   };
 }
 
 function validateSettings(settings: AgentSettings): void {
   if (!agentIds.includes(settings.agent)) throw new Error(`Unknown agent "${settings.agent}". Expected one of ${agentIds.join(", ")}.`);
+  if (settings.claudeMcpConfig && (!settings.claudeMcpConfig.endsWith(".json") || /[\r\n]/.test(settings.claudeMcpConfig))) {
+    throw new Error("The Claude MCP config must be the path of a .json file in Claude Code's mcpServers format.");
+  }
   for (const agent of agentIds) {
     for (const tier of modelTiers) {
       const model = settings.tiers[agent][tier].model;

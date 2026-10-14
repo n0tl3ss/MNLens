@@ -31,7 +31,7 @@
 
 .review-error {
   margin: 0;
-  color: #8f3140;
+  color: var(--mn-danger-ink);
   font-size: 13px;
 }
 
@@ -43,8 +43,8 @@
   padding: 8px 0 0;
   list-style: none;
   font-size: 12.5px;
-  color: var(--mn-muted, #5f6a6e);
-  border-top: 1px dashed var(--mn-border, #cfd1c8);
+  color: var(--mn-muted);
+  border-top: 1px dashed var(--mn-border);
 }
 
 .review-legend li {
@@ -67,27 +67,27 @@
 }
 
 .review-tier-must {
-  color: #8b2f2b;
-  background: #f0e4e2;
-  border-color: #dfc0c3;
+  color: var(--mn-danger-ink);
+  background: var(--mn-danger-soft);
+  border-color: var(--mn-danger-border);
 }
 
 .review-tier-should {
-  color: #245f68;
-  background: #e6eaec;
-  border-color: #b9cbd3;
+  color: var(--mn-primary-ink);
+  background: var(--mn-primary-soft);
+  border-color: var(--mn-primary-border);
 }
 
 .review-tier-optional {
-  color: #4b5a63;
-  background: #eef2f4;
-  border-color: #d0d9dd;
+  color: var(--mn-muted);
+  background: var(--mn-surface-soft);
+  border-color: var(--mn-border);
 }
 
 .review-tier-decide {
-  color: #3d2f9e;
-  background: #ebe8ff;
-  border-color: #c3bcff;
+  color: var(--mn-accent-ink);
+  background: var(--mn-accent-soft);
+  border-color: var(--mn-accent-border);
 }
 
 /* Steps */
@@ -104,39 +104,39 @@
   display: grid;
   gap: 8px;
   padding: 12px 14px 12px 12px;
-  border: 1px solid var(--mn-border, #cfd1c8);
+  border: 1px solid var(--mn-border);
   border-left-width: 5px;
   border-radius: 10px;
-  background: var(--mn-surface, #f6f5f1);
+  background: var(--mn-surface);
 }
 
 .review-step.tier-must {
-  border-left-color: #b9483f;
+  border-left-color: var(--mn-danger);
 }
 
 .review-step.tier-should {
-  border-left-color: #2a7a93;
+  border-left-color: var(--mn-primary);
 }
 
 .review-step.tier-optional {
-  border-left-color: #9fb0b8;
+  border-left-color: var(--mn-faint);
 }
 
 .review-step.tier-decide {
-  border-left-color: #5d5aa8;
-  background: rgba(93, 90, 168, 0.06);
+  border-left-color: var(--mn-accent);
+  background: var(--mn-accent-soft);
 }
 
 .review-step.done {
-  border-left-color: #2e8a6c;
+  border-left-color: var(--mn-ok);
 }
 
 .review-step.done .review-step-index {
-  color: #2e8a6c;
+  color: var(--mn-ok);
 }
 
 .review-step.warn .review-step-index {
-  color: #b9483f;
+  color: var(--mn-danger);
 }
 
 .review-step-head {
@@ -157,12 +157,12 @@
 
 .review-step-index {
   display: inline-flex;
-  color: var(--mn-muted, #5f6a6e);
+  color: var(--mn-muted);
 }
 
 .review-step-icon {
   display: inline-flex;
-  color: var(--mn-primary-deep, #1f5f73);
+  color: var(--mn-primary-deep);
 }
 
 .review-step-body {
@@ -187,7 +187,7 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--mn-muted, #5f6a6e);
+  color: var(--mn-muted);
 }
 
 .review-behavior dd {
@@ -206,7 +206,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  color: #2e8a6c;
+  color: var(--mn-ok);
 }
 
 .review-actions {
@@ -225,7 +225,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--mn-primary-deep, #1f5f73);
+  color: var(--mn-primary-deep);
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
@@ -233,7 +233,7 @@
 }
 
 .link-button:hover {
-  color: var(--mn-primary, #2a7a93);
+  color: var(--mn-primary);
 }
 
 /* Suggested comments */
@@ -249,34 +249,34 @@
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid #d2d4cc;
+  border: 1px solid var(--mn-border);
   border-left-width: 4px;
   border-radius: 8px;
-  background: rgba(246, 245, 241, 0.7);
+  background: var(--mn-surface-raised);
 }
 
 .review-comment.kind-blocking {
-  border-left-color: #b9483f;
+  border-left-color: var(--mn-danger);
 }
 
 .review-comment.kind-important {
-  border-left-color: #9c6f1e;
+  border-left-color: var(--mn-warn);
 }
 
 .review-comment.kind-question {
-  border-left-color: #5d5aa8;
+  border-left-color: var(--mn-accent);
 }
 
 .review-comment.kind-suggestion {
-  border-left-color: #2a7a93;
+  border-left-color: var(--mn-primary);
 }
 
 .review-comment.kind-nit {
-  border-left-color: #9fb0b8;
+  border-left-color: var(--mn-faint);
 }
 
 .review-comment.kind-praise {
-  border-left-color: #2e8a6c;
+  border-left-color: var(--mn-ok);
 }
 
 .review-comment.added {
@@ -292,7 +292,7 @@
 
 .review-comment-anchor {
   font-size: 12px;
-  color: var(--mn-muted, #5f6a6e);
+  color: var(--mn-muted);
   overflow-wrap: anywhere;
   word-break: break-all;
 }
@@ -306,7 +306,7 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: 6px;
-  background: var(--mn-surface-soft, #eeeeea);
+  background: var(--mn-surface-soft);
   font: inherit;
   font-size: 13.5px;
   white-space: pre-wrap;
@@ -314,7 +314,7 @@
 }
 
 .review-final-comment {
-  border: 1px solid var(--mn-border, #cfd1c8);
+  border: 1px solid var(--mn-border);
 }
 
 .review-comment-rationale {
@@ -344,45 +344,7 @@
 
 .rt-checklist li.checked span {
   text-decoration: line-through;
-  color: var(--mn-muted, #5f6a6e);
-}
-
-/* Dark theme */
-[data-theme="dark"] .review-step {
-  background: var(--mn-surface, #24282c);
-}
-
-[data-theme="dark"] .review-comment {
-  border-color: #3a4146;
-  background: rgba(246, 245, 241, 0.03);
-}
-
-[data-theme="dark"] .review-tier-must {
-  color: #e2a2a8;
-  background: rgba(217, 84, 77, 0.18);
-  border-color: rgba(217, 84, 77, 0.45);
-}
-
-[data-theme="dark"] .review-tier-should {
-  color: #b9d2dc;
-  background: rgba(42, 122, 147, 0.18);
-  border-color: rgba(42, 122, 147, 0.45);
-}
-
-[data-theme="dark"] .review-tier-optional {
-  color: #c3cbcf;
-  background: rgba(159, 176, 184, 0.16);
-  border-color: rgba(159, 176, 184, 0.4);
-}
-
-[data-theme="dark"] .review-tier-decide {
-  color: #d4d1e8;
-  background: rgba(93, 90, 168, 0.2);
-  border-color: rgba(93, 90, 168, 0.5);
-}
-
-[data-theme="dark"] .review-error {
-  color: #e2a2a8;
+  color: var(--mn-muted);
 }
 
 @media (max-width: 720px) {
@@ -414,4 +376,49 @@
   resize: vertical;
   font: inherit;
   font-size: 13px;
+}
+
+/* Step 2: assumptions and uncovered edge cases as a checklist */
+.review-challenge li label > span {
+  display: inline;
+}
+
+.review-challenge li label > span > .badge {
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.review-challenge-detail {
+  display: block;
+  margin-top: 2px;
+  color: var(--mn-muted);
+  font-size: 12.5px;
+  font-style: normal;
+}
+
+.review-challenge li.checked .review-challenge-detail {
+  display: none;
+}
+
+/* GitHub suggestion block preview */
+.review-comment-suggestion {
+  display: grid;
+  gap: 4px;
+}
+
+.review-comment-suggestion > span {
+  font-size: 12px;
+}
+
+.review-comment-suggestion pre {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mn-ok-border);
+  border-left: 4px solid var(--mn-ok);
+  border-radius: 6px;
+  background: var(--mn-diff-add-bg);
+  color: var(--mn-diff-add-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
 }

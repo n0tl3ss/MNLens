@@ -44,7 +44,7 @@ export function SetupScreen({
       <section className="setup-panel">
         <div className="setup-heading">
           <div className="setup-brand">
-            <img src="/mnlens-logo.png?v=5" alt="" />
+            <img src="/mnlens-logo.svg" alt="" />
             <div>
               <p className="eyebrow">First-time setup</p>
               <h1>Set up MNLens</h1>

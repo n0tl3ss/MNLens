@@ -10,6 +10,7 @@ const requests: Array<{
 }> = [
   { path: "/api/analyze", method: "POST", body: { prs: [] }, expectedStatus: 400 },
   { path: "/api/rebase-default", method: "POST", body: {}, expectedStatus: 400 },
+  { path: "/api/reviews", method: "POST", body: { owner: "o", repo: "r", number: 1, event: "DISMISS", comments: [] }, expectedStatus: 400 },
   { path: "/api/reviews", method: "POST", body: { event: "COMMENT", comments: [] }, expectedStatus: 400 },
   { path: "/api/verification", method: "POST", body: { owner: "o", repo: "r", number: 1 }, expectedStatus: 400 },
   { path: "/api/fixes", method: "POST", body: { owner: "o", repo: "r" }, expectedStatus: 400 }

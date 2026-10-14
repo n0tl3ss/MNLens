@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { DraftCommentAccuracy, FindingFeedback, FindingVerdict, RecordFindingFeedbackRequest, ReviewMemoryPattern, ReviewMemorySummary, SuggestedCommentKind } from "../shared/types.js";
+import type { DraftCommentAccuracy, FindingFeedback, FindingKind, FindingVerdict, RecordFindingFeedbackRequest, ReviewMemoryPattern, ReviewMemorySummary, SuggestedCommentKind } from "../shared/types.js";
 import { prKey as makePrKey } from "./cache.js";
 import { cacheDir } from "./paths.js";
 import { memberId, readTeamMemoryFiles, writeTeamJson } from "./teamStore.js";
@@ -25,6 +25,10 @@ import { memberId, readTeamMemoryFiles, writeTeamJson } from "./teamStore.js";
  * whole team calibrates the prompts without ever overwriting each other.
  * Draft-comment verdicts (Review tab "Add to my review" / "Dismiss") feed an
  * agent-accuracy score per repository and per comment kind.
+ *
+ * When a re-analysis rewords a finding the reviewer already judged, the
+ * verdict is copied onto the new title (`carriedFrom`); copies keep the
+ * per-PR verdict map complete but never count toward calibration.
  */
 
 const memoryDir = join(cacheDir, "review-memory");
@@ -71,8 +75,10 @@ export async function reviewMemorySummary(owner: string, repo: string, number?: 
 }
 
 export function summarizeMemory(repository: string, entries: FindingFeedback[], prKey?: string, meta: { members?: number; shared?: boolean } = {}): ReviewMemorySummary {
+  // Verdicts copied onto reworded findings are the same human decision again; only originals calibrate.
+  const originals = entries.filter((entry) => !entry.carriedFrom);
   const buckets = new Map<string, { label: string; kept: number; dismissed: number; examples: Set<string> }>();
-  for (const entry of entries) {
+  for (const entry of originals) {
     const key = patternKey(entry.title);
     if (!key) continue;
     const bucket = buckets.get(key) ?? { label: key.split(" ").join(" · "), kept: 0, dismissed: 0, examples: new Set<string>() };
@@ -99,21 +105,23 @@ export function summarizeMemory(repository: string, entries: FindingFeedback[], 
   }
   return {
     repository,
-    total: entries.length,
-    kept: entries.filter((entry) => entry.verdict === "kept").length,
-    dismissed: entries.filter((entry) => entry.verdict === "dismissed").length,
+    total: originals.length,
+    kept: originals.filter((entry) => entry.verdict === "kept").length,
+    dismissed: originals.filter((entry) => entry.verdict === "dismissed").length,
     patterns,
     prVerdicts,
-    draftComments: draftCommentAccuracy(entries),
+    draftComments: draftCommentAccuracy(originals),
     members: meta.members ?? 1,
     shared: meta.shared ?? false
   };
 }
 
+const recentAccuracyWindow = 10;
+
 export function draftCommentAccuracy(entries: FindingFeedback[]): DraftCommentAccuracy {
   const accuracy: DraftCommentAccuracy = { kept: 0, dismissed: 0, byKind: {} };
-  for (const entry of entries) {
-    if (entry.kind !== "draft-comment") continue;
+  const drafts = entries.filter((entry) => entry.kind === "draft-comment");
+  for (const entry of drafts) {
     const bucket = entry.verdict === "kept" ? "kept" : "dismissed";
     accuracy[bucket] += 1;
     const kind = entry.commentKind;
@@ -122,6 +130,15 @@ export function draftCommentAccuracy(entries: FindingFeedback[]): DraftCommentAc
       current[bucket] += 1;
       accuracy.byKind[kind] = current;
     }
+  }
+  // Newest verdicts first; the trend only means something once older verdicts fall outside the window.
+  if (drafts.length > recentAccuracyWindow) {
+    const recent = [...drafts].sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, recentAccuracyWindow);
+    accuracy.recent = {
+      kept: recent.filter((entry) => entry.verdict === "kept").length,
+      dismissed: recent.filter((entry) => entry.verdict !== "kept").length,
+      window: recentAccuracyWindow
+    };
   }
   return accuracy;
 }
@@ -164,13 +181,63 @@ export function verdictKey(kind: string, title: string): string {
 }
 
 export function patternKey(title: string): string {
-  const words = title
+  return salientWords(title).slice(0, 4).join(" ");
+}
+
+/** The content words of a finding text: lower-cased, stop words dropped, de-duplicated and sorted. Shared with the analysis delta. */
+export function salientWords(text: string): string[] {
+  const words = text
     .toLowerCase()
     .replace(/[`'"]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .split(" ")
     .filter((word) => word.length > 2 && !stopWords.has(word));
-  return [...new Set(words)].sort().slice(0, 4).join(" ");
+  return [...new Set(words)].sort();
+}
+
+export interface VerdictCarryOver {
+  kind: FindingKind;
+  previousTitle: string;
+  title: string;
+  observation?: string;
+}
+
+/**
+ * Copies the reviewer's verdict on a finding the re-analysis retitled onto the
+ * new title, so the item is not judged twice. A verdict already recorded for
+ * the new title wins. Returns how many verdicts were copied.
+ */
+export async function carryOverFindingVerdicts(owner: string, repo: string, number: number, pairs: VerdictCarryOver[]): Promise<number> {
+  const repository = `${owner}/${repo}`;
+  const prKey = makePrKey(owner, repo, number);
+  const retitled = pairs.filter((pair) => verdictKey(pair.kind, pair.previousTitle) !== verdictKey(pair.kind, pair.title));
+  if (retitled.length === 0) return 0;
+  const byKey = new Map<string, FindingFeedback>();
+  for (const entry of (await readRepoMemory(repository)).entries) {
+    if (entry.prKey === prKey) byKey.set(verdictKey(entry.kind, entry.title), entry);
+  }
+  const mine = await readOwnMemory(repository);
+  let carried = 0;
+  for (const pair of retitled) {
+    const previous = byKey.get(verdictKey(pair.kind, pair.previousTitle));
+    const nextKey = verdictKey(pair.kind, pair.title);
+    if (!previous || byKey.has(nextKey)) continue;
+    const copy: FindingFeedback = {
+      ...previous,
+      id: randomUUID(),
+      title: pair.title.trim(),
+      observation: pair.observation?.trim() || previous.observation,
+      at: new Date().toISOString(),
+      carriedFrom: previous.carriedFrom ?? previous.title
+    };
+    mine.push(copy);
+    byKey.set(nextKey, copy);
+    carried += 1;
+  }
+  if (carried === 0) return 0;
+  if (mine.length > maxPerRepo) mine.splice(0, mine.length - maxPerRepo);
+  await writeOwnMemory(repository, mine);
+  return carried;
 }
 
 function suggestRule(bucket: { kept: number; dismissed: number; examples: Set<string> }): string | undefined {

@@ -2,9 +2,9 @@ import { analysisFreshness } from "../../../shared/analysisContext";
 import { SecondOpinionSection } from "./SecondOpinionSection";
 import { AcceptanceSection } from "./AcceptanceSection";
 import { ReviewMemoryCard } from "./ReviewMemoryCard";
-import { Bug, ChevronDown, FileJson, FolderKanban, Sparkles } from "lucide-react";
+import { Bug, ChevronDown, FileJson, Sparkles } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, FixJob, GithubProject, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, FindingKind, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, FixJob, PrDetail, RepoReviewRule, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
 import { fixCurrentSpecialist } from "../fixHelpers";
 import { insightScope, isDocsOnlyReview, latestPushedFix, sourceChangedLines } from "../reviewHelpers";
 import { readinessForPr } from "../reviewScoring";
@@ -19,19 +19,22 @@ import {
   toneForCi
 } from "../verificationHelpers";
 import { ReviewDeltaSection } from "./ReviewDeltaSection";
-import { FinalRecommendationSection, PrContextSection, type ReviewRecommendation } from "./OverviewSections";
+import { AnalysisDeltaSection } from "./AnalysisDeltaSection";
+import { FinalRecommendationSection, PrContextSection, ReadingGuideSection, type ReviewRecommendation } from "./OverviewSections";
 import { ReadinessSection } from "./ReviewStatusCards";
-import { InsightSection } from "./InsightSection";
+import { InsightSection, edgeCaseItems } from "./InsightSection";
 import "./overviewTab.css";
 import { TestAssessmentSection } from "./TestAssessmentSection";
 import { CiStatusSection, VerificationSection } from "./VerificationPanel";
 import type { DraftReviewComment } from "./CommentTab";
-import { Badge, plural } from "./uiBits";
+import type { AgentHealthState } from "../setupAgents";
+import { Badge } from "./uiBits";
 
 export function OverviewTab({
   analysis,
   usage,
   secondOpinionBusy,
+  secondOpinionAgentState,
   secondOpinionError,
   onRequestSecondOpinion,
   acceptance,
@@ -45,7 +48,6 @@ export function OverviewTab({
   onAnalyze,
   onGoToTab,
   analysisRunning,
-  attentionMode,
   canApproveWithoutComments,
   ciChecks,
   ciLoading,
@@ -54,9 +56,6 @@ export function OverviewTab({
   fixJobs,
   openingEditor,
   progress,
-  githubProjects,
-  githubProjectsError,
-  projectAttachBusy,
   recommendation,
   repoRules,
   reviewComments,
@@ -68,13 +67,14 @@ export function OverviewTab({
   onRunVerification,
   onSaveProgress,
   onAddReviewComment,
-  onAttachGithubProject,
   onSetRepoRuleEnabled,
-  onStartFix
+  onStartFix,
+  onOpenInDiff
 }: {
   analysis?: AnalysisResult;
   usage?: AgentUsageSummary;
   secondOpinionBusy?: boolean;
+  secondOpinionAgentState?: AgentHealthState;
   secondOpinionError?: string;
   onRequestSecondOpinion?: () => void;
   acceptance?: AcceptanceContract | null;
@@ -83,13 +83,12 @@ export function OverviewTab({
   onGenerateAcceptance?: (force: boolean) => void;
   onOverrideCriterion?: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
   memory?: ReviewMemorySummary;
-  onFindingFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
+  onFindingFeedback?: (kind: FindingKind, title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
   /** Copies the enabled rules as `.mnlens/review-rules.json` so maintainers can commit them. */
   onCopyRepoRulesFile?: () => void;
   onAnalyze?: () => void;
   onGoToTab?: (tab: "review" | "diff") => void;
   analysisRunning?: boolean;
-  attentionMode: boolean;
   canApproveWithoutComments: boolean;
   ciChecks: CiCheck[];
   ciLoading: Record<string, boolean>;
@@ -98,9 +97,6 @@ export function OverviewTab({
   fixJobs: FixJob[];
   openingEditor?: "intellij" | "vscode";
   progress?: ReviewProgress;
-  githubProjects: GithubProject[];
-  githubProjectsError?: string;
-  projectAttachBusy: boolean;
   recommendation: ReviewRecommendation;
   repoRules: RepoReviewRule[];
   reviewComments: DraftReviewComment[];
@@ -112,14 +108,17 @@ export function OverviewTab({
   onRunVerification: (command: string) => void;
   onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems" | "reviewedFiles" | "ignoredRuleIds" | "manualChecks" | "project" | "issueProjects" | "notes" | "lastReviewedAt">>) => void;
   onAddReviewComment: (comment: ReviewComment) => void;
-  onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
   onSetRepoRuleEnabled: (id: string, enabled: boolean) => void;
   onStartFix: (instructions?: string, baseJobId?: string, source?: string) => void;
+  /** Opens a file of the diff in the Diff tab (reading guide steps). */
+  onOpenInDiff?: (path: string) => void;
 }) {
-  const reviewerFocusDetails = mergeReviewerFocusDetails(detail, analysis, attentionMode);
+  const reviewerFocusDetails = mergeReviewerFocusDetails(detail, analysis);
+  const assumptionDetails = analysis?.assumptions ?? [];
+  const edgeCaseDetails = edgeCaseItems(analysis?.edgeCases);
   return (
     <div className="panel overview-panel">
-      {!analysis && !attentionMode && (
+      {!analysis && (
         <section className="summary-card start-here">
           <div className="panel-title">
             <div>
@@ -157,78 +156,69 @@ export function OverviewTab({
         </section>
       )}
       <FinalRecommendationSection recommendation={recommendation} />
-      {attentionMode && (
-        <AttentionPanel
-          detail={detail}
-          analysis={analysis}
-          progress={progress}
-          ciChecks={ciChecks}
-          verificationJobs={verificationJobs}
-          draftComments={reviewComments}
-        />
-      )}
       <div className="overview-grid">
-        {!attentionMode && (
-          <>
-            <section className="summary-card overview-summary-card">
-              <div className="panel-title">
-                <h3>Review Summary</h3>
-                <Bug size={18} />
-              </div>
-              <p>{analysis?.summary ?? "Analyze this PR to classify it and generate reviewer guidance."}</p>
-              {analysisFreshness(analysis, detail) === "context-changed" && (
-                <p className="analysis-stale">
-                  Discussion changed since this analysis (new or resolved comments, reviews, or linked-issue edits). The diff is unchanged, so the findings still apply, but the draft comment and reviewer focus may be out of date — re-run Deep Analyze to refresh.
-                </p>
+        <section className="summary-card overview-summary-card">
+          <div className="panel-title">
+            <h3>Review Summary</h3>
+            <Bug size={18} />
+          </div>
+          <p>{analysis?.summary ?? "Analyze this PR to classify it and generate reviewer guidance."}</p>
+          {analysisFreshness(analysis, detail) === "context-changed" && (
+            <p className="analysis-stale">
+              Discussion changed since this analysis (new or resolved comments, reviews, or linked-issue edits). The diff is unchanged, so the findings still apply, but the draft comment and reviewer focus may be out of date — re-run Deep Analyze to refresh.
+            </p>
+          )}
+          {analysis?.agent && (
+            <p className="muted analysis-provenance">
+              Analyzed by {analysis.agent === "claude" ? "Claude" : "Codex"}
+              {analysis.model ? ` (${analysis.model})` : ""}
+              {typeof analysis.costUsd === "number" ? ` · ~$${analysis.costUsd.toFixed(3)}` : ""}
+              {analysis.stack?.parentNumber ? ` · stacked on #${analysis.stack.parentNumber}, diff judged relative to the parent` : ""}
+              {analysis.inspectedFiles && analysis.inspectedFiles.length > 0 ? (
+                <span title={analysis.inspectedFiles.join("\n")}>
+                  {" "}· read {analysis.inspectedFiles.length} file{analysis.inspectedFiles.length === 1 ? "" : "s"} beyond the diff
+                </span>
+              ) : (
+                " · judged from the diff only"
               )}
-              {analysis?.agent && (
-                <p className="muted analysis-provenance">
-                  Analyzed by {analysis.agent === "claude" ? "Claude" : "Codex"}
-                  {analysis.model ? ` (${analysis.model})` : ""}
-                  {typeof analysis.costUsd === "number" ? ` · ~$${analysis.costUsd.toFixed(3)}` : ""}
-                  {analysis.stack?.parentNumber ? ` · stacked on #${analysis.stack.parentNumber}, diff judged relative to the parent` : ""}
-                </p>
-              )}
-              {usage && usage.runs > 0 && (
-                <p className="muted analysis-provenance" title={Object.entries(usage.byTask).map(([task, stat]) => `${task}: ${stat?.runs} run(s)${stat && stat.costUsd > 0 ? ` ~$${stat.costUsd.toFixed(3)}` : ""}`).join("\n")}>
-                  Agent spend on this PR: {usage.runs} run{usage.runs === 1 ? "" : "s"}
-                  {usage.runsWithCost > 0 ? ` · ~$${usage.totalCostUsd.toFixed(3)}` : ""}
-                  {usage.runsWithCost < usage.runs ? ` · ${usage.runs - usage.runsWithCost} without cost data (Codex does not report cost)` : ""}
-                  {usage.totalDurationMs > 0 ? ` · ${Math.round(usage.totalDurationMs / 60_000)} min of agent time` : ""}
-                </p>
-              )}
-              {analysis?.behaviorBefore && <Callout title="Before" text={analysis.behaviorBefore} />}
-              {analysis?.behaviorAfter && <Callout title="After" text={analysis.behaviorAfter} />}
-            </section>
-            {onGenerateAcceptance && onOverrideCriterion && (
-              <AcceptanceSection contract={acceptance} diffHash={detail.diffHash} busy={Boolean(acceptanceBusy)} error={acceptanceError} onGenerate={onGenerateAcceptance} onOverride={onOverrideCriterion} />
-            )}
-            {analysis && onRequestSecondOpinion && (
-              <SecondOpinionSection analysis={analysis} diffHash={detail.diffHash} busy={Boolean(secondOpinionBusy)} error={secondOpinionError} onRequest={onRequestSecondOpinion} />
-            )}
-          </>
+            </p>
+          )}
+          {usage && usage.runs > 0 && (
+            <p className="muted analysis-provenance" title={Object.entries(usage.byTask).map(([task, stat]) => `${task}: ${stat?.runs} run(s)${stat && stat.costUsd > 0 ? ` ~$${stat.costUsd.toFixed(3)}` : ""}`).join("\n")}>
+              Agent spend on this PR: {usage.runs} run{usage.runs === 1 ? "" : "s"}
+              {usage.runsWithCost > 0 ? ` · ~$${usage.totalCostUsd.toFixed(3)}` : ""}
+              {usage.runsWithCost < usage.runs ? ` · ${usage.runs - usage.runsWithCost} without cost data (Codex does not report cost)` : ""}
+              {usage.totalDurationMs > 0 ? ` · ${Math.round(usage.totalDurationMs / 60_000)} min of agent time` : ""}
+            </p>
+          )}
+          {analysis?.behaviorBefore && <Callout title="Before" text={analysis.behaviorBefore} />}
+          {analysis?.behaviorAfter && <Callout title="After" text={analysis.behaviorAfter} />}
+        </section>
+        {onGenerateAcceptance && onOverrideCriterion && (
+          <AcceptanceSection contract={acceptance} diffHash={detail.diffHash} busy={Boolean(acceptanceBusy)} error={acceptanceError} verificationJobs={verificationJobs} onGenerate={onGenerateAcceptance} onOverride={onOverrideCriterion} onRunVerification={onRunVerification} />
         )}
+        {analysis && onRequestSecondOpinion && (
+          <SecondOpinionSection analysis={analysis} diffHash={detail.diffHash} busy={Boolean(secondOpinionBusy)} error={secondOpinionError} otherAgentState={secondOpinionAgentState} onRequest={onRequestSecondOpinion} />
+        )}
+        {analysis?.readingGuide && analysis.readingGuide.length > 0 && <ReadingGuideSection steps={analysis.readingGuide} onOpenInDiff={onOpenInDiff} />}
+        {analysis?.delta && <AnalysisDeltaSection delta={analysis.delta} verdicts={memory?.prVerdicts} />}
         <div className="overview-columns">
           <div>
-            {!attentionMode && (
-              <InsightSection
-                title="Evidence"
-                tone="evidence"
-                items={analysis?.evidence ?? detail.labels.map((label) => `GitHub label: ${label}`)}
-                details={analysis?.evidenceDetails ?? []}
-                compact={attentionMode}
-                progress={progress}
-                onSaveProgress={onSaveProgress}
-                verdicts={memory?.prVerdicts}
-                onFeedback={onFindingFeedback}
-              />
-            )}
+            <InsightSection
+              title="Evidence"
+              tone="evidence"
+              items={analysis?.evidence ?? detail.labels.map((label) => `GitHub label: ${label}`)}
+              details={analysis?.evidenceDetails ?? []}
+              progress={progress}
+              onSaveProgress={onSaveProgress}
+              verdicts={memory?.prVerdicts}
+              onFeedback={onFindingFeedback}
+            />
             <InsightSection
               title="Reviewer Focus"
               tone="focus"
               items={analysis?.reviewerFocus ?? []}
               details={reviewerFocusDetails}
-              compact={attentionMode}
               detail={detail}
               onStartFix={onStartFix}
               onDraftComment={(body, target) => {
@@ -239,9 +229,25 @@ export function OverviewTab({
               verdicts={memory?.prVerdicts}
               onFeedback={onFindingFeedback}
             />
-            {(!attentionMode || analysis?.testAssessment?.rating === "weak" || analysis?.testAssessment?.rating === "partial") && (
-              <TestAssessmentSection assessment={analysis?.testAssessment} onImproveTests={(instructions) => onStartFix(instructions, undefined, "Overview / Test Quality")} />
+            {analysis && (
+              <InsightSection
+                title="Assumptions & defaults"
+                tone="assumption"
+                intro="Default values, default behaviour and implicit contracts this change relies on. Verify each one; the agent may have invented it."
+                items={[]}
+                details={assumptionDetails}
+                  detail={detail}
+                onStartFix={onStartFix}
+                onDraftComment={(body, target) => {
+                  if (target) onAddReviewComment({ ...target, body });
+                }}
+                progress={progress}
+                onSaveProgress={onSaveProgress}
+                verdicts={memory?.prVerdicts}
+                onFeedback={onFindingFeedback}
+              />
             )}
+            <TestAssessmentSection assessment={analysis?.testAssessment} onImproveTests={(instructions) => onStartFix(instructions, undefined, "Overview / Test Quality")} />
             <CiStatusSection checks={ciChecks} detail={detail} logs={ciLogs} loading={ciLoading} onFetchLog={onFetchCiLog} onStartFix={onStartFix} />
           </div>
           <div>
@@ -249,8 +255,7 @@ export function OverviewTab({
               title="Risks"
               tone="risk"
               items={analysis?.risks ?? []}
-              details={attentionMode ? importantInsights(analysis?.riskDetails ?? []) : (analysis?.riskDetails ?? [])}
-              compact={attentionMode}
+              details={analysis?.riskDetails ?? []}
               detail={detail}
               onStartFix={onStartFix}
               onDraftComment={(body, target) => {
@@ -261,12 +266,29 @@ export function OverviewTab({
               verdicts={memory?.prVerdicts}
               onFeedback={onFindingFeedback}
             />
+            {analysis && (
+              <InsightSection
+                title="Edge cases to probe"
+                tone="edge"
+                intro="Boundary, empty, error-path and concurrency scenarios the changed code can hit, with whether a test already covers them."
+                items={[]}
+                details={edgeCaseDetails}
+                  detail={detail}
+                onStartFix={onStartFix}
+                onDraftComment={(body, target) => {
+                  if (target) onAddReviewComment({ ...target, body });
+                }}
+                progress={progress}
+                onSaveProgress={onSaveProgress}
+                verdicts={memory?.prVerdicts}
+                onFeedback={onFindingFeedback}
+              />
+            )}
             <VerificationSection
               items={analysis?.testsToCheck ?? []}
               jobs={verificationJobs}
               ciChecks={ciChecks}
               progress={progress}
-              compact={attentionMode}
               openingEditor={openingEditor}
               onRun={onRunVerification}
               onRunManual={onRunManualVerification}
@@ -280,19 +302,11 @@ export function OverviewTab({
 
       <CollapsibleGroup
         id="context"
-        title="PR context, project & readiness"
-        hint="Description, linked issues, GitHub project, readiness checklist and what changed since your last look."
+        title="PR context & readiness"
+        hint="Description, linked issues, readiness checklist and what changed since your last look."
         defaultOpen={!analysis}
       >
         <PrContextSection detail={detail} progress={progress} />
-        <ProjectAssignmentSection
-          detail={detail}
-          progress={progress}
-          githubProjects={githubProjects}
-          githubProjectsError={githubProjectsError}
-          projectAttachBusy={projectAttachBusy}
-          onAttachGithubProject={onAttachGithubProject}
-        />
         <ReadinessSection
           readiness={readinessForPr(detail, {
             detail,
@@ -314,41 +328,39 @@ export function OverviewTab({
         />
       </CollapsibleGroup>
 
-      {!attentionMode && (
-        <CollapsibleGroup
-          id="rules"
-          title="Repository rules & review memory"
-          hint={`${repoRules.filter((rule) => rule.enabled).length} rule(s) active${repoRules.some((rule) => rule.origin === "repository") ? " · some committed in the repo" : ""}${memory?.shared ? " · memory shared with the team" : ""}. Rules and verdicts calibrate every agent run.`}
-          defaultOpen={false}
-          actions={
-            onCopyRepoRulesFile && (
-              <button type="button" className="ghost" onClick={(event) => { event.preventDefault(); onCopyRepoRulesFile(); }} title="Copy the enabled rules as .mnlens/review-rules.json; commit it so every reviewer and agent run follows the same rules">
-                <FileJson size={14} /> Copy as .mnlens/review-rules.json
-              </button>
-            )
-          }
-        >
-          <ReviewMemoryCard memory={memory} onAddRepoRule={onAddRepoRule} />
-          <PolicySection
-            detail={detail}
-            analysis={analysis}
-            progress={progress}
-            repoRules={repoRules}
-            ciChecks={ciChecks}
-            verificationJobs={verificationJobs}
-            fixJobs={fixJobs}
-            onSaveProgress={onSaveProgress}
-            onAddRepoRule={onAddRepoRule}
-            onSetRepoRuleEnabled={onSetRepoRuleEnabled}
-          />
-        </CollapsibleGroup>
-      )}
+      <CollapsibleGroup
+        id="rules"
+        title="Repository rules & review memory"
+        hint={`${repoRules.filter((rule) => rule.enabled).length} rule(s) active${repoRules.some((rule) => rule.origin === "repository") ? " · some committed in the repo" : ""}${memory?.shared ? " · memory shared with the team" : ""}. Rules and verdicts calibrate every agent run.`}
+        defaultOpen={false}
+        actions={
+          onCopyRepoRulesFile && (
+            <button type="button" className="ghost" onClick={(event) => { event.preventDefault(); onCopyRepoRulesFile(); }} title="Copy the enabled rules as .mnlens/review-rules.json; commit it so every reviewer and agent run follows the same rules">
+              <FileJson size={14} /> Copy as .mnlens/review-rules.json
+            </button>
+          )
+        }
+      >
+        <ReviewMemoryCard memory={memory} onAddRepoRule={onAddRepoRule} />
+        <PolicySection
+          detail={detail}
+          analysis={analysis}
+          progress={progress}
+          repoRules={repoRules}
+          ciChecks={ciChecks}
+          verificationJobs={verificationJobs}
+          fixJobs={fixJobs}
+          onSaveProgress={onSaveProgress}
+          onAddRepoRule={onAddRepoRule}
+          onSetRepoRuleEnabled={onSetRepoRuleEnabled}
+        />
+      </CollapsibleGroup>
     </div>
   );
 }
 
-function mergeReviewerFocusDetails(detail: PrDetail, analysis: AnalysisResult | undefined, attentionMode: boolean): ReviewInsight[] {
-  const base = attentionMode ? importantInsights(analysis?.reviewerFocusDetails ?? []) : (analysis?.reviewerFocusDetails ?? []);
+function mergeReviewerFocusDetails(detail: PrDetail, analysis: AnalysisResult | undefined): ReviewInsight[] {
+  const base = analysis?.reviewerFocusDetails ?? [];
   const existing = new Set(base.map((item) => `${item.title ?? ""}\n${item.observation}`.toLowerCase()));
   const comments = unresolvedReviewCommentInsights(detail)
     .filter((item) => {
@@ -394,112 +406,6 @@ function commentSeverity(body: string): ReviewInsight["severity"] {
   if (/\b(bug|broken|incorrect|fail|failing|regression|security|unsafe|must|block|leak)\b/.test(text)) return "high";
   if (/\b(can this|should|please|remove|add|missing|test|why|verify|use)\b/.test(text)) return "medium";
   return "low";
-}
-
-function ProjectAssignmentSection({
-  detail,
-  progress,
-  githubProjects,
-  githubProjectsError,
-  projectAttachBusy,
-  onAttachGithubProject
-}: {
-  detail: PrDetail;
-  progress?: ReviewProgress;
-  githubProjects: GithubProject[];
-  githubProjectsError?: string;
-  projectAttachBusy: boolean;
-  onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
-}) {
-  const assignedProject = detail.githubProjects?.[0];
-  const currentProject = assignedProject?.title ?? progress?.project?.trim() ?? "";
-  const [githubProjectId, setGithubProjectId] = useState("");
-  const [includeLinkedIssues, setIncludeLinkedIssues] = useState(true);
-  useEffect(() => {
-    const matchedProject = assignedProject
-      ? githubProjects.find((project) => project.id === assignedProject.id || project.title === assignedProject.title)
-      : progress?.project
-        ? githubProjects.find((project) => project.title === progress.project)
-        : undefined;
-    setGithubProjectId(matchedProject?.id ?? "");
-  }, [assignedProject?.id, assignedProject?.title, githubProjects, progress?.project]);
-
-  return (
-    <section className="summary-card project-assignment-card">
-      <div className="panel-title">
-        <div>
-          <h3>GitHub Project</h3>
-          <p className="muted">Attach this PR and its linked issues to an organization Project.</p>
-        </div>
-        <Badge tone={currentProject ? "added" : "neutral"}>{currentProject || "Unassigned"}</Badge>
-      </div>
-      <div className="project-assignment-controls github-project-controls">
-        <label>
-          <span>GitHub Organization Project</span>
-          <select value={githubProjectId} onChange={(event) => setGithubProjectId(event.target.value)}>
-            <option value="">{githubProjects.length > 0 ? "Choose organization project" : "No organization projects found"}</option>
-            {githubProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.title}{project.ownerType === "user" ? " (user)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="check-control project-issue-sync">
-          <input type="checkbox" checked={includeLinkedIssues} onChange={(event) => setIncludeLinkedIssues(event.target.checked)} />
-          Include linked issues
-        </label>
-        <button type="button" disabled={!githubProjectId || projectAttachBusy} onClick={() => onAttachGithubProject(githubProjectId, includeLinkedIssues)}>
-          <FolderKanban size={14} />
-          {projectAttachBusy ? "Attaching..." : "Attach on GitHub"}
-        </button>
-      </div>
-      {githubProjectsError && (
-        <p className="project-assignment-error">
-          Could not list organization projects. Add classic <code>read:project</code>/<code>project</code> scopes, or fine-grained Projects read/write access, then refresh GitHub auth.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function AttentionPanel({
-  detail,
-  analysis,
-  progress,
-  ciChecks,
-  verificationJobs,
-  draftComments
-}: {
-  detail: PrDetail;
-  analysis?: AnalysisResult;
-  progress?: ReviewProgress;
-  ciChecks: CiCheck[];
-  verificationJobs: VerificationJob[];
-  draftComments: DraftReviewComment[];
-}) {
-  const items = attentionItems(detail, analysis, progress, ciChecks, verificationJobs, draftComments);
-  return (
-    <section className="summary-card attention-card">
-      <div className="panel-title">
-        <div>
-          <h3>Attention Mode</h3>
-          <p className="muted">Only the highest-value review work is shown below.</p>
-        </div>
-        <Badge tone={items.some((item) => item.tone === "danger") ? "danger" : items.some((item) => item.tone === "queue") ? "queue" : "added"}>
-          {items.length} signals
-        </Badge>
-      </div>
-      <div className="attention-list">
-        {items.map((item) => (
-          <article key={item.title} className={item.tone}>
-            <strong>{item.title}</strong>
-            <p>{item.body}</p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 function PolicySection({
@@ -685,52 +591,6 @@ function Callout({ title, text }: { title: string; text: string }) {
       <p>{text}</p>
     </div>
   );
-}
-
-function importantInsights(items: ReviewInsight[]): ReviewInsight[] {
-  return items.filter((item) => item.severity === "high" || item.severity === "medium").slice(0, 3);
-}
-
-function attentionItems(
-  detail: PrDetail,
-  analysis: AnalysisResult | undefined,
-  progress: ReviewProgress | undefined,
-  ciChecks: CiCheck[],
-  verificationJobs: VerificationJob[],
-  draftComments: DraftReviewComment[]
-): Array<{ title: string; body: string; tone: string }> {
-  const items: Array<{ title: string; body: string; tone: string }> = [];
-  const highRisks = [...(analysis?.riskDetails ?? []), ...(analysis?.reviewerFocusDetails ?? [])]
-    .filter((item) => item.severity === "high")
-    .slice(0, 3);
-  const failedChecks = ciChecks.filter((check) => toneForCi(check) === "danger").slice(0, 2);
-  const failedLocal = verificationJobs.filter((job) => job.status === "failed" || (typeof job.exitCode === "number" && job.exitCode !== 0)).slice(0, 2);
-  const pendingManual = analysis?.testsToCheck.filter((item, index) => isGenuineManualVerification(item) && !progress?.manualChecks?.[manualCheckId(item, index)]).length ?? 0;
-  for (const item of highRisks) {
-    items.push({ title: item.title, body: item.recommendation || item.perspective || item.observation, tone: toneForSeverity(item.severity) });
-  }
-  for (const check of failedChecks) {
-    items.push({ title: `CI: ${check.name}`, body: check.description || check.state || "Failing check needs attention.", tone: "danger" });
-  }
-  for (const job of failedLocal) {
-    items.push({ title: "Local verification failed", body: `${job.command}: ${job.error || job.statusMessage || `exit ${job.exitCode ?? "unknown"}`}`, tone: "danger" });
-  }
-  if (analysis?.testAssessment?.rating) {
-    const testRating = analysis.testAssessment.rating;
-    if (testRating === "weak" || testRating === "partial") {
-      items.push({ title: `Test quality is ${testRating}`, body: analysis?.testAssessment?.summary ?? "Review whether changed behavior has enough test coverage.", tone: "queue" });
-    }
-  }
-  if (pendingManual > 0) items.push({ title: "Manual checks open", body: `${pendingManual} manual verification item${pendingManual === 1 ? "" : "s"} still need a pass/follow-up decision.`, tone: "queue" });
-  if (draftComments.some((comment) => comment.body.trim())) items.push({ title: "Draft review comments", body: "You have local comments that are not submitted to GitHub yet.", tone: "queue" });
-  if (items.length === 0) {
-    items.push({
-      title: "No urgent blocker visible",
-      body: isDocsOnlyReview(detail, detail, analysis) ? "Quick docs rendering and wording check should be enough." : "Skim source diff, tests, and CI before deciding.",
-      tone: "added"
-    });
-  }
-  return items;
 }
 
 function reviewPolicies(detail: PrDetail, analysis: AnalysisResult | undefined, ciChecks: CiCheck[], repoRules: RepoReviewRule[]): {

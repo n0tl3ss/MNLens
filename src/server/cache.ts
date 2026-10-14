@@ -6,6 +6,7 @@ import { cacheDir } from "./paths.js";
 
 const prDir = join(cacheDir, "prs");
 const analysisDir = join(cacheDir, "analysis");
+const analysisHistoryDir = join(cacheDir, "analysis-history");
 const jobDir = join(cacheDir, "jobs");
 const progressDir = join(cacheDir, "progress");
 const verificationDir = join(cacheDir, "verification");
@@ -16,6 +17,7 @@ const fastDir = join(cacheDir, "fast-analysis");
 export async function ensureCache(): Promise<void> {
   await mkdir(prDir, { recursive: true });
   await mkdir(analysisDir, { recursive: true });
+  await mkdir(analysisHistoryDir, { recursive: true });
   await mkdir(jobDir, { recursive: true });
   await mkdir(progressDir, { recursive: true });
   await mkdir(verificationDir, { recursive: true });
@@ -53,13 +55,38 @@ export async function readPrDetail(key: string): Promise<PrDetail | undefined> {
   return readJson<PrDetail>(join(prDir, `${key}.json`));
 }
 
+/** Previous analyses kept per PR so a re-run on a new diff can be compared with the last one (see analysisDelta.ts). */
+export const analysisHistoryLimit = 5;
+
 export async function writeAnalysis(result: AnalysisResult): Promise<void> {
   await ensureCache();
+  const previous = await readAnalysis(result.prKey);
+  if (previous && previous.diffHash !== result.diffHash) await archiveAnalysis(previous);
   await writeFile(join(analysisDir, `${result.prKey}.json`), JSON.stringify(result, null, 2));
 }
 
 export async function readAnalysis(key: string): Promise<AnalysisResult | undefined> {
   return readJson<AnalysisResult>(join(analysisDir, `${key}.json`));
+}
+
+/** Keeps an analysis the next write would overwrite; one file per diff, newest `analysisHistoryLimit` only. */
+export async function archiveAnalysis(previous: AnalysisResult): Promise<void> {
+  const dir = join(analysisHistoryDir, fileName(previous.prKey));
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${fileName(previous.diffHash)}.json`), JSON.stringify(previous, null, 2));
+  for (const stale of (await readAnalysisHistory(previous.prKey)).slice(analysisHistoryLimit)) {
+    await rm(join(dir, `${fileName(stale.diffHash)}.json`), { force: true });
+  }
+}
+
+/** Archived analyses of a PR, newest first. */
+export async function readAnalysisHistory(key: string): Promise<AnalysisResult[]> {
+  const dir = join(analysisHistoryDir, fileName(key));
+  const files = await safeReadDir(dir);
+  const entries = await Promise.all(files.filter((name) => name.endsWith(".json")).map((name) => readJson<AnalysisResult>(join(dir, name))));
+  return entries
+    .filter((entry): entry is AnalysisResult => Boolean(entry && entry.diffHash && entry.generatedAt))
+    .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
 }
 
 export async function writeJob(job: Job): Promise<void> {
@@ -159,6 +186,7 @@ export async function clearPrCache(key: string): Promise<void> {
   await rm(join(prDir, `${key}.json`), { force: true });
   await rm(join(fastDir, `${key}.json`), { force: true });
   await rm(join(analysisDir, `${key}.json`), { force: true });
+  await rm(join(analysisHistoryDir, fileName(key)), { recursive: true, force: true });
   await rm(join(progressDir, `${key}.json`), { force: true });
 }
 
@@ -227,4 +255,8 @@ async function readJsonDirectory(path: string): Promise<Record<string, unknown>>
 
 function ruleKey(repository: string): string {
   return repository.replace(/[^a-zA-Z0-9_.-]/g, "__");
+}
+
+function fileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]/g, "__");
 }

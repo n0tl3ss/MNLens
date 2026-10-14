@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="MNLens">
+  <defs>
+    <linearGradient id="mn-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a7a93"/>
+      <stop offset="1" stop-color="#2f9f86"/>
+    </linearGradient>
+  </defs>
+  <!-- handle -->
+  <path d="M182 182 L232 232" fill="none" stroke="url(#mn-ring)" stroke-width="26" stroke-linecap="round"/>
+  <!-- lens -->
+  <circle cx="116" cy="116" r="88" fill="none" stroke="url(#mn-ring)" stroke-width="18"/>
+  <!-- branch: trunk, fork and three commits -->
+  <path d="M78 90 V144" fill="none" stroke="#5d5aa8" stroke-width="9" stroke-linecap="round"/>
+  <path d="M78 90 C78 124 116 100 116 128" fill="none" stroke="#5d5aa8" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="78" cy="78" r="12" fill="none" stroke="#5d5aa8" stroke-width="8"/>
+  <circle cx="78" cy="156" r="12" fill="none" stroke="#5d5aa8" stroke-width="8"/>
+  <circle cx="116" cy="138" r="10" fill="#5d5aa8"/>
+  <!-- diff lines: context, then additions -->
+  <path d="M136 82 H178" stroke="#1f5f73" stroke-width="10" stroke-linecap="round"/>
+  <path d="M136 104 H170" stroke="#1f5f73" stroke-width="10" stroke-linecap="round"/>
+  <path d="M136 126 H176" stroke="#2f9f86" stroke-width="10" stroke-linecap="round"/>
+  <path d="M136 148 H164" stroke="#2f9f86" stroke-width="10" stroke-linecap="round"/>
+</svg>

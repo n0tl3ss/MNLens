@@ -4,25 +4,27 @@ import "./reviewTabs.css";
 
 /**
  * Tabs are grouped in the order a review actually runs:
- *   Understand  → what changed and why (Overview, Research, Commits)
+ *   Understand  → what changed and why (Overview, Commits, Stack)
  *   Review      → the agent's recommended review and the diff
- *   Act         → fix with the agent, draft comments, hand off
+ *   Act         → fix with the agent, your comments and the feedback to the author
+ *
+ * The Stack tab only appears for PRs that are part of a stack; callers hide it
+ * through `hidden`.
  */
 const tabGroups: { label: string; tabs: Tab[] }[] = [
-  { label: "Understand", tabs: ["overview", "research", "commits"] },
+  { label: "Understand", tabs: ["overview", "commits", "stack"] },
   { label: "Review", tabs: ["review", "diff"] },
-  { label: "Act", tabs: ["fix", "comment", "handoff"] }
+  { label: "Act", tabs: ["fix", "comment"] }
 ];
 
 const tabTitles: Record<Tab, string> = {
   overview: "Deep analysis, acceptance contract, CI and the recommendation.",
-  research: "Docs and similar implementations the agent found for this change.",
   commits: "Commit-by-commit timeline of the PR.",
+  stack: "The stack this PR belongs to: chain, merge order, restack, parent state.",
   review: "The review the agent would post: inline comments, final comment, verdict — and what you must / should / may do first.",
   diff: "Read the diff and leave your own comments.",
   fix: "Let the agent fix findings in a sandboxed checkout; you approve the push.",
-  comment: "Your draft review comments and the PR conversation.",
-  handoff: "Summary for another reviewer and feedback to the author."
+  comment: "Your draft review comments, the PR conversation and the feedback comment for the author."
 };
 
 export function ReviewTabs({
@@ -30,6 +32,7 @@ export function ReviewTabs({
   refreshing,
   agentLabel,
   badges,
+  hidden = [],
   onChange,
   onRefresh
 }: {
@@ -39,6 +42,8 @@ export function ReviewTabs({
   agentLabel?: string;
   /** Small counters shown next to a tab label (e.g. number of draft comments). */
   badges?: Partial<Record<Tab, number | string>>;
+  /** Tabs that do not apply to the selected PR (e.g. Stack for an unstacked PR). */
+  hidden?: Tab[];
   onChange: (tab: Tab) => void;
   onRefresh: () => void;
 }) {
@@ -48,12 +53,14 @@ export function ReviewTabs({
         {tabGroups.map((group) => (
           <div key={group.label} className="tab-group" role="group" aria-label={group.label}>
             <span className="tab-group-label">{group.label}</span>
-            {group.tabs.map((tab) => (
-              <button key={tab} className={active === tab ? "active" : ""} onClick={() => onChange(tab)} title={tabTitles[tab]}>
-                {tabLabel(tab, agentLabel)}
-                {badges?.[tab] !== undefined && badges[tab] !== 0 && <span className="tab-badge">{badges[tab]}</span>}
-              </button>
-            ))}
+            {group.tabs
+              .filter((tab) => !hidden.includes(tab))
+              .map((tab) => (
+                <button key={tab} className={active === tab ? "active" : ""} onClick={() => onChange(tab)} title={tabTitles[tab]}>
+                  {tabLabel(tab, agentLabel)}
+                  {badges?.[tab] !== undefined && badges[tab] !== 0 && <span className="tab-badge">{badges[tab]}</span>}
+                </button>
+              ))}
           </div>
         ))}
       </div>
@@ -64,7 +71,7 @@ export function ReviewTabs({
   );
 }
 
-function tabLabel(tab: Tab, agentLabel = "Codex"): string {
+export function tabLabel(tab: Tab, agentLabel = "Codex"): string {
   if (tab === "fix") return agentLabel;
   return tab.charAt(0).toUpperCase() + tab.slice(1);
 }

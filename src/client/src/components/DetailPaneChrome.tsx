@@ -24,7 +24,7 @@ export function DetailPaneChrome({
         <button className="mobile-queue-toggle" onClick={onOpenQueue}>
           <GitPullRequest size={16} />
           Review queue
-          {activeWorkCount > 0 && <Badge tone="queue">{activeWorkCount} active</Badge>}
+          {activeWorkCount > 0 && <Badge tone="accent">{activeWorkCount} active</Badge>}
         </button>
       )}
       {error && (

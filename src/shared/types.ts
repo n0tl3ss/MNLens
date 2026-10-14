@@ -106,7 +106,6 @@ export interface PrDetail extends PrListItem {
   branchBehindBy?: number;
   branchAheadBy?: number;
   reviewers: PrReviewerStatus[];
-  githubProjects?: GithubProject[];
   files: PrFile[];
   commits: PrCommit[];
   conversationComments: ExistingComment[];
@@ -130,6 +129,23 @@ export interface RepositoryBranch {
   protected?: boolean;
 }
 
+/** One step of the order in which a reviewer should read the diff. */
+export interface ReadingGuideStep {
+  path: string;
+  /** Line range in the new file ("120-148"), empty when the whole file applies. */
+  lines?: string;
+  title: string;
+  /** Plain-language explanation of what this part of the change does. */
+  explanation: string;
+  /** Why the reviewer should care about this step. */
+  whyItMatters?: string;
+}
+
+/** An edge case the changed code can hit, with whether a test already exercises it. */
+export interface EdgeCaseInsight extends ReviewInsight {
+  covered: "yes" | "partial" | "no" | "unknown";
+}
+
 export interface AnalysisResult {
   prKey: string;
   diffHash: string;
@@ -148,9 +164,15 @@ export interface AnalysisResult {
   riskDetails?: ReviewInsight[];
   testsToCheck: string[];
   testAssessment?: TestAssessment;
-  docs: SourceLink[];
-  similarImplementations: SourceLink[];
   caveats: string[];
+  /** Suggested order to read the diff; see ReadingGuideStep. */
+  readingGuide?: ReadingGuideStep[];
+  /** Default values, default behaviour and implicit contracts the PR introduces or relies on. */
+  assumptions?: ReviewInsight[];
+  /** Boundary / error / concurrency scenarios the change can hit, with test coverage. */
+  edgeCases?: EdgeCaseInsight[];
+  /** Files the agent opened in the PR checkout beyond the diff (callers, defaults, tests); empty when it only saw the diff. */
+  inspectedFiles?: string[];
   draftComment: string;
   generatedAt: string;
   modelNote?: string;
@@ -162,6 +184,47 @@ export interface AnalysisResult {
   stack?: { parentNumber?: number; parentTitle?: string; position?: number; size?: number };
   /** Cross-agent audit of this analysis; see server/secondOpinion.ts. */
   secondOpinion?: SecondOpinion;
+  /** What changed versus the previous analysis of a different diff; see server/analysisDelta.ts. */
+  delta?: AnalysisDelta;
+}
+
+/** Finding kinds the analysis-to-analysis delta is computed over. */
+export type AnalysisDeltaKind = Extract<FindingKind, "risk" | "focus" | "assumption" | "edge-case">;
+
+export interface AnalysisDeltaItem {
+  kind: AnalysisDeltaKind;
+  title: string;
+  observation: string;
+  severity: ReviewInsight["severity"];
+  location?: string;
+}
+
+export interface AnalysisDeltaPersistingItem extends AnalysisDeltaItem {
+  /** "title" when the titles matched after normalization, "observation" when only the observation text did. */
+  matchedBy: "title" | "observation";
+  /** Title the previous analysis used, when the agent reworded it. */
+  previousTitle?: string;
+  /** Severity in the previous analysis, when it changed. */
+  previousSeverity?: ReviewInsight["severity"];
+}
+
+/**
+ * Difference between two Deep Analyze runs on different diffs. Items are
+ * matched by `verdictKey(kind, title)` first and by normalized observation
+ * text second (see server/reviewMemory.ts), so a reworded title still counts
+ * as the same finding. Human verdicts on persisting items are carried over.
+ */
+export interface AnalysisDelta {
+  previousGeneratedAt: string;
+  previousDiffHash: string;
+  /** Findings of the previous analysis that the new one no longer raises. */
+  resolved: AnalysisDeltaItem[];
+  /** Findings present in both analyses (severity may have changed). */
+  persisting: AnalysisDeltaPersistingItem[];
+  /** Findings the new analysis raises for the first time. */
+  added: AnalysisDeltaItem[];
+  /** How many reviewer verdicts were copied onto reworded persisting items. */
+  carriedVerdicts: number;
 }
 
 export interface SecondOpinion {
@@ -178,11 +241,17 @@ export interface SecondOpinion {
   disputed: Array<{ item: string; reason: string; severity: "info" | "low" | "medium" | "high" }>;
   missed: Array<{ title: string; observation: string; recommendation: string; severity: "info" | "low" | "medium" | "high" }>;
   draftCommentIssues: string[];
+  /** Set when the other vendor's CLI was unavailable and the same vendor audited on a different tier instead. */
+  fallbackReason?: string;
 }
 
 export interface SecondOpinionRequest extends PrRef {}
 
 export interface ReviewInsight {
+  /** `path:line` in the diff this item is about, when the agent could point at one. */
+  location?: string;
+  /** Short badge text rendered next to the severity (e.g. test coverage of an edge case). */
+  meta?: string;
   title: string;
   observation: string;
   perspective: string;
@@ -196,19 +265,6 @@ export interface TestAssessment {
   covered: string[];
   gaps: string[];
   recommendedTests: string[];
-}
-
-export interface SourceLink {
-  title: string;
-  url: string;
-  reason: string;
-  framework?: string;
-  repository?: string;
-  filePath?: string;
-  codeSnippet?: string;
-  snippetSourceUrl?: string;
-  comparison?: string;
-  caveat?: string;
 }
 
 export interface AuthStatus {
@@ -227,13 +283,22 @@ export interface AuthStatus {
   error?: string;
 }
 
-export interface GithubRateLimitInfo {
-  limited: boolean;
+export interface GithubRateLimitResource {
   limit?: number;
   remaining?: number;
   used?: number;
   resetAt?: string;
+}
+
+/**
+ * Headline fields describe the busiest metered resource (REST "core", GraphQL
+ * or search); `resources` carries every budget GitHub reported so the UI can
+ * explain which one is being consumed.
+ */
+export interface GithubRateLimitInfo extends GithubRateLimitResource {
+  limited: boolean;
   resource?: string;
+  resources?: Record<string, GithubRateLimitResource>;
   until?: string;
   retryAfterSeconds?: number;
   message?: string;
@@ -278,12 +343,8 @@ export type AgentTask =
   | "deep-analysis"
   | "quick-answer"
   | "ci-explain"
-  | "research-answer"
-  | "fix-research"
   | "fix-implementation"
   | "fix-tests-qa"
-  | "fix-docs"
-  | "fix-security"
   | "fix-final-review"
   | "fix-qa-assessment"
   | "fix-question"
@@ -306,6 +367,12 @@ export interface AgentSettings {
   taskTiers: Record<AgentTask, ModelTier>;
   /** Claude only: `--max-budget-usd` per agent run. */
   maxBudgetUsdPerRun?: number;
+  /**
+   * Claude only: path to a JSON file in Claude Code's `mcpServers` format, passed as
+   * `--mcp-config` on every run; the servers' tools are pre-approved for read-only runs.
+   * CLAUDE.md and skills need no setting: Claude reads them from the checkout and ~/.claude.
+   */
+  claudeMcpConfig?: string;
   updatedAt: string;
 }
 
@@ -314,6 +381,7 @@ export interface UpdateAgentSettingsRequest {
   tiers?: Partial<Record<AgentId, Partial<Record<ModelTier, Partial<TierModel> & { effort?: string | null }>>>>;
   taskTiers?: Partial<Record<AgentTask, ModelTier>>;
   maxBudgetUsdPerRun?: number | null;
+  claudeMcpConfig?: string | null;
 }
 
 export interface AgentUsageEntry {
@@ -363,6 +431,10 @@ export interface AcceptanceCriterion {
   status: CriterionStatus;
   evidence: CriterionEvidence[];
   note?: string;
+  /** Exact local command (from the repository root) that exercises this criterion, when the agent could name one. */
+  command?: string;
+  /** Local verification run MNLens started for `command`; the job carries the result and decides "ran green" / "failed". */
+  verification?: { jobId: string; command: string; startedAt: string };
   /** Reviewer override of the agent's status; wins when present. */
   humanStatus?: CriterionStatus;
   humanNote?: string;
@@ -413,6 +485,8 @@ export interface SuggestedReviewComment {
   criterion?: string;
   /** Agent-supplied anchor that MNLens could not match to a changed line. */
   unanchored?: boolean;
+  /** Exact replacement for the anchored (RIGHT-side) line; posted as a GitHub ```suggestion``` block the author can apply in one click. */
+  suggestion?: string;
 }
 
 export interface ReviewDraft {
@@ -458,9 +532,11 @@ export interface FindingFeedback {
   member?: string;
   /** For draft-comment verdicts: the comment kind the agent assigned (blocking, nit, ...). */
   commentKind?: SuggestedCommentKind;
+  /** Title of the finding this verdict was copied from when a re-analysis reworded it; carried entries do not count toward calibration. */
+  carriedFrom?: string;
 }
 
-export type FindingKind = "evidence" | "focus" | "risk" | "test" | "criterion" | "draft-comment";
+export type FindingKind = "evidence" | "focus" | "risk" | "assumption" | "edge-case" | "test" | "criterion" | "draft-comment";
 
 export interface RecordFindingFeedbackRequest extends PrRef {
   kind: FindingFeedback["kind"];
@@ -476,6 +552,8 @@ export interface DraftCommentAccuracy {
   kept: number;
   dismissed: number;
   byKind: Partial<Record<SuggestedCommentKind, { kept: number; dismissed: number }>>;
+  /** The newest `window` verdicts, so the badge can show whether accuracy is improving. */
+  recent?: { kept: number; dismissed: number; window: number };
 }
 
 export interface ReviewMemoryPattern {
@@ -699,11 +777,8 @@ export interface FixJob {
     | "queued"
     | "preparing"
     | "checking-out"
-    | "research"
     | "implementation"
     | "tests-qa"
-    | "docs"
-    | "security"
     | "final-review"
     | "codex"
     | "testing"
@@ -854,15 +929,6 @@ export interface AskCiResponse {
   answer: string;
 }
 
-export interface AskResearchRequest extends PrRef {
-  source: SourceLink;
-  question: string;
-}
-
-export interface AskResearchResponse {
-  answer: string;
-}
-
 export interface RebasePrRequest extends PrRef {}
 
 export type BranchUpdateStrategy = "rebase" | "merge";
@@ -915,25 +981,6 @@ export interface ClearCacheResponse {
   cacheDir: string;
 }
 
-export interface GithubProject {
-  id: string;
-  title: string;
-  url?: string;
-  number?: number;
-  owner: string;
-  ownerType?: "organization" | "user";
-}
-
-export interface AttachGithubProjectRequest extends PrRef {
-  projectId: string;
-  includeLinkedIssues?: boolean;
-}
-
-export interface AttachGithubProjectResponse {
-  projectId: string;
-  attached: Array<{ type: "pull-request" | "issue"; repository: string; number: number; itemId?: string }>;
-}
-
 export interface AnalyzeRequest {
   prs: PrRef[];
   force?: boolean;
@@ -944,7 +991,8 @@ export interface AnalyzeResponse {
   jobs: Job[];
 }
 
-export type ReviewDecision = "APPROVE" | "REQUEST_CHANGES";
+/** GitHub review events. COMMENT is the only event GitHub accepts on your own PR (self-review). */
+export type ReviewDecision = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
 export interface ReviewComment {
   path: string;

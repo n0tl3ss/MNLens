@@ -8,7 +8,7 @@ export interface ActionMenuItem {
   disabled?: boolean;
   danger?: boolean;
   title?: string;
-  /** Shown as a checkmark state for toggles (attention mode, filters). */
+  /** Shown as a checkmark state for toggles (filters). */
   checked?: boolean;
 }
 

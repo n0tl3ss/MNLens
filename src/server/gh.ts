@@ -1,9 +1,7 @@
 import type {
   AuthStatus,
   AnalysisType,
-  AttachGithubProjectResponse,
   CiCheck,
-  GithubProject,
   PrDetail,
   ExistingComment,
   ExistingReviewComment,
@@ -323,6 +321,9 @@ export async function submitReview(request: SubmitReviewRequest): Promise<Submit
   if (comments.length === 0 && request.event === "REQUEST_CHANGES") {
     throw new Error("Add at least one non-empty line comment before requesting changes.");
   }
+  if (request.event === "COMMENT" && comments.length === 0 && !request.body?.trim()) {
+    throw new Error("A comment-only review needs a summary or at least one line comment.");
+  }
 
   const payload = {
     event: request.event,
@@ -555,12 +556,11 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
   const raw = JSON.parse(view.stdout) as GhPrView;
   const branchComparison = await comparePrBranch(token, owner, repo, raw.baseRefName, raw.headRefName, raw.headRefOid).catch((): PrBranchComparison => ({}));
   const linkedIssues = await enrichLinkedIssues(token, normalizeLinkedIssues(raw.closingIssuesReferences, repoName));
-  const [conversationComments, reviewSummaries, reviewComments, commits, assignedGithubProjects] = await Promise.all([
+  const [conversationComments, reviewSummaries, reviewComments, commits] = await Promise.all([
     fetchConversationComments(token, owner, repo, number),
     fetchReviewSummaries(token, owner, repo, number),
     fetchReviewComments(token, owner, repo, number),
-    fetchPrCommits(token, owner, repo, number),
-    fetchAssignedGithubProjects(token, owner, repo, number).catch(() => [])
+    fetchPrCommits(token, owner, repo, number)
   ]);
   const key = prKey(owner, repo, number);
   const labels = normalizeLabels(raw.labels);
@@ -594,7 +594,6 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
     branchBehindBy: branchComparison.behindBy,
     branchAheadBy: branchComparison.aheadBy,
     reviewers: normalizeReviewerStatuses(raw),
-    githubProjects: assignedGithubProjects,
     files: normalizeFiles(raw.files),
     commits,
     conversationComments,
@@ -605,137 +604,6 @@ export async function getPrDetail(owner: string, repo: string, number: number): 
   };
   await writePrDetail(detail);
   return detail;
-}
-
-export async function listGithubProjects(owner: string): Promise<GithubProject[]> {
-  const token = await requireToken();
-  const organizationProjects = await listOrganizationProjects(token, owner);
-  if (organizationProjects.length > 0) return organizationProjects;
-  return listUserProjects(token, owner);
-}
-
-async function fetchAssignedGithubProjects(token: string, owner: string, repo: string, number: number): Promise<GithubProject[]> {
-  const query = `
-    query($owner: String!, $repo: String!, $number: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $number) {
-          projectItems(first: 20) {
-            nodes {
-              project {
-                id
-                title
-                url
-                number
-                owner {
-                  __typename
-                  ... on Organization { login }
-                  ... on User { login }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-  const result = await runGh(["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `repo=${repo}`, "-F", `number=${number}`], token);
-  const raw = JSON.parse(result.stdout) as {
-    data?: {
-      repository?: {
-        pullRequest?: {
-          projectItems?: {
-            nodes?: Array<{ project?: GhProjectV2 & { owner?: { __typename?: string; login?: string } } }>;
-          };
-        };
-      };
-    };
-  };
-  return (raw.data?.repository?.pullRequest?.projectItems?.nodes ?? [])
-    .map((node) => node.project)
-    .filter((project): project is GhProjectV2 & { owner?: { __typename?: string; login?: string } } => Boolean(project?.id && project.title))
-    .map((project) => ({
-      id: project.id!,
-      title: project.title!,
-      url: project.url,
-      number: project.number,
-      owner: project.owner?.login ?? owner,
-      ownerType: project.owner?.__typename === "User" ? "user" : "organization"
-    }));
-}
-
-async function listOrganizationProjects(token: string, owner: string): Promise<GithubProject[]> {
-  const query = `
-    query($login: String!) {
-      organization(login: $login) {
-        projectsV2(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id title url number }
-        }
-      }
-    }
-  `;
-  try {
-    const result = await runGh(["api", "graphql", "-f", `query=${query}`, "-F", `login=${owner}`], token);
-    const raw = JSON.parse(result.stdout) as { data?: { organization?: { projectsV2?: { nodes?: GhProjectV2[] } } } };
-    return normalizeGithubProjects(raw.data?.organization?.projectsV2?.nodes ?? [], owner, "organization");
-  } catch {
-    return [];
-  }
-}
-
-async function listUserProjects(token: string, owner: string): Promise<GithubProject[]> {
-  const query = `
-    query($login: String!) {
-      user(login: $login) {
-        projectsV2(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id title url number }
-        }
-      }
-    }
-  `;
-  const result = await runGh(["api", "graphql", "-f", `query=${query}`, "-F", `login=${owner}`], token);
-  const raw = JSON.parse(result.stdout) as { data?: { user?: { projectsV2?: { nodes?: GhProjectV2[] } } } };
-  return normalizeGithubProjects(raw.data?.user?.projectsV2?.nodes ?? [], owner, "user");
-}
-
-function normalizeGithubProjects(nodes: GhProjectV2[], owner: string, ownerType: "organization" | "user"): GithubProject[] {
-  return nodes.filter((project): project is Required<Pick<GhProjectV2, "id" | "title">> & GhProjectV2 => Boolean(project.id && project.title)).map((project) => ({
-    id: project.id,
-    title: project.title,
-    url: project.url,
-    number: project.number,
-    owner,
-    ownerType
-  }));
-}
-
-export async function attachPrToGithubProject(owner: string, repo: string, number: number, projectId: string, includeLinkedIssues = true): Promise<AttachGithubProjectResponse> {
-  const token = await requireToken();
-  const detail = await getPrDetail(owner, repo, number);
-  const attached: AttachGithubProjectResponse["attached"] = [];
-  if (!detail.nodeId) throw new Error("GitHub did not return a node id for this pull request.");
-  const prItemId = await addProjectItem(token, projectId, detail.nodeId);
-  attached.push({ type: "pull-request", repository: detail.repository, number: detail.number, itemId: prItemId });
-  if (includeLinkedIssues) {
-    for (const issue of detail.linkedIssues) {
-      if (!issue.nodeId) continue;
-      const itemId = await addProjectItem(token, projectId, issue.nodeId);
-      attached.push({ type: "issue", repository: issue.repository ?? detail.repository, number: issue.number, itemId });
-    }
-  }
-  return { projectId, attached };
-}
-
-async function addProjectItem(token: string, projectId: string, contentId: string): Promise<string | undefined> {
-  const mutation = `
-    mutation($projectId: ID!, $contentId: ID!) {
-      addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-        item { id }
-      }
-    }
-  `;
-  const result = await runGh(["api", "graphql", "-f", `query=${mutation}`, "-F", `projectId=${projectId}`, "-F", `contentId=${contentId}`], token);
-  const raw = JSON.parse(result.stdout) as { data?: { addProjectV2ItemById?: { item?: { id?: string } } } };
-  return raw.data?.addProjectV2ItemById?.item?.id;
 }
 
 async function fetchPullRequestDiff(token: string, owner: string, repo: string, number: number): Promise<CommandResult> {
@@ -1709,6 +1577,22 @@ async function getAuthenticatedUsername(token: string): Promise<string> {
   return result.stdout.trim();
 }
 
+let usernameCache: { value: string; fetchedAt: number } | undefined;
+
+/** Signed-in GitHub login, cached for 10 minutes; undefined when no token is stored or the lookup fails. */
+export async function currentUsername(): Promise<string | undefined> {
+  if (usernameCache && Date.now() - usernameCache.fetchedAt < 10 * 60_000) return usernameCache.value;
+  const token = await readGithubToken();
+  if (!token) return undefined;
+  try {
+    const value = await getAuthenticatedUsername(token);
+    usernameCache = { value, fetchedAt: Date.now() };
+    return value;
+  } catch {
+    return usernameCache?.value;
+  }
+}
+
 async function runGh(args: string[], token: string, input?: string) {
   assertGithubRateLimitAvailable();
   try {
@@ -1729,8 +1613,11 @@ async function runGh(args: string[], token: string, input?: string) {
   }
 }
 
+/** `gh api rate_limit` does not count against any budget; a short cache still keeps a busy UI from hammering it. */
+const rateLimitCacheMs = 45_000;
+
 async function fetchGithubRateLimit(token: string) {
-  if (rateLimitCache && Date.now() - rateLimitCache.fetchedAt < 60_000) return rateLimitCache.status;
+  if (rateLimitCache && Date.now() - rateLimitCache.fetchedAt < rateLimitCacheMs) return rateLimitCache.status;
   if (githubRateLimitStatus().limited) return githubRateLimitStatus();
   const result = await runGh(["api", "rate_limit"], token);
   try {
@@ -1740,6 +1627,13 @@ async function fetchGithubRateLimit(token: string) {
   }
   rateLimitCache = { fetchedAt: Date.now(), status: githubRateLimitStatus() };
   return rateLimitCache.status;
+}
+
+/** Current GitHub API budgets for the status chip; falls back to the last known state when no token is stored or the call fails. */
+export async function getGithubRateLimit(): Promise<ReturnType<typeof githubRateLimitStatus>> {
+  const token = await readGithubToken();
+  if (!token) return githubRateLimitStatus();
+  return fetchGithubRateLimit(token).catch(() => githubRateLimitStatus());
 }
 
 async function commandExists(command: string): Promise<boolean> {
@@ -1839,13 +1733,6 @@ interface GhReviewRequest {
   slug?: string;
   name?: string;
   url?: string;
-}
-
-interface GhProjectV2 {
-  id?: string;
-  title?: string;
-  url?: string;
-  number?: number;
 }
 
 interface GhLinkedIssue {

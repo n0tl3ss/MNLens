@@ -2,17 +2,28 @@ import { ChevronDown, Loader2, MessageSquare, Send, Sparkles } from "lucide-reac
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AnalysisResult, PrDetail, ReviewComment, ReviewInsight, ReviewProgress } from "../../../shared/types";
+import type { AnalysisResult, FindingKind, PrDetail, ReviewComment, ReviewInsight, ReviewProgress } from "../../../shared/types";
 import { askRisk } from "../api";
 import { Badge } from "./uiBits";
+
+/** Visual tone of a section; also decides the review-memory kind a 👍/👎 is recorded under. */
+export type InsightTone = "evidence" | "focus" | "risk" | "assumption" | "edge";
+
+const feedbackKindByTone: Record<InsightTone, Extract<FindingKind, "evidence" | "focus" | "risk" | "assumption" | "edge-case">> = {
+  evidence: "evidence",
+  focus: "focus",
+  risk: "risk",
+  assumption: "assumption",
+  edge: "edge-case"
+};
 
 export function InsightSection({
   title,
   tone,
   items,
   details = [],
-  compact,
   detail,
+  intro,
   onStartFix,
   onDraftComment,
   draftCommentLabel,
@@ -22,11 +33,12 @@ export function InsightSection({
   onFeedback
 }: {
   title: string;
-  tone: "evidence" | "focus" | "risk";
+  tone: InsightTone;
   items: string[];
   details?: AnalysisResult["reviewerFocusDetails"];
-  compact: boolean;
   detail?: PrDetail;
+  /** One-line explanation under the heading. */
+  intro?: string;
   onStartFix?: (instructions?: string, baseJobId?: string, source?: string) => void;
   onDraftComment?: (body: string, target?: Omit<ReviewComment, "body">) => void;
   draftCommentLabel?: string;
@@ -34,15 +46,13 @@ export function InsightSection({
   onSaveProgress?: (patch: Partial<Pick<ReviewProgress, "checkedItems">>) => void;
   /** Reviewer verdicts keyed by `${kind}:${normalized title}` (see server/reviewMemory.ts). */
   verdicts?: Record<string, "kept" | "dismissed">;
-  onFeedback?: (kind: "evidence" | "focus" | "risk", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
+  onFeedback?: (kind: FindingKind, title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null) => void;
 }) {
-  const [showAll, setShowAll] = useState(false);
   const detailItems = details.length > 0 ? sortReviewInsights(details) : [];
   const sortedItems = sortReviewTextItems(items);
   const sourceItems: Array<Partial<ReviewInsight> & { observation: string }> =
     detailItems.length > 0 ? detailItems : sortedItems.map((item) => ({ observation: item }));
-  const displayItems = compact && !showAll ? sourceItems.slice(0, 2) : sourceItems;
-  const hiddenCount = sourceItems.length - displayItems.length;
+  const displayItems = sourceItems;
   const checkedItems = new Set(progress?.checkedItems ?? []);
 
   function toggleInsight(id: string) {
@@ -55,19 +65,12 @@ export function InsightSection({
   }
 
   return (
-    <section className={`summary-card insight-section ${tone}`}>
+    <section className={`summary-card insight-section ${tone}`} id={`insight-section-${tone}`}>
       <div className="insight-heading">
-        <h3>{title}</h3>
-        {hiddenCount > 0 && (
-          <button className="text-button more-toggle" onClick={() => setShowAll(true)}>
-            +{hiddenCount} more
-          </button>
-        )}
-        {showAll && compact && sourceItems.length > 2 && (
-          <button className="text-button more-toggle" onClick={() => setShowAll(false)}>
-            Show less
-          </button>
-        )}
+        <div>
+          <h3>{title}</h3>
+          {intro && <p className="muted insight-intro">{intro}</p>}
+        </div>
       </div>
       {displayItems.length === 0 ? (
         <p className="muted">No items yet.</p>
@@ -90,9 +93,10 @@ export function InsightSection({
                       <strong>{heading}</strong>
                     )}
                     <div className="inline-actions">
+                      {item.meta && <Badge tone={metaTone(item.meta)}>{item.meta}</Badge>}
                       <Badge tone={toneForSeverity(item.severity)}>{item.severity ?? "info"}</Badge>
                       {onFeedback && (() => {
-                        const kind = tone === "evidence" ? "evidence" : tone === "focus" ? "focus" : "risk";
+                        const kind = feedbackKindByTone[tone];
                         const current = verdicts?.[verdictKey(kind, heading)];
                         return (
                           <span className="finding-feedback" title="Teach MNLens: was this finding useful in this repository?">
@@ -115,15 +119,16 @@ export function InsightSection({
                   </div>
                   {!checked && (
                     <>
+                      {item.location && <code className="insight-location">{item.location}</code>}
                       {item.title && <p>{item.observation}</p>}
                       {item.perspective && (
                         <p className="reviewer-perspective">
-                          <b>My take:</b> {item.perspective}
+                          <b>{perspectiveLabel(tone)}</b> {item.perspective}
                         </p>
                       )}
                       {item.recommendation && (
                         <p className="reviewer-recommendation">
-                          <b>Action:</b> {item.recommendation}
+                          <b>{recommendationLabel(tone)}</b> {item.recommendation}
                         </p>
                       )}
                       {detail && (
@@ -160,7 +165,7 @@ export function InsightQuestionBox({
 }: {
   detail: PrDetail;
   insight: Partial<ReviewInsight> & { observation: string };
-  tone: "evidence" | "focus" | "risk";
+  tone: InsightTone;
   sourceLabel: string;
   onStartFix?: (instructions?: string, baseJobId?: string, source?: string) => void;
   onDraftComment?: (body: string, target?: Omit<ReviewComment, "body">) => void;
@@ -216,8 +221,8 @@ export function InsightQuestionBox({
           {loading ? <Loader2 size={14} className="spin" /> : <MessageSquare size={14} />}
           Ask
         </button>
-        <button className="ghost" disabled={loading} onClick={() => void ask(`Explain this ${label} in more detail. Is it likely still valid, what evidence supports it, what would resolve it, and what should I inspect next?`)}>
-          Explain more
+        <button className="ghost" disabled={loading} onClick={() => void ask(explainPrompt(tone, label))}>
+          {tone === "assumption" ? "Verify this" : tone === "edge" ? "Trace this case" : "Explain more"}
         </button>
         {onStartFix && (
           <button className="ghost" onClick={() => onStartFix(buildInsightFixInstructions(insight, label), undefined, sourceLabel)}>
@@ -245,26 +250,56 @@ export function InsightQuestionBox({
   );
 }
 
+function explainPrompt(tone: InsightTone, label: string): string {
+  if (tone === "assumption") return "Verify this assumption against the diff and the surrounding code: where exactly is it made, what evidence shows it holds (defaults, call sites, config), what happens if it is wrong, and what is the cheapest way to confirm it?";
+  if (tone === "edge") return "Trace this edge case through the changed code path step by step: what input triggers it, what the code does at each step, whether an existing test covers it (name it), and what minimal test would prove the behavior.";
+  return `Explain this ${label} in more detail. Is it likely still valid, what evidence supports it, what would resolve it, and what should I inspect next?`;
+}
+
 function reviewCommentTarget(insight: Partial<ReviewInsight> & { observation: string }): Omit<ReviewComment, "body"> | undefined {
-  const location = `${insight.title ?? ""}\n${insight.perspective ?? ""}`;
+  const location = `${insight.location ?? ""}\n${insight.title ?? ""}\n${insight.perspective ?? ""}`;
   const match = /([A-Za-z0-9_.@/+-]+):(\d+)/.exec(location);
   if (!match) return undefined;
   return { path: match[1], line: Number(match[2]), side: "RIGHT" };
 }
 
-function insightSourceKind(tone: "evidence" | "focus" | "risk"): string {
+function insightSourceKind(tone: InsightTone): string {
   if (tone === "risk") return "Risk";
   if (tone === "focus") return "Review focus";
+  if (tone === "assumption") return "Assumption";
+  if (tone === "edge") return "Edge case";
   return "Evidence";
+}
+
+function perspectiveLabel(tone: InsightTone): string {
+  if (tone === "assumption") return "If wrong:";
+  if (tone === "edge") return "Expected:";
+  return "My take:";
+}
+
+function recommendationLabel(tone: InsightTone): string {
+  if (tone === "assumption") return "Verify:";
+  if (tone === "edge") return "Check:";
+  return "Action:";
+}
+
+function metaTone(meta: string): string {
+  const text = meta.toLowerCase();
+  if (/not covered|no test|uncovered/.test(text)) return "danger";
+  if (/partial/.test(text)) return "queue";
+  if (/covered|tested/.test(text)) return "added";
+  return "neutral";
 }
 
 function insightQuestionContext(insight: Partial<ReviewInsight> & { observation: string }, label: string): string {
   return [
     `Kind: ${label}`,
     insight.title ? `Title: ${insight.title}` : "",
+    insight.location ? `Location: ${insight.location}` : "",
     `Observation: ${insight.observation}`,
     insight.perspective ? `Perspective: ${insight.perspective}` : "",
     insight.recommendation ? `Recommendation: ${insight.recommendation}` : "",
+    insight.meta ? `Coverage: ${insight.meta}` : "",
     insight.severity ? `Severity: ${insight.severity}` : ""
   ]
     .filter(Boolean)
@@ -333,4 +368,16 @@ function messageOf(error: unknown): string {
 /** Mirrors `verdictKey` in src/server/reviewMemory.ts. */
 export function verdictKey(kind: string, title: string): string {
   return `${kind}:${title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+}
+
+/** Edge cases carry test coverage; expose it as the badge next to the severity. */
+export function edgeCaseItems(items: Array<ReviewInsight & { covered?: string }> | undefined): ReviewInsight[] {
+  return (items ?? []).map((item) => ({ ...item, meta: item.meta ?? coverageLabel(item.covered) }));
+}
+
+export function coverageLabel(covered: string | undefined): string {
+  if (covered === "yes") return "covered by test";
+  if (covered === "partial") return "partially covered";
+  if (covered === "no") return "not covered";
+  return "coverage unknown";
 }

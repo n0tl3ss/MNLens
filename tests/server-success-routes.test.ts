@@ -28,7 +28,6 @@ vi.mock("../src/server/gh.js", () => ({
   getCiLog: vi.fn(async () => ""),
   getPrDetail: vi.fn(),
   listPrs: vi.fn(async () => []),
-  listGithubProjects: vi.fn(async () => []),
   listRepositoryBranches: vi.fn(async () => []),
   mergePrTargetIntoHead: vi.fn(),
   rebasePrOntoDefault: mocks.rebasePrOntoDefault,

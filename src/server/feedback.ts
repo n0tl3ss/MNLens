@@ -38,19 +38,19 @@ export function buildFeedbackComment(args: {
 
   if (contract && contract.criteria.length > 0) {
     sections.push("acceptance");
-    const totals = contractTotals(contract);
+    const totals = contractTotals(contract, args.verificationJobs ?? []);
     lines.push(`### Acceptance criteria — ${totals.proven}/${totals.total - totals.notApplicable} proven${totals.failed ? `, ${totals.failed} failed` : ""}${totals.unproven ? `, ${totals.unproven} unproven` : ""}`);
     lines.push("");
     lines.push("| Status | Criterion | Evidence |");
     lines.push("| --- | --- | --- |");
     for (const criterion of contract.criteria) {
-      const status = effectiveStatus(criterion);
+      const status = effectiveStatus(criterion, args.verificationJobs ?? []);
       const icon = status === "proven" ? "✅" : status === "failed" ? "❌" : status === "not-applicable" ? "➖" : "⚠️";
       const evidence = criterion.evidence.map((item) => `${item.kind}: \`${item.ref}\``).join("<br>") || (criterion.humanNote ?? criterion.note ?? "");
       lines.push(`| ${icon} ${status} | ${escapeCell(criterion.text)}${criterion.origin ? ` _(${escapeCell(criterion.origin)})_` : ""} | ${escapeCell(evidence)} |`);
     }
     lines.push("");
-    const unproven = contract.criteria.filter((criterion) => effectiveStatus(criterion) === "unproven");
+    const unproven = contract.criteria.filter((criterion) => effectiveStatus(criterion, args.verificationJobs ?? []) === "unproven");
     if (unproven.length > 0) {
       lines.push("**To make this mergeable:**");
       for (const criterion of unproven) lines.push(`- ${criterion.text}${criterion.note ? ` — ${criterion.note}` : ""}`);
@@ -75,6 +75,24 @@ export function buildFeedbackComment(args: {
     lines.push("");
     for (const item of analysis.secondOpinion.missed) lines.push(`- ${severityTag(item.severity)} ${item.title} — ${item.observation}`);
     for (const item of analysis.secondOpinion.disputed) lines.push(`- _Disputed finding:_ ${item.item} — ${item.reason}`);
+    lines.push("");
+  }
+
+  const assumptions = (analysis?.assumptions ?? []).filter((item) => (item.severity === "high" || item.severity === "medium") && !isDismissed("assumption", item.title));
+  if (assumptions.length > 0) {
+    sections.push("assumptions");
+    lines.push("### Assumptions to confirm");
+    lines.push("");
+    for (const item of assumptions.slice(0, 6)) lines.push(`- **${item.title}**${item.location ? ` (\`${item.location}\`)` : ""} — ${item.observation}${item.perspective ? ` _If wrong:_ ${item.perspective}` : ""}`);
+    lines.push("");
+  }
+
+  const uncoveredEdgeCases = (analysis?.edgeCases ?? []).filter((item) => (item.covered === "no" || item.covered === "partial") && !isDismissed("edge-case", item.title));
+  if (uncoveredEdgeCases.length > 0) {
+    sections.push("edge-cases");
+    lines.push("### Edge cases without test coverage");
+    lines.push("");
+    for (const item of uncoveredEdgeCases.slice(0, 6)) lines.push(`- ${severityTag(item.severity)} **${item.title}**${item.location ? ` (\`${item.location}\`)` : ""} — ${item.observation}${item.recommendation ? ` _Suggested:_ ${item.recommendation}` : ""}`);
     lines.push("");
   }
 

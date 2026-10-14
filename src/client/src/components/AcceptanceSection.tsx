@@ -1,48 +1,41 @@
-import { ClipboardCheck } from "lucide-react";
-import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus } from "../../../shared/types";
+import { ClipboardCheck, Loader2, Play } from "lucide-react";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, VerificationJob } from "../../../shared/types";
+import { acceptanceTotals, criterionRunState, effectiveCriterionStatus } from "../../../shared/acceptance";
 import { Badge } from "./uiBits";
 import "./acceptance.css";
+
+export { acceptanceTotals, effectiveCriterionStatus };
 
 const statusLabel: Record<CriterionStatus, string> = { proven: "proven", unproven: "unproven", failed: "failed", "not-applicable": "n/a" };
 const statusTone: Record<CriterionStatus, string> = { proven: "added", unproven: "review-needed", failed: "danger", "not-applicable": "neutral" };
 
-export function effectiveCriterionStatus(criterion: Pick<AcceptanceCriterion, "status" | "humanStatus">): CriterionStatus {
-  return criterion.humanStatus ?? criterion.status;
-}
-
-export function acceptanceTotals(contract?: AcceptanceContract | null) {
-  const totals = { total: 0, proven: 0, unproven: 0, failed: 0, notApplicable: 0 };
-  for (const criterion of contract?.criteria ?? []) {
-    totals.total += 1;
-    const status = effectiveCriterionStatus(criterion);
-    if (status === "proven") totals.proven += 1;
-    else if (status === "failed") totals.failed += 1;
-    else if (status === "not-applicable") totals.notApplicable += 1;
-    else totals.unproven += 1;
-  }
-  return totals;
-}
-
 /**
  * The acceptance-criteria contract: what was asked (issue/PR body), whether the
- * PR proves it, and the evidence. Reviewers can override any verdict.
+ * PR proves it, and the evidence. "Proven" means a test encodes the criterion
+ * and MNLens ran it green; a failed run turns the criterion red. Reviewers can
+ * override any verdict.
  */
 export function AcceptanceSection({
   contract,
   diffHash,
   busy,
   error,
+  verificationJobs = [],
   onGenerate,
-  onOverride
+  onOverride,
+  onRunVerification
 }: {
   contract?: AcceptanceContract | null;
   diffHash?: string;
   busy: boolean;
   error?: string;
+  verificationJobs?: VerificationJob[];
   onGenerate: (force: boolean) => void;
   onOverride: (criterion: AcceptanceCriterion, status: CriterionStatus | null) => void;
+  /** Runs (or re-runs) the command that exercises a criterion. */
+  onRunVerification?: (command: string) => void;
 }) {
-  const totals = acceptanceTotals(contract);
+  const totals = acceptanceTotals(contract, verificationJobs);
   const stale = Boolean(contract && diffHash && contract.diffHash !== diffHash);
   const scoreable = totals.total - totals.notApplicable;
   return (
@@ -50,14 +43,14 @@ export function AcceptanceSection({
       <div className="panel-title">
         <div>
           <h3>Acceptance Contract</h3>
-          <p className="muted">Does the PR do what the issue and description asked, and what proves it?</p>
+          <p className="muted">Does the PR do what the issue and description asked, and what proves it? Named tests are run locally; a red run fails the criterion.</p>
         </div>
         <ClipboardCheck size={18} />
       </div>
 
       {!contract ? (
         <>
-          <p className="muted">No contract yet. The agent extracts criteria from linked issues and the PR body, then maps each one to a test, code location, CI check or local verification run.</p>
+          <p className="muted">Built automatically after Deep Analyze. The agent extracts criteria from linked issues and the PR body, maps each one to a test, code location, CI check or local run, and MNLens runs the named tests.</p>
           <button type="button" onClick={() => onGenerate(false)} disabled={busy}>
             {busy ? "Building contract..." : "Build acceptance contract"}
           </button>
@@ -68,6 +61,8 @@ export function AcceptanceSection({
             <strong>
               {totals.proven}/{scoreable} proven
             </strong>
+            {totals.ran > 0 && <Badge tone="added">{totals.ran} ran green</Badge>}
+            {totals.running > 0 && <Badge tone="queue">{totals.running} running</Badge>}
             {totals.failed > 0 && <Badge tone="danger">{totals.failed} failed</Badge>}
             {totals.unproven > 0 && <Badge tone="review-needed">{totals.unproven} unproven</Badge>}
             {totals.notApplicable > 0 && <Badge tone="neutral">{totals.notApplicable} n/a</Badge>}
@@ -82,11 +77,14 @@ export function AcceptanceSection({
           {contract.summary && <p>{contract.summary}</p>}
           <ol className="acceptance-list">
             {contract.criteria.map((criterion) => {
-              const status = effectiveCriterionStatus(criterion);
+              const status = effectiveCriterionStatus(criterion, verificationJobs);
+              const run = criterionRunState(criterion, verificationJobs);
+              const job = criterion.verification ? verificationJobs.find((item) => item.id === criterion.verification?.jobId) : undefined;
               return (
                 <li key={criterion.id} className={`acceptance-item ${status}`}>
                   <div className="acceptance-item-head">
                     <Badge tone={statusTone[status]}>{statusLabel[status]}</Badge>
+                    {run && <RunBadge state={run} />}
                     <span className="acceptance-text">{criterion.text}</span>
                     <span className="acceptance-origin muted">
                       {criterion.source === "linked-issue" ? criterion.origin ?? "issue" : criterion.source === "pr-body" ? "PR body" : "derived from diff"}
@@ -102,6 +100,17 @@ export function AcceptanceSection({
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {criterion.command && (
+                    <div className="acceptance-command">
+                      <code>{criterion.command}</code>
+                      {onRunVerification && (
+                        <button type="button" className="ghost" onClick={() => onRunVerification(criterion.command!)} disabled={run === "queued" || run === "running"} title={run ? "Run this command again in the PR checkout" : "Run this command in the PR checkout"}>
+                          {run === "queued" || run === "running" ? <Loader2 size={13} className="spin" /> : <Play size={13} />} {run ? "Run again" : "Run"}
+                        </button>
+                      )}
+                      {job?.error && run === "failed" && <span className="muted acceptance-run-error">{job.error.split("\n")[0].slice(0, 140)}</span>}
+                    </div>
                   )}
                   {(criterion.note || criterion.humanNote) && <p className="muted acceptance-note">{criterion.humanNote ?? criterion.note}</p>}
                   <div className="acceptance-actions">
@@ -135,5 +144,15 @@ export function AcceptanceSection({
       )}
       {error && <p className="acceptance-error">{error}</p>}
     </section>
+  );
+}
+
+function RunBadge({ state }: { state: NonNullable<ReturnType<typeof criterionRunState>> }) {
+  if (state === "passed") return <Badge tone="added">ran green</Badge>;
+  if (state === "failed") return <Badge tone="danger">run failed</Badge>;
+  return (
+    <Badge tone="queue">
+      <Loader2 size={11} className="spin" /> {state === "queued" ? "queued" : "running"}
+    </Badge>
   );
 }

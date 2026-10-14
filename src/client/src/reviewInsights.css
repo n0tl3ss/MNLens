@@ -39,30 +39,30 @@
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #e0e6e8;
-  border-left: 4px solid #8a9599;
+  border: 1px solid var(--mn-border-soft);
+  border-left: 4px solid var(--mn-faint);
   border-radius: 7px;
-  background: rgba(246, 245, 241, 0.76);
+  background: var(--mn-surface-raised);
 }
 
 .insight-section.evidence .insight-list article {
-  border-left-color: #2f9f86;
-  background: #e9efea;
+  border-left-color: var(--mn-ok);
+  background: var(--mn-ok-soft);
 }
 
 .insight-section.focus .insight-list article {
-  border-left-color: #245f68;
-  background: #eef8fa;
+  border-left-color: var(--mn-primary-deep);
+  background: var(--mn-primary-soft);
 }
 
 .insight-section.risk .insight-list article {
-  border-left-color: #b5463d;
-  background: #f1e7e3;
+  border-left-color: var(--mn-danger);
+  background: var(--mn-danger-soft);
 }
 
 .insight-section.tests .verification-item {
-  border-left-color: #7a6bb0;
-  background: #f7f2ff;
+  border-left-color: var(--mn-accent);
+  background: var(--mn-accent-soft);
 }
 
 .insight-list article {
@@ -84,31 +84,31 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: #203538;
-  color: #f6f5f1;
+  background: var(--mn-faint);
+  color: var(--mn-on-accent);
   font-size: 12px;
   font-weight: 850;
 }
 
 .insight-section.evidence .insight-rank {
-  background: #2f9f86;
+  background: var(--mn-ok);
 }
 
 .insight-section.focus .insight-rank {
-  background: #245f68;
+  background: var(--mn-primary-deep);
 }
 
 .insight-section.risk .insight-rank {
-  background: #b5463d;
+  background: var(--mn-danger);
 }
 
 .insight-section.tests .verification-item > div:first-child > span {
-  background: #7a6bb0;
+  background: var(--mn-accent);
 }
 
 .insight-list p,
 .verification-item p {
-  color: #2a3437;
+  color: var(--mn-text);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -140,30 +140,16 @@
   overflow-wrap: anywhere;
 }
 
-.text-button {
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-
-.text-button:hover {
-  background: transparent;
-  text-decoration: underline;
-}
-
 .insight-done-check {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   min-height: 24px;
   padding: 2px 7px;
-  border: 1px solid #ccd7da;
+  border: 1px solid var(--mn-border);
   border-radius: 999px;
-  background: rgba(246, 245, 241, 0.65);
-  color: #415155;
+  background: var(--mn-surface-raised);
+  color: var(--mn-text-soft);
   font-size: 12px;
   font-weight: 750;
   white-space: nowrap;
@@ -179,19 +165,22 @@
 .reviewer-recommendation {
   margin-top: 7px;
   padding: 7px 8px;
-  border: 1px solid #cfe0e4;
+  border: 1px solid var(--mn-primary-border);
   border-radius: 6px;
-  background: #e8ebec;
+  background: var(--mn-primary-soft);
 }
 
 .reviewer-recommendation {
-  border-color: #d7c9ef;
-  background: #f5f0ff;
+  border-color: var(--mn-accent-border);
+  background: var(--mn-accent-soft);
 }
 
-.reviewer-perspective b,
+.reviewer-perspective b {
+  color: var(--mn-primary-ink);
+}
+
 .reviewer-recommendation b {
-  color: #1f5963;
+  color: var(--mn-accent-ink);
 }
 
 .risk-question {
@@ -200,9 +189,9 @@
   min-width: 0;
   margin-top: 8px;
   padding: 8px;
-  border: 1px solid #f0d1cb;
+  border: 1px solid var(--mn-danger-border);
   border-radius: 6px;
-  background: #fff8f6;
+  background: var(--mn-danger-soft);
 }
 
 .risk-question textarea {
@@ -227,11 +216,11 @@
 .risk-answer {
   padding: 8px;
   border-radius: 6px;
-  background: rgba(246, 245, 241, 0.9);
+  background: var(--mn-surface);
 }
 
 .risk-answer.error-text {
-  color: #9b352b;
+  color: var(--mn-danger-ink);
 }
 
 .risk-question.collapsed {
@@ -246,4 +235,56 @@
   align-items: center;
   gap: 4px;
   font-size: 12.5px;
+}
+
+/* Assumptions (amber) and edge cases (violet) sit beside evidence/focus/risk. */
+.insight-section.assumption {
+  border-top-color: var(--mn-warn);
+}
+
+.insight-section.edge {
+  border-top-color: var(--mn-accent);
+}
+
+.insight-section.assumption .insight-list article {
+  border-left-color: var(--mn-warn);
+  background: var(--mn-warn-soft);
+}
+
+.insight-section.edge .insight-list article {
+  border-left-color: var(--mn-accent);
+  background: var(--mn-accent-soft);
+}
+
+.insight-section.assumption .insight-rank {
+  background: var(--mn-warn);
+}
+
+.insight-section.edge .insight-rank {
+  background: var(--mn-accent);
+}
+
+.insight-section.assumption .reviewer-perspective b {
+  color: var(--mn-warn-ink);
+}
+
+.insight-section.edge .reviewer-perspective b,
+.insight-section.edge .reviewer-recommendation b {
+  color: var(--mn-accent-ink);
+}
+
+.insight-intro {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.insight-location {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--mn-code-inline-bg);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
 }

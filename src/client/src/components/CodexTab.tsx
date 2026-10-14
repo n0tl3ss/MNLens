@@ -51,7 +51,7 @@ export function FixSection({
       : preparedPreview;
   const running = visibleSession?.status === "queued" || visibleSession?.status === "running";
   const canPush = Boolean(preparedPreview && !running);
-  const passes = ["Research", "Implementation", "Tests/QA", "Docs", "Security", "Final review"];
+  const passes = ["Implementation", "Tests/QA", "Final review"];
   useEffect(() => {
     if (!highlightedJobId) return;
     setViewedJobId(highlightedJobId);
@@ -436,13 +436,10 @@ function fixPhaseInfo(job?: FixJob): {
   const message = job.statusMessage ?? "Fix session is running.";
   if (job.phase === "preparing") return { title: "Workspace setup", detail: message, phaseLabel: "preparing", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "checking-out") return { title: "PR checkout", detail: message, phaseLabel: "checkout", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
-  if (job.phase === "research") return { title: "Research pass", detail: message, phaseLabel: "research", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "implementation") return { title: job.baseJobId ? "Implementation continuation" : "Implementation pass", detail: message, phaseLabel: "implementation", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "tests-qa") return { title: "Tests/QA pass", detail: message, phaseLabel: "tests/QA", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
-  if (job.phase === "docs") return { title: "Docs pass", detail: message, phaseLabel: "docs", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
-  if (job.phase === "security") return { title: "Security pass", detail: message, phaseLabel: "security", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "final-review") return { title: "Final review pass", detail: message, phaseLabel: "final review", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
-  if (job.phase === "codex") return { title: job.baseJobId ? "Codex continuation pass" : "Codex implementation pass", detail: `${message} Active passes: research, implementation, tests/QA, docs, security, final review.`, phaseLabel: "codex", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
+  if (job.phase === "codex") return { title: job.baseJobId ? "Codex continuation pass" : "Codex implementation pass", detail: `${message} Active passes: implementation, tests/QA, final review.`, phaseLabel: "codex", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "testing") return { title: "Local verification", detail: message, phaseLabel: "tests/QA", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "committing") return { title: "Commit preparation", detail: message, phaseLabel: "commit", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };
   if (job.phase === "pushing") return { title: "Pushing approved fix", detail: message, phaseLabel: "push", progress: fixProgress(job.phase), tone: "running", badgeTone: "queue" };

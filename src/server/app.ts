@@ -6,9 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   AnalyzeRequest,
-  AttachGithubProjectRequest,
   AskCiRequest,
-  AskResearchRequest,
   AskRiskRequest,
   CreateRepoReviewRuleRequest,
   FixRequest,
@@ -38,12 +36,12 @@ import type {
   VerificationRequest
 } from "../shared/types.js";
 import { clearAllCache, clearPrCache, ensureCache, exportCacheBundle, readAnalysis, readPrDetail, readProgress, stats, writeAnalysis, writeProgress } from "./cache.js";
-import { attachPrToGithubProject, authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getPrDetail, listGithubProjects, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, resolveReviewThread, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
+import { authStatus, confirmRebasePrOntoDefault, getCiChecks, getCiLog, getGithubRateLimit, getPrDetail, listPrs, listRepositoryBranches, mergePrTargetIntoHead, rebasePrOntoDefault, replyToConversation, resolveReviewThread, submitReview, updatePrBranch, updatePrTargetBranch } from "./gh.js";
 import { cancelAnalysisJob, enqueueAnalysis, getJob, jobStatusForPr, recoverAnalysisJobs } from "./jobs.js";
 import { cancelVerificationJob, enqueueManualVerification, enqueueVerification, getVerificationJob, listVerificationJobs } from "./verification.js";
 import { recoverVerificationJobs } from "./verification.js";
 import { askFixQuestion, cancelFix, enqueueFix, getFixJob, getFixLiveDiff, listActiveFixJobs, listFixJobs, pushFix, recoverFixJobs, retryFix } from "./fix.js";
-import { askCiFailure, askResearch, askRisk, normalizeAnalysisForDetail, normalizeAnalysisWithLocalGradleChecks } from "./codex.js";
+import { askCiFailure, askRisk, normalizeAnalysisForDetail, normalizeAnalysisWithLocalGradleChecks } from "./codex.js";
 import { openPrInEditor } from "./editor.js";
 import { storeGithubToken } from "./keychain.js";
 import { getSetupStatus } from "./setup.js";
@@ -135,27 +133,6 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     res.json(await authStatus());
   });
 
-  app.get("/api/github-projects/:owner", async (req, res, next) => {
-    try {
-      res.json(await listGithubProjects(req.params.owner));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/github-projects/attach", async (req, res, next) => {
-    try {
-      const body = req.body as AttachGithubProjectRequest;
-      if (!body.owner || !body.repo || !body.number || !body.projectId) {
-        res.status(400).json({ error: "owner, repo, number, and projectId are required." });
-        return;
-      }
-      res.json(await attachPrToGithubProject(body.owner, body.repo, body.number, body.projectId, body.includeLinkedIssues ?? true));
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.get("/api/setup/status", async (_req, res, next) => {
     try {
       res.json(await getSetupStatus());
@@ -164,8 +141,12 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     }
   });
 
-  app.get("/api/github/rate-limit", (_req, res) => {
-    res.json(githubRateLimitStatus());
+  app.get("/api/github/rate-limit", async (_req, res, next) => {
+    try {
+      res.json(await getGithubRateLimit());
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/agent-settings", async (_req, res, next) => {
@@ -483,25 +464,15 @@ export async function createApp(options: { serveClient?: boolean; recoverJobs?: 
     }
   });
 
-  app.post("/api/ask-research", async (req, res, next) => {
-    try {
-      const body = req.body as AskResearchRequest;
-      if (!body.owner || !body.repo || !body.number || !body.source || !body.question?.trim()) {
-        res.status(400).json({ error: "Research question must include owner, repo, number, source, and question." });
-        return;
-      }
-      const detail = await getPrDetail(body.owner, body.repo, Number(body.number));
-      res.json({ answer: await askResearch(detail, body.source, body.question) });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post("/api/reviews", async (req, res, next) => {
     try {
       const body = req.body as SubmitReviewRequest;
-      if (body.event !== "APPROVE" && body.event !== "REQUEST_CHANGES") {
-        res.status(400).json({ error: "Review event must be APPROVE or REQUEST_CHANGES." });
+      if (!body.owner || !body.repo || !body.number) {
+        res.status(400).json({ error: "owner, repo and number are required." });
+        return;
+      }
+      if (body.event !== "APPROVE" && body.event !== "REQUEST_CHANGES" && body.event !== "COMMENT") {
+        res.status(400).json({ error: "Review event must be APPROVE, REQUEST_CHANGES or COMMENT." });
         return;
       }
       if (body.comments !== undefined && !Array.isArray(body.comments)) {

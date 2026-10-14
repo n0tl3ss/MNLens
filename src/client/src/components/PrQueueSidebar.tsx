@@ -25,6 +25,7 @@ import type { WorkActivityItem } from "./WorkActivityPanel";
 import { WorkActivityPanel } from "./WorkActivityPanel";
 import { AuthorLink, Badge, plural, relativeDate } from "./uiBits";
 import "./prQueueSidebar.css";
+import { agentHealthLabel, type AgentHealth } from "../setupAgents";
 
 const sortFields: PrSortField[] = ["date", "name", "score"];
 const sortDirections: SortDirection[] = ["desc", "asc"];
@@ -32,6 +33,18 @@ const typeLabels = ["all", "feature", "bug", "improvement", "refactor", "docs", 
 
 export type PrTypeFilter = (typeof typeLabels)[number];
 export type BulkAnalyzeMode = "fast" | "deep";
+
+function agentHealthTitle(health: AgentHealth | undefined): string {
+  const base = "Choose Codex or Claude Code and the model tier per task.";
+  if (!health) return base;
+  const selected = `${agentDisplayName(health.agent)} is ${agentHealthLabel(health.state)}${health.state === "signed-out" ? ` (run \`${health.agent} auth login\` / \`codex login\`)` : ""}.`;
+  const other = `${agentDisplayName(health.other)} (second opinion) is ${agentHealthLabel(health.otherState)}${health.otherState !== "ready" ? "; second opinions fall back to another " + agentDisplayName(health.agent) + " model" : ""}.`;
+  return `${selected} ${other} ${base}`;
+}
+
+function agentDisplayName(agent: "codex" | "claude"): string {
+  return agent === "claude" ? "Claude" : "Codex";
+}
 
 export function PrQueueSidebar({
   auth,
@@ -76,6 +89,7 @@ export function PrQueueSidebar({
   onOpenAgentSettings,
   onOpenTeamSettings,
   agentLabel,
+  agentHealth,
   stackSummaries,
   onSelectActivity,
   onSelectPr,
@@ -130,6 +144,8 @@ export function PrQueueSidebar({
   onOpenAgentSettings: () => void;
   onOpenTeamSettings?: () => void;
   agentLabel?: string;
+  /** Install / sign-in state of the selected agent and the second-opinion agent. */
+  agentHealth?: AgentHealth;
   stackSummaries?: PrStackSummaryMap;
   onSelectActivity: (item: WorkActivityItem) => void;
   onSelectPr: (pr: PrListItem) => void;
@@ -146,7 +162,7 @@ export function PrQueueSidebar({
     <aside className="sidebar">
       <header className="app-header">
         <div className="brand-lockup">
-          <img src="/mnlens-logo.png?v=5" alt="" />
+          <img src="/mnlens-logo.svg" alt="" />
           <div>
             <h1>MNLens</h1>
             <p>Human-led GitHub review</p>
@@ -242,9 +258,10 @@ export function PrQueueSidebar({
           {bulkAnalyzeMode === "deep" ? "Deep Analyze visible" : "Fast Analyze visible"}
           {unanalyzedVisibleCount > 0 && <span>{unanalyzedVisibleCount} new first</span>}
         </button>
-        <button type="button" className="ghost agent-chip" onClick={onOpenAgentSettings} title="Choose Codex or Claude Code and the model tier per task">
+        <button type="button" className={`ghost agent-chip ${agentHealth?.state ?? ""}`} onClick={onOpenAgentSettings} title={agentHealthTitle(agentHealth)}>
           <Bot size={14} />
           {agentLabel ? `Agent: ${agentLabel}` : "Choose agent"}
+          {agentHealth && agentHealth.state !== "ready" && <span className="agent-chip-state">{agentHealthLabel(agentHealth.state)}</span>}
         </button>
       </div>
 
@@ -329,7 +346,7 @@ function PrRepositorySection({
                 <span className="row-triage">
                   <Badge tone={triage.tone}>{triage.label}</Badge>
                   {stack && (
-                    <Badge tone="queue">
+                    <Badge tone="stack">
                       <Layers size={11} /> {stack.position}/{stack.size}
                     </Badge>
                   )}
@@ -376,7 +393,7 @@ function PrRepositorySection({
                   <Badge tone={toneForType(pr.aiType)}>{pr.aiType ?? "unread"}</Badge>
                   <Badge tone={toneForReviewDecision(pr.reviewDecision)}>{reviewDecisionLabel(pr.reviewDecision)}</Badge>
                   {pr.queues.map((item) => (
-                    <Badge key={item} tone="queue">{item}</Badge>
+                    <Badge key={item} tone="accent">{item}</Badge>
                   ))}
                   {pr.labels.slice(0, 3).map((label) => (
                     <Badge key={label} tone="label">{label}</Badge>
@@ -395,7 +412,7 @@ function Segmented<T extends string>({ value, values, onChange }: { value: T; va
   return (
     <div className="segmented">
       {values.map((item) => (
-        <button key={item} className={value === item ? "active" : ""} onClick={() => onChange(item)}>
+        <button key={item} className={value === item ? "active" : ""} onClick={() => onChange(item)} title={queueTitle(item)} aria-pressed={value === item}>
           {queueLabel(item)}
         </button>
       ))}
@@ -404,8 +421,15 @@ function Segmented<T extends string>({ value, values, onChange }: { value: T; va
 }
 
 function queueLabel(value: string): string {
-  if (value === "review-requested") return "review requested";
-  return value;
+  if (value === "review-requested") return "Requested";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function queueTitle(value: string): string {
+  if (value === "all") return "Every open PR you are involved in";
+  if (value === "assigned") return "PRs assigned to you";
+  if (value === "review-requested") return "PRs where your review was requested";
+  return "PRs you already reviewed";
 }
 
 function toneForType(type?: string): string {

@@ -30,12 +30,12 @@
 }
 
 .detail-meta {
-  color: #606b6e;
+  color: var(--mn-muted);
   font-size: 13px;
 }
 
 .detail-meta strong {
-  color: #2a3437;
+  color: var(--mn-text);
   font-weight: 800;
 }
 
@@ -71,7 +71,7 @@
 }
 
 .target-branch-hint {
-  color: #606b6e;
+  color: var(--mn-muted);
   font-size: 12px;
 }
 
@@ -81,7 +81,7 @@
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 9px;
-  color: #606b6e;
+  color: var(--mn-muted);
   font-size: 12px;
 }
 
@@ -98,10 +98,10 @@
   max-width: 240px;
   min-width: 0;
   padding: 4px 8px;
-  border: 1px solid #d8e3e6;
+  border: 1px solid var(--mn-border);
   border-radius: 999px;
-  background: #f0f0ec;
-  color: #2a3437;
+  background: var(--mn-surface-soft);
+  color: var(--mn-text);
   text-decoration: none;
 }
 
@@ -116,47 +116,46 @@
   flex: 0 0 auto;
   font-style: normal;
   font-weight: 850;
-  color: #606b6e;
+  color: var(--mn-muted);
 }
 
 .reviewer-status.approved {
-  border-color: #9fdccd;
-  background: #edfbf7;
+  border-color: var(--mn-ok-border);
+  background: var(--mn-ok-soft);
 }
 
 .reviewer-status.approved em {
-  color: #0f7568;
+  color: var(--mn-ok-ink);
 }
 
 .reviewer-status.changes {
-  border-color: #f1b0aa;
-  background: #fff4f2;
+  border-color: var(--mn-danger-border);
+  background: var(--mn-danger-soft);
 }
 
 .reviewer-status.changes em {
-  color: #b13f37;
+  color: var(--mn-danger-ink);
 }
 
 .reviewer-status.waiting {
-  border-color: #dfc98f;
-  background: #fff9e9;
+  border-color: var(--mn-warn-border);
+  background: var(--mn-warn-soft);
 }
 
 .reviewer-status.waiting em {
-  color: #8f6415;
+  color: var(--mn-warn-ink);
 }
 
 .detail-action-buttons .branch-work-suggested {
-  border-color: #b5463d;
-  background:
-    #f2e9e7;
-  color: #8b2f2b;
+  border-color: var(--mn-danger);
+  background: var(--mn-danger-soft);
+  color: var(--mn-danger-ink);
   font-weight: 850;
-  box-shadow: 0 0 0 3px rgba(207, 75, 66, 0.09);
+  box-shadow: 0 0 0 3px var(--mn-ring-danger);
 }
 
 .branch-link {
-  color: #1d5a6c;
+  color: var(--mn-link);
   font-weight: 850;
   text-decoration: none;
 }
@@ -191,86 +190,22 @@
 }
 
 .detail-action-buttons button.active {
-  border-color: #80cdf0;
-  background: #e6ebe9;
-  color: #095f91;
-  box-shadow: inset 0 0 0 1px rgba(93, 90, 168, 0.16);
+  border-color: var(--mn-primary-border);
+  background: var(--mn-primary-soft);
+  color: var(--mn-primary-ink);
+  box-shadow: inset 0 0 0 1px var(--mn-ring-primary);
 }
 
 .detail-action-buttons .deep-analyze-suggested {
-  border-color: #5d5aa8;
-  background:
-    #eeeeea;
-  color: #25227e;
+  border-color: var(--mn-accent);
+  background: var(--mn-accent-soft);
+  color: var(--mn-accent-ink);
   font-weight: 850;
-  box-shadow: 0 0 0 3px rgba(93, 90, 168, 0.1);
+  box-shadow: 0 0 0 3px var(--mn-ring-accent);
 }
 
 .status-strip {
   margin: 10px 0 18px;
-}
-
-[data-theme="dark"] .detail-action-buttons button.active {
-  border-color: #286486;
-  background: #2b3238;
-  color: #cfe3ea;
-}
-
-[data-theme="dark"] .detail-action-buttons .deep-analyze-suggested {
-  border-color: #9a95d6;
-  background:
-    #2b3238;
-  color: #e1ddff;
-  box-shadow: 0 0 0 3px rgba(154, 149, 214, 0.16);
-}
-
-[data-theme="dark"] .detail-action-buttons .branch-work-suggested {
-  border-color: #c9625a;
-  background:
-    #352726;
-  color: #ffd7d3;
-  box-shadow: 0 0 0 3px rgba(224, 102, 92, 0.14);
-}
-
-[data-theme="dark"] .detail-meta {
-  color: #9aa4a9;
-}
-
-[data-theme="dark"] .reviewer-status-list {
-  color: #9aa4a9;
-}
-
-[data-theme="dark"] .reviewer-status {
-  border-color: #3a4146;
-  background: #24282c;
-  color: #e2e3dd;
-}
-
-[data-theme="dark"] .reviewer-status.approved {
-  border-color: #1d836f;
-  background: #0d302b;
-}
-
-[data-theme="dark"] .reviewer-status.approved em {
-  color: #81eadb;
-}
-
-[data-theme="dark"] .reviewer-status.changes {
-  border-color: #8e403b;
-  background: #352726;
-}
-
-[data-theme="dark"] .reviewer-status.changes em {
-  color: #ffbbb6;
-}
-
-[data-theme="dark"] .reviewer-status.waiting {
-  border-color: #76591e;
-  background: #302a1c;
-}
-
-[data-theme="dark"] .reviewer-status.waiting em {
-  color: #f0c66f;
 }
 
 @media (max-width: 960px) {

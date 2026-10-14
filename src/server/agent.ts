@@ -1,4 +1,4 @@
-import { chmod, copyFile, mkdir } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -90,7 +90,7 @@ export async function prepareAgentRun(request: AgentRunRequest): Promise<AgentIn
     return {
       agent,
       command: "claude",
-      args: claudeArgs({ ...request, model, effort, persist, maxBudgetUsd: settings.maxBudgetUsdPerRun }),
+      args: claudeArgs({ ...request, model, effort, persist, maxBudgetUsd: settings.maxBudgetUsdPerRun, mcpConfig: await claudeMcpConfig(settings.claudeMcpConfig) }),
       env: { ...agentGithubEnv(), ...(request.extraEnv ?? {}), ...claudeEnv() },
       omitEnv: agentOmitEnv,
       input: request.prompt,
@@ -203,8 +203,40 @@ export async function ensureCodexHome(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const claudeEditTools = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+/** Shell commands a read-only analysis may run without a prompt; everything else stays denied. */
+export const claudeReadOnlyCommands = ["Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)", "Bash(git blame:*)", "Bash(git grep:*)", "Bash(rg:*)", "Bash(grep:*)"];
 
-function claudeArgs(request: AgentRunRequest & { model: string; effort?: string; persist: boolean; maxBudgetUsd?: number }): string[] {
+/**
+ * Working directory for agent runs that need no files (Q&A, second opinion, review draft):
+ * an empty folder, so the agent cannot wander into the MNLens checkout or the cache
+ * (which holds agent credentials) through its read tools.
+ */
+export async function agentScratchDir(): Promise<string> {
+  const dir = join(cacheDir, "agent-scratch");
+  await mkdir(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * The reviewer's own MCP servers, handed to every Claude run. Claude Code reads
+ * CLAUDE.md and skills from the checkout and `~/.claude` on its own; MCP servers
+ * are the one part of a reviewer's setup that `-p` runs do not pick up without
+ * an explicit `--mcp-config`, and under `dontAsk` their tools would be denied
+ * unless pre-approved, so the server names are collected for `--allowedTools`.
+ */
+export async function claudeMcpConfig(path: string | undefined): Promise<{ path: string; servers: string[] } | undefined> {
+  if (!path) return undefined;
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8")) as { mcpServers?: Record<string, unknown> };
+    const servers = Object.keys(raw.mcpServers ?? {}).filter((name) => /^[A-Za-z0-9_-]+$/.test(name));
+    return { path, servers };
+  } catch {
+    // A missing or malformed file must not break reviews; the run simply goes without MCP.
+    return undefined;
+  }
+}
+
+function claudeArgs(request: AgentRunRequest & { model: string; effort?: string; persist: boolean; maxBudgetUsd?: number; mcpConfig?: { path: string; servers: string[] } }): string[] {
   // Long-running fix passes stream NDJSON so the session log shows live tool activity; one-shot
   // read-only calls use the compact `json` envelope (required for --json-schema structured output).
   const streaming = request.access === "full-access" && !request.outputSchema;
@@ -217,7 +249,9 @@ function claudeArgs(request: AgentRunRequest & { model: string; effort?: string;
     args.push("--permission-mode", "bypassPermissions");
   } else {
     // Read-only: deny anything that would prompt and remove edit tools from Claude's context entirely.
+    // Read-only git/grep commands are pre-approved so the agent can inspect history and callers in a checkout.
     args.push("--permission-mode", "dontAsk");
+    args.push("--allowedTools", [...claudeReadOnlyCommands, ...(request.mcpConfig?.servers ?? []).map((name) => `mcp__${name}`)].join(","));
     disallowed.push(...claudeEditTools);
   }
   // Nobody is watching the terminal; never wait on a permission prompt.
@@ -227,6 +261,7 @@ function claudeArgs(request: AgentRunRequest & { model: string; effort?: string;
   if (!request.persist && !request.sessionId) args.push("--no-session-persistence");
   if (request.outputSchema) args.push("--json-schema", JSON.stringify(request.outputSchema));
   if (request.maxBudgetUsd) args.push("--max-budget-usd", String(request.maxBudgetUsd));
+  if (request.mcpConfig) args.push("--mcp-config", request.mcpConfig.path);
   return args;
 }
 

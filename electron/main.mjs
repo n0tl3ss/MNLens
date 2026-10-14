@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, nativeTheme, shell } from "electron";
 import { createServer } from "node:http";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, resolve, join } from "node:path";
@@ -26,7 +26,7 @@ async function main() {
     minWidth: 980,
     minHeight: 720,
     title: "MNLens",
-    backgroundColor: "#07131c",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#1b1e21" : "#e7e8e3",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -63,14 +63,28 @@ function startupSplashUrl(message, logoUrl) {
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <title>MNLens</title>
     <style>
       :root {
-        color-scheme: dark;
+        color-scheme: light dark;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #07131c;
-        color: #eefbff;
+        --bg: #e7e8e3;
+        --ink: #20292d;
+        --muted: #5f6a6e;
+        --track: #d3d5cd;
+        --bar: #2a7a93;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1b1e21;
+          --ink: #e8ebec;
+          --muted: #9aa4a9;
+          --track: #30363b;
+          --bar: #6fb3cc;
+        }
       }
       * { box-sizing: border-box; }
       body {
@@ -79,11 +93,7 @@ function startupSplashUrl(message, logoUrl) {
         display: grid;
         place-items: center;
         overflow: hidden;
-        background:
-          radial-gradient(circle at 18% 12%, rgba(21, 155, 211, 0.34), transparent 30%),
-          radial-gradient(circle at 82% 18%, rgba(102, 87, 255, 0.28), transparent 28%),
-          radial-gradient(circle at 58% 84%, rgba(17, 191, 165, 0.22), transparent 32%),
-          linear-gradient(135deg, #07131c 0%, #0b1d2c 54%, #09151f 100%);
+        background: var(--bg);
       }
       main {
         width: min(420px, calc(100vw - 48px));
@@ -93,11 +103,10 @@ function startupSplashUrl(message, logoUrl) {
         text-align: center;
       }
       .mark {
-        width: 118px;
-        height: 118px;
+        width: 96px;
+        height: 96px;
         display: grid;
         place-items: center;
-        filter: drop-shadow(0 26px 70px rgba(21, 155, 211, 0.36));
       }
       .mark img {
         width: 100%;
@@ -106,21 +115,20 @@ function startupSplashUrl(message, logoUrl) {
       }
       h1 {
         margin: 0;
-        font-size: 24px;
+        font-size: 22px;
         letter-spacing: 0;
       }
       p {
-        margin: 0;
-        color: #a9c7d4;
+        margin: 4px 0 0;
+        color: var(--muted);
         font-size: 14px;
       }
       .bar {
         width: 100%;
-        height: 7px;
+        height: 6px;
         overflow: hidden;
-        border: 1px solid rgba(133, 230, 255, 0.2);
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--track);
       }
       .bar::before {
         content: "";
@@ -128,7 +136,7 @@ function startupSplashUrl(message, logoUrl) {
         width: 42%;
         height: 100%;
         border-radius: inherit;
-        background: linear-gradient(90deg, #11bfa5, #27b7f2, #6657ff);
+        background: var(--bar);
         animation: load 1.35s ease-in-out infinite;
       }
       @keyframes load {

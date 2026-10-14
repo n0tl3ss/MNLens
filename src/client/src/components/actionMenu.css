@@ -17,10 +17,10 @@
   display: grid;
   min-width: 200px;
   padding: 4px;
-  border: 1px solid var(--mn-border, #cfd1c8);
+  border: 1px solid var(--mn-border);
   border-radius: 8px;
-  background: var(--mn-surface, #f6f5f1);
-  box-shadow: 0 10px 28px rgba(16, 24, 32, 0.18);
+  background: var(--mn-surface);
+  box-shadow: var(--mn-shadow-pop);
 }
 
 .action-menu-list button {
@@ -38,25 +38,15 @@
 }
 
 .action-menu-list button:hover:not(:disabled) {
-  background: var(--mn-surface-soft, #eeeeea);
+  background: var(--mn-surface-soft);
 }
 
 .action-menu-list button.danger {
-  color: var(--mn-danger, #b9483f);
+  color: var(--mn-danger);
 }
 
 .action-menu-check {
   display: inline-block;
   width: 14px;
   font-weight: 700;
-}
-
-[data-theme="dark"] .action-menu-list {
-  border-color: #3a4146;
-  background: #24282c;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
-}
-
-[data-theme="dark"] .action-menu-list button:hover:not(:disabled) {
-  background: #2a2f34;
 }

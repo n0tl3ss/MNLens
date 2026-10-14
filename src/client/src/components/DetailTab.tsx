@@ -1,16 +1,13 @@
-import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, GithubProject, Job, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, RepoReviewRule, SuggestedCommentKind, VerificationJob } from "../../../shared/types";
+import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, FindingKind, ReviewMemorySummary, AgentUsageSummary, AnalysisResult, CiCheck, EditorKind, FixJob, Job, PrDetail, ReviewComment, ReviewDraft, ReviewProgress, RepoReviewRule, SuggestedCommentKind, VerificationJob } from "../../../shared/types";
 import { buildOverviewLinePins } from "../planHelpers";
 import type { Tab } from "../reviewTypes";
-import { reviewReplay, type ReviewReplay } from "./ReviewDeltaSection";
 import type { ReviewRecommendation } from "./OverviewSections";
+import type { AgentHealthState } from "../setupAgents";
 import { OverviewTab } from "./OverviewTab";
 import { DiffTab } from "./DiffTab";
-import { ReviewTraceSection } from "./ReviewTraceSection";
 import { CommitTimeline } from "./CommitTimeline";
-import { ResearchTab } from "./ResearchTab";
 import { FixSection } from "./CodexTab";
 import { CommentTab, type DraftReviewComment } from "./CommentTab";
-import { HandoffTab } from "./HandoffTab";
 import { ReviewTab } from "./ReviewTab";
 
 export function DetailTab({
@@ -19,6 +16,7 @@ export function DetailTab({
   analysis,
   usage,
   secondOpinionBusy,
+  secondOpinionAgentState,
   secondOpinionError,
   onRequestSecondOpinion,
   acceptance,
@@ -42,9 +40,6 @@ export function DetailTab({
   onPreviewFeedback,
   onPostFeedback,
   progress,
-  githubProjects,
-  githubProjectsError,
-  projectAttachBusy,
   repoRules,
   reviewComments,
   analysisJobs,
@@ -55,11 +50,9 @@ export function DetailTab({
   ciLogs,
   ciLoading,
   canApproveWithoutComments,
-  attentionMode,
   openingEditor,
   expandedFile,
   onSaveProgress,
-  onAttachGithubProject,
   onAddRepoRule,
   onSetRepoRuleEnabled,
   onToggleExpandedFile,
@@ -88,10 +81,13 @@ export function DetailTab({
   resolvingReviewThreads,
   onResolveReviewThread,
   buildRecommendation,
-  buildHandoffMarkdown
+  selfReview,
+  onOpenInDiff
 }: {
   usage?: AgentUsageSummary;
   secondOpinionBusy?: boolean;
+  /** Install / sign-in state of the other vendor's CLI (the second-opinion agent). */
+  secondOpinionAgentState?: AgentHealthState;
   secondOpinionError?: string;
   onRequestSecondOpinion?: () => void;
   acceptance?: AcceptanceContract | null;
@@ -106,7 +102,11 @@ export function DetailTab({
   onUseFinalComment?: (body: string) => void;
   onGoToTab?: (tab: Tab) => void;
   memory?: ReviewMemorySummary;
-  onFindingFeedback?: (kind: "evidence" | "focus" | "risk" | "draft-comment", title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) => void;
+  onFindingFeedback?: (kind: FindingKind, title: string, observation: string | undefined, verdict: "kept" | "dismissed" | null, commentKind?: SuggestedCommentKind) => void;
+  /** The signed-in user authored this PR; review UI switches to self-review wording and comment-only submission. */
+  selfReview?: boolean;
+  /** Opens a file in the Diff tab (used by the reading guide). */
+  onOpenInDiff?: (path: string) => void;
   onCopyRepoRulesFile?: () => void;
   onAnalyze?: () => void;
   feedbackPreview?: string;
@@ -118,9 +118,6 @@ export function DetailTab({
   detail?: PrDetail;
   analysis?: AnalysisResult;
   progress?: ReviewProgress;
-  githubProjects: GithubProject[];
-  githubProjectsError?: string;
-  projectAttachBusy: boolean;
   repoRules: RepoReviewRule[];
   reviewComments: DraftReviewComment[];
   analysisJobs: Job[];
@@ -131,11 +128,9 @@ export function DetailTab({
   ciLogs: Record<string, string>;
   ciLoading: Record<string, boolean>;
   canApproveWithoutComments: boolean;
-  attentionMode: boolean;
   openingEditor?: EditorKind;
   expandedFile?: string;
   onSaveProgress: (patch: Partial<Pick<ReviewProgress, "checkedItems" | "reviewedFiles" | "ignoredRuleIds" | "manualChecks" | "project" | "issueProjects" | "notes" | "lastReviewedAt">>) => void;
-  onAttachGithubProject: (projectId: string, includeLinkedIssues: boolean) => void;
   onAddRepoRule: (rule: { title: string; body: string; tone?: string; source?: string }) => void;
   onSetRepoRuleEnabled: (id: string, enabled: boolean) => void;
   onToggleExpandedFile: (path: string) => void;
@@ -164,7 +159,6 @@ export function DetailTab({
   resolvingReviewThreads: Record<string, boolean>;
   onResolveReviewThread: (threadId: string) => void;
   buildRecommendation: (detail: PrDetail, context: RecommendationContext) => ReviewRecommendation;
-  buildHandoffMarkdown: (args: HandoffMarkdownArgs) => string;
 }) {
   if (!detail) return <p className="empty wide">Loading PR details...</p>;
   if (tab === "review") {
@@ -182,6 +176,7 @@ export function DetailTab({
         ciChecks={ciChecks}
         secondOpinionBusy={secondOpinionBusy}
         memory={memory}
+        selfReview={selfReview}
         onCommentVerdict={(comment, verdict) => onFindingFeedback?.("draft-comment", comment.title, comment.body, verdict, comment.kind)}
         onGenerateDraft={(force) => onGenerateReviewDraft?.(force)}
         onGenerateAcceptance={onGenerateAcceptance}
@@ -199,6 +194,7 @@ export function DetailTab({
       <DiffTab
         detail={detail}
         analysis={analysis}
+        readingGuide={analysis?.diffHash === detail.diffHash ? analysis?.readingGuide : undefined}
         progress={progress}
         reviewComments={reviewComments}
         expandedFile={expandedFile}
@@ -215,9 +211,6 @@ export function DetailTab({
   }
   if (tab === "commits") {
     return <CommitTimeline commits={detail.commits ?? []} detail={detail} analysis={analysis} reviewComments={reviewComments} />;
-  }
-  if (tab === "research") {
-    return <ResearchTab detail={detail} analysis={analysis} onStartFix={onStartFix} />;
   }
   if (tab === "fix") {
     return (
@@ -260,46 +253,10 @@ export function DetailTab({
         onCancelConversationReply={onCancelConversationReply}
         onSubmitConversationReply={onSubmitConversationReply}
         onResolveReviewThread={onResolveReviewThread}
-      />
-    );
-  }
-  if (tab === "handoff") {
-    const recommendation = buildRecommendation(detail, {
-      analysis,
-      progress,
-      ciChecks,
-      verificationJobs,
-      fixJobs,
-      draftComments: reviewComments,
-      canApproveWithoutComments,
-      acceptance: acceptance ?? undefined
-    });
-    const replay = reviewReplay(detail, progress, ciChecks, verificationJobs, fixJobs);
-    const markdown = buildHandoffMarkdown({
-      detail,
-      analysis,
-      progress,
-      repoRules,
-      reviewComments,
-      verificationJobs,
-      fixJobs,
-      ciChecks,
-      recommendation,
-      replay
-    });
-    return (
-      <HandoffTab
-        detail={detail}
-        analysis={analysis}
-        reviewComments={reviewComments}
-        verificationJobs={verificationJobs}
-        fixJobs={fixJobs}
-        recommendation={recommendation}
-        replay={replay}
-        markdown={markdown}
         feedbackPreview={feedbackPreview}
         feedbackBusy={feedbackBusy}
         feedbackError={feedbackError}
+        selfReview={selfReview}
         onPreviewFeedback={onPreviewFeedback}
         onPostFeedback={onPostFeedback}
       />
@@ -310,6 +267,7 @@ export function DetailTab({
       analysis={analysis}
       usage={usage}
       secondOpinionBusy={secondOpinionBusy}
+      secondOpinionAgentState={secondOpinionAgentState}
       secondOpinionError={secondOpinionError}
       onRequestSecondOpinion={onRequestSecondOpinion}
       acceptance={acceptance}
@@ -323,7 +281,6 @@ export function DetailTab({
       onAnalyze={onAnalyze}
       onGoToTab={(next) => onGoToTab?.(next)}
       analysisRunning={analysisJobs.some((job) => job.status === "queued" || job.status === "running")}
-      attentionMode={attentionMode}
       canApproveWithoutComments={canApproveWithoutComments}
       ciChecks={ciChecks}
       ciLoading={ciLoading}
@@ -332,9 +289,6 @@ export function DetailTab({
       fixJobs={fixJobs}
       openingEditor={openingEditor}
       progress={progress}
-      githubProjects={githubProjects}
-      githubProjectsError={githubProjectsError}
-      projectAttachBusy={projectAttachBusy}
       recommendation={buildRecommendation(detail, {
         analysis,
         progress,
@@ -355,9 +309,9 @@ export function DetailTab({
       onRunVerification={onRunVerification}
       onSaveProgress={onSaveProgress}
       onAddReviewComment={onAddReviewComment}
-      onAttachGithubProject={onAttachGithubProject}
       onSetRepoRuleEnabled={onSetRepoRuleEnabled}
       onStartFix={onStartFix}
+      onOpenInDiff={onOpenInDiff}
     />
   );
 }
@@ -373,15 +327,3 @@ export type RecommendationContext = {
   acceptance?: AcceptanceContract;
 };
 
-export type HandoffMarkdownArgs = {
-  detail: PrDetail;
-  analysis?: AnalysisResult;
-  progress?: ReviewProgress;
-  repoRules: RepoReviewRule[];
-  reviewComments: DraftReviewComment[];
-  verificationJobs: VerificationJob[];
-  fixJobs: FixJob[];
-  ciChecks: CiCheck[];
-  recommendation: ReviewRecommendation;
-  replay: ReviewReplay;
-};

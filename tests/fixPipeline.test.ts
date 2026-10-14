@@ -14,7 +14,8 @@ describe("fix pipeline control markers", () => {
     expect(pipelineReworkTarget("tests-qa", "implementation", 0)).toBeUndefined();
     expect(pipelineReworkTarget("implementation", "implementation", 0)).toBeUndefined();
     expect(pipelineReworkTarget("implementation", "final-review", 2)).toBeUndefined();
-    expect(pipelineReworkTarget(undefined, "docs", 0)).toBeUndefined();
+    expect(pipelineReworkTarget(undefined, "final-review", 0)).toBeUndefined();
+    expect(pipelineReworkTarget("tests-qa", "final-review", 0)?.phase).toBe("tests-qa");
   });
 
   it("extracts QA summaries and falls back to the directive", () => {

@@ -59,8 +59,6 @@ function analysis(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
     reviewerFocus: [],
     risks: [],
     testsToCheck: [],
-    docs: [],
-    similarImplementations: [],
     caveats: [],
     draftComment: "",
     generatedAt: now,

@@ -199,6 +199,6 @@ export function phaseLabel(phase: NonNullable<FixJob["phase"]>): string {
 }
 
 function tabLabel(tab: Tab): string {
-  if (tab === "fix") return "Codex";
+  if (tab === "fix") return "Agent";
   return tab.charAt(0).toUpperCase() + tab.slice(1);
 }

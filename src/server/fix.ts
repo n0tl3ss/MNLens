@@ -32,19 +32,18 @@ type SpecialistPhase = FixPipelineNode["phase"];
 
 const maxPipelineReworks = 2;
 
+/**
+ * Three passes, one agent session: implementation (which starts by mapping the
+ * feedback onto the code, the former research pass), tests/QA, and a final
+ * review that also carries the docs and security checklist. Fewer passes keep
+ * the session's context small and roughly halve the cost of a fix.
+ */
 const fixPipelinePasses = [
-  {
-    phase: "research",
-    task: "fix-research",
-    label: "Research",
-    statusMessage: "Researching project patterns and review context.",
-    timeoutMs: 12 * 60_000
-  },
   {
     phase: "implementation",
     task: "fix-implementation",
     label: "Implementation",
-    statusMessage: "Implementing the smallest coherent fix.",
+    statusMessage: "Mapping the review feedback to the code and implementing the smallest coherent fix.",
     timeoutMs: 30 * 60_000
   },
   {
@@ -55,25 +54,11 @@ const fixPipelinePasses = [
     timeoutMs: 20 * 60_000
   },
   {
-    phase: "docs",
-    task: "fix-docs",
-    label: "Docs",
-    statusMessage: "Checking whether docs or examples need updates.",
-    timeoutMs: 10 * 60_000
-  },
-  {
-    phase: "security",
-    task: "fix-security",
-    label: "Security",
-    statusMessage: "Reviewing the patch for security regressions.",
-    timeoutMs: 10 * 60_000
-  },
-  {
     phase: "final-review",
     task: "fix-final-review",
     label: "Final review",
-    statusMessage: "Reviewing the full patch before preview.",
-    timeoutMs: 10 * 60_000
+    statusMessage: "Reviewing the full patch for hygiene, docs and security before preview.",
+    timeoutMs: 12 * 60_000
   }
 ] satisfies Array<{ phase: SpecialistPhase; task: AgentTask; label: string; statusMessage: string; timeoutMs: number }>;
 
@@ -159,7 +144,6 @@ function fixSourceLabel(instructions?: string): string {
   if (text.includes("continue the existing codex fix session")) return "Fix follow-up";
   if (text.includes("ci check") || text.includes("failing ci")) return "CI Status";
   if (text.includes("test") || text.includes("coverage")) return "Test Quality";
-  if (text.includes("research source")) return "Research";
   if (text.includes("review risk")) return "Risks";
   if (text.includes("review focus")) return "Reviewer Focus";
   if (text.includes("retry the previous failed")) return "Retry session";
@@ -298,11 +282,8 @@ ${log || "No previous log was captured."}`;
 }
 
 function retryStartPass(previous: FixJob): string {
-  if (previous.phase === "preparing" || previous.phase === "checking-out" || previous.phase === "research") return "Research";
-  if (previous.phase === "implementation" || previous.phase === "codex") return "Implementation";
+  if (previous.phase === "preparing" || previous.phase === "checking-out" || previous.phase === "implementation" || previous.phase === "codex") return "Implementation";
   if (previous.phase === "tests-qa" || previous.phase === "testing") return "Tests/QA";
-  if (previous.phase === "docs") return "Docs";
-  if (previous.phase === "security") return "Security";
   if (previous.phase === "final-review" || previous.phase === "committing" || previous.phase === "pushing") return "Final review";
   return "Final review";
 }
@@ -879,8 +860,6 @@ Pipeline control:
 - If this phase found a concrete problem that must be fixed by an earlier phase before review can continue, end with exactly one of:
   PRA_PIPELINE: rework implementation
   PRA_PIPELINE: rework tests-qa
-  PRA_PIPELINE: rework docs
-  PRA_PIPELINE: rework security
 - Only request rework for an earlier phase when there is a concrete issue. The runner has a bounded rework budget and will continue with visible failure context rather than loop forever.
 
 At the end of this phase, leave a concise note in your response for this phase only. Do not commit or push.`;
@@ -907,7 +886,7 @@ Current uncommitted or unpushed prepared diff:
 ${currentDiff.trim() || "No prepared diff is present yet."}
 
 Decide whether the verification failure proves that an earlier phase must rework the patch.
-- Request rework only if the failure is likely caused by the current prepared changes or a missing test/code/docs/security fix.
+- Request rework only if the failure is likely caused by the current prepared changes or a missing test or code fix.
 - Continue if the failure is unrelated, flaky, environmental, caused by unavailable dependencies/services, or already explained well enough for human review.
 - If rework is needed, pick the earliest phase that should handle it.
 
@@ -917,8 +896,6 @@ Pipeline control:
 - End with exactly one of:
   PRA_PIPELINE: continue
   PRA_PIPELINE: rework implementation
-  PRA_PIPELINE: rework docs
-  PRA_PIPELINE: rework security
 
 Leave a concise QA judgment explaining why you chose that pipeline action. Do not commit or push.`;
 }
@@ -1180,7 +1157,6 @@ function commitCategory(job: FixJob, files: string[]): string {
   if (files.length > 0 && files.every(isDocsFile)) return "Update docs for";
   if (files.length > 0 && files.every(isTestFile)) return "Improve tests for";
   if (source.includes("test quality") || source.includes("coverage")) return "Improve test coverage for";
-  if (source.includes("research")) return "Apply research feedback for";
   if (source.includes("risk")) return "Address review risk for";
   if (source.includes("comment")) return "Address review comments for";
   return "Address review feedback for";

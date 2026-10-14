@@ -136,7 +136,6 @@ export function reviewScoreForPr(
   } else if (changedFiles <= 3 && changedLines <= 80 && (riskCount <= 2 || lowRiskDocsOnly)) {
     addScore(lowRiskDocsOnly ? 10 : 6, "Small focused PR", "The PR is small enough that review effort should stay low.", undefined, "added");
   }
-  if (isFeature && !analysis?.similarImplementations?.length && changedLines > 120) addScore(-8, "Missing comparison", "This feature lacks similar implementation evidence.", "Run research or add comparable docs/examples.", "queue");
   if (context.canApproveWithoutComments) addScore(8, "Plan complete", "Wizard items and files are checked, and approval is allowed.", undefined, "added");
   if (pushedFix?.pushed) addScore(8, "Fix pushed", "A Codex fix was pushed from this review flow.", "Review the updated diff and refresh CI.", "added");
   if (pr.reviewDecision === "APPROVED") addScore(8, "GitHub approved", "GitHub already records an approval.", undefined, "added");

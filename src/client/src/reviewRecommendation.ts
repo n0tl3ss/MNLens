@@ -1,10 +1,11 @@
 import type { AnalysisResult, CiCheck, FixJob, PrDetail, ReviewInsight, ReviewProgress, VerificationJob } from "../../shared/types";
 import type { DraftReviewComment } from "./components/CommentTab";
-import type { HandoffMarkdownArgs, RecommendationContext } from "./components/DetailTab";
+import type { RecommendationContext } from "./components/DetailTab";
 import type { ReviewRecommendation } from "./components/OverviewSections";
 import { fixCurrentSpecialist } from "./fixHelpers";
 import { insightScope, isDocsOnlyReview, latestPushedFix, sourceChangedLines } from "./reviewHelpers";
 import { reviewScoreForPr } from "./reviewScoring";
+import { effectiveCriterionStatus } from "../../shared/acceptance";
 import {
   ciSummary,
   commandKey,
@@ -80,8 +81,8 @@ export function finalReviewRecommendation(
 
   if (runningFix) blockers.push(`Agent fix is still ${runningFix.status}: ${fixCurrentSpecialist(runningFix)}.`);
   const criteria = context.acceptance?.criteria ?? [];
-  const criteriaFailed = criteria.filter((criterion) => (criterion.humanStatus ?? criterion.status) === "failed");
-  const criteriaUnproven = criteria.filter((criterion) => (criterion.humanStatus ?? criterion.status) === "unproven");
+  const criteriaFailed = criteria.filter((criterion) => effectiveCriterionStatus(criterion, context.verificationJobs ?? []) === "failed");
+  const criteriaUnproven = criteria.filter((criterion) => effectiveCriterionStatus(criterion, context.verificationJobs ?? []) === "unproven");
   if (criteriaFailed.length > 0) blockers.push(`${criteriaFailed.length} acceptance ${criteriaFailed.length === 1 ? "criterion" : "criteria"} failed: ${criteriaFailed[0].text}`);
   if (ci.label === "failing" && !staleFailingCiAfterFix) blockers.push("CI is currently failing and should be explained or fixed.");
   if (localFailed.length > 0) blockers.push(`${plural(localFailed.length, "local verification")} failed.`);
@@ -145,89 +146,6 @@ export function finalReviewRecommendation(
   };
 }
 
-export function buildHandoffMarkdown({
-  detail,
-  analysis,
-  progress,
-  repoRules,
-  reviewComments,
-  verificationJobs,
-  fixJobs,
-  ciChecks,
-  recommendation,
-  replay
-}: HandoffMarkdownArgs): string {
-  const ci = ciSummary(ciChecks);
-  const latestVerification = latestVerificationJobs(verificationJobs);
-  const latestFixes = [...fixJobs].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 5);
-  const submittedDrafts = reviewComments.filter((comment) => comment.body.trim());
-  const checkedCount = progress?.checkedItems.length ?? 0;
-  const reviewedFiles = progress?.reviewedFiles.length ?? 0;
-  const enabledRules = repoRules.filter((rule) => rule.enabled);
-  const scoreLines = recommendation.score.breakdown.adjustments
-    .filter((item) => item.points !== 0)
-    .sort((a, b) => a.points - b.points)
-    .map((item) => `- ${item.points > 0 ? "+" : ""}${item.points} ${item.label}: ${item.reason}`);
-  const lines = [
-    `# Review Handoff: ${detail.repository} #${detail.number}`,
-    "",
-    `**Title:** ${detail.title}`,
-    `**Author:** ${detail.author}`,
-    `**Target:** ${detail.baseRefName || "unknown"}`,
-    `**Updated:** ${relativeDate(detail.updatedAt)}`,
-    `**URL:** ${detail.url}`,
-    "",
-    "## Final Recommendation",
-    `- Decision: ${recommendation.label} (${recommendation.confidence} confidence)`,
-    `- Score: ${recommendation.score.score}/100 (${recommendation.score.label}, ${recommendation.score.effort.label} review, ${recommendation.score.effort.minutes})`,
-    `- Summary: ${recommendation.summary}`,
-    ...markdownList("Blockers / before submit", recommendation.blockers),
-    "",
-    "## Score Rationale",
-    ...(scoreLines.length ? scoreLines : ["- No major score deductions or bonuses recorded."]),
-    ...markdownList("Fastest ways to raise score", recommendation.score.breakdown.raiseActions),
-    "",
-    "## Review Replay",
-    `- ${replay.label}: ${replay.summary}`,
-    ...markdownList("Replay actions", replay.actions),
-    ...markdownList("Files to re-open", replay.files),
-    "",
-    "## PR State",
-    `- Type: ${analysis?.type ?? detail.aiType ?? "not analyzed"}`,
-    `- CI: ${ci.label}`,
-    `- Files: ${detail.changedFiles}, +${detail.additions}/-${detail.deletions}`,
-    `- Comments: ${detail.conversationComments.length} conversation, ${detail.reviewComments.length} line`,
-    `- Draft local comments: ${submittedDrafts.length}`,
-    `- Reviewed progress: ${checkedCount} checked items, ${reviewedFiles}/${detail.files.length} files marked reviewed`,
-    progress?.lastReviewedAt ? `- Last checkpoint: ${relativeDate(progress.lastReviewedAt)}` : "- Last checkpoint: none",
-    "",
-    "## Analysis Summary",
-    analysis?.summary ? analysis.summary : "No analysis summary available.",
-    ...markdownList("Reviewer focus", (analysis?.reviewerFocusDetails?.length ? analysis.reviewerFocusDetails.map((item) => `${item.title}: ${item.recommendation || item.perspective || item.observation}`) : analysis?.reviewerFocus) ?? []),
-    ...markdownList("Risks", (analysis?.riskDetails?.length ? analysis.riskDetails.map((item) => `${item.title}: ${item.recommendation || item.perspective || item.observation}`) : analysis?.risks) ?? []),
-    "",
-    "## Verification",
-    analysis?.testAssessment ? `- Test quality: ${analysis.testAssessment.rating} - ${analysis.testAssessment.summary}` : "- Test quality: unknown",
-    ...markdownList("Tests/checks to run", analysis?.testsToCheck ?? []),
-    ...markdownList(
-      "Latest local runs",
-      latestVerification.map((job) => `${job.status}: ${job.command}${typeof job.exitCode === "number" ? ` (exit ${job.exitCode})` : ""}`)
-    ),
-    "",
-    "## Fix Sessions",
-    ...markdownList(
-      "Latest fix activity",
-      latestFixes.map((job) => `${job.status}${job.phase ? `/${job.phase}` : ""}: ${job.source ?? "Fix session"}${job.pushed ? ", pushed" : job.diff?.trim() ? ", prepared diff" : ""}${job.error ? `, error: ${compactText(job.error, 100)}` : ""}`)
-    ),
-    "",
-    "## Repo Memory",
-    ...markdownList("Enabled rules", enabledRules.map((rule) => `${rule.title}: ${rule.body}`)),
-    "",
-    "## Draft Review Body",
-    recommendation.draftBody
-  ];
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
 
 export function latestVerificationJobs(jobs: VerificationJob[]): VerificationJob[] {
   const latest = new Map<string, VerificationJob>();
@@ -237,10 +155,6 @@ export function latestVerificationJobs(jobs: VerificationJob[]): VerificationJob
   return [...latest.values()];
 }
 
-function compactText(value: string, limit = 140): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text || "No body.";
-}
 
 function toneForTestRating(rating?: string): string {
   if (rating === "strong" || rating === "good") return "added";
@@ -299,11 +213,8 @@ function buildRecommendationDraft(
   return lines.join("\n");
 }
 
-function markdownList(title: string, items: string[]): string[] {
-  const cleaned = items.map((item) => item.trim()).filter(Boolean);
-  if (cleaned.length === 0) return [];
-  return ["", `## ${title}`, ...cleaned.map((item) => `- ${item}`)];
-}
+/** What the latest Deep Analyze run changed versus the previous one, so the next reviewer knows what the author already addressed. */
+
 
 function latestFailingCiAt(checks: CiCheck[]): number {
   const times = checks

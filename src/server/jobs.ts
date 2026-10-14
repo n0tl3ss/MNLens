@@ -3,7 +3,8 @@ import { readJob, readJobs, writeFastAnalysis, writeJob } from "./cache.js";
 import { analyzePr } from "./codex.js";
 import { publishEvent } from "./events.js";
 import { CommandError } from "./command.js";
-import { getFastPrAnalysis, getPrDetail } from "./gh.js";
+import { getCiChecks, getFastPrAnalysis, getPrDetail } from "./gh.js";
+import { generateAcceptanceContract } from "./acceptance.js";
 import { randomUUID } from "node:crypto";
 import { interruptedJobPatch, parsePrKey } from "./recovery.js";
 
@@ -130,6 +131,14 @@ async function drainQueue(): Promise<void> {
       if (cancelledJobs.has(item.job.id)) {
         updateJob(item.job, { status: "failed", error: "Analysis job cancelled by reviewer." });
         continue;
+      }
+      // One loop: the contract and its test runs follow the analysis without another click. A failure here never fails the analysis.
+      updateJob(item.job, { statusMessage: "Building the acceptance contract and starting its test runs." });
+      try {
+        const ciChecks = await getCiChecks(item.pr.owner, item.pr.repo, item.pr.number).catch(() => []);
+        await generateAcceptanceContract(detail, { force: item.force, ciChecks, onStatus: (statusMessage) => updateJob(item.job, { statusMessage }) });
+      } catch (error) {
+        updateJob(item.job, { statusMessage: `Acceptance contract skipped: ${jobErrorMessage(error).split("\n")[0].slice(0, 160)}` });
       }
       updateJob(item.job, {
         status: "done",

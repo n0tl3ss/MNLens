@@ -76,6 +76,25 @@ describe("review draft", () => {
     expect(new Set(comments.map((comment) => comment.id)).size).toBe(3);
   });
 
+  it("keeps one-line suggestions only for resolved RIGHT-side anchors and renders them as GitHub suggestion blocks", async () => {
+    const annotated = annotateDiff(diff);
+    const comments = normalizeComments(
+      [
+        { path: "src/app.ts", side: "RIGHT", line: 11, kind: "nit", title: "Typo", body: "Typo in the call.", rationale: "", criterion: null, suggestion: "  const b = modern();   " },
+        { path: "src/app.ts", side: "RIGHT", line: 500, kind: "nit", title: "Unanchored", body: "Cannot place.", rationale: "", criterion: null, suggestion: "x" },
+        { path: "src/app.ts", side: "RIGHT", line: 12, kind: "nit", title: "No suggestion", body: "Just prose.", rationale: "", criterion: null, suggestion: "   " }
+      ],
+      annotated
+    );
+    expect(comments.find((comment) => comment.title === "Typo")?.suggestion).toBe("  const b = modern();");
+    expect(comments.find((comment) => comment.title === "Unanchored")?.suggestion).toBeUndefined();
+    expect(comments.find((comment) => comment.title === "No suggestion")?.suggestion).toBeUndefined();
+    const { commentBodyWithSuggestion } = await import("../src/shared/suggestions");
+    expect(commentBodyWithSuggestion("Typo in the call.", "  const b = modern();")).toBe("Typo in the call.\n\n```suggestion\n  const b = modern();\n```");
+    expect(commentBodyWithSuggestion("Just prose.", undefined)).toBe("Just prose.");
+    expect((reviewDraftJsonSchema() as { properties: { comments: { items: { required: string[] } } } }).properties.comments.items.required).toContain("suggestion");
+  });
+
   it("ranks blocking before praise", () => {
     expect(kindRank("blocking")).toBeLessThan(kindRank("important"));
     expect(kindRank("nit")).toBeLessThan(kindRank("praise"));

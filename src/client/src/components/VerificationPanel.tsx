@@ -29,7 +29,6 @@ export function VerificationSection({
   jobs,
   ciChecks,
   progress,
-  compact,
   openingEditor,
   onRun,
   onRunManual,
@@ -41,7 +40,6 @@ export function VerificationSection({
   jobs: VerificationJob[];
   ciChecks: CiCheck[];
   progress?: ReviewProgress;
-  compact: boolean;
   openingEditor?: EditorKind;
   onRun: (command: string) => void;
   onRunManual: (item: string, id: string) => void;
@@ -49,10 +47,8 @@ export function VerificationSection({
   onStartFix: (instructions?: string, baseJobId?: string, source?: string) => void;
   onSaveProgress: (patch: Partial<Pick<ReviewProgress, "manualChecks">>) => void;
 }) {
-  const [showAll, setShowAll] = useState(false);
   const sortedItems = sortVerificationItems(items, jobs, progress);
-  const visible = compact && !showAll ? sortedItems.slice(0, 2) : sortedItems;
-  const hiddenCount = sortedItems.length - visible.length;
+  const visible = sortedItems;
   const latestByCommand = new Map<string, VerificationJob>();
   for (const job of [...jobs].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))) {
     latestByCommand.set(commandKey(job.command), job);
@@ -62,16 +58,6 @@ export function VerificationSection({
       <div className="insight-heading">
         <h3>Tests To Check</h3>
         <div className="verification-heading-actions">
-          {hiddenCount > 0 && (
-            <button className="text-button" onClick={() => setShowAll(true)}>
-              +{hiddenCount} more
-            </button>
-          )}
-          {showAll && compact && sortedItems.length > 2 && (
-            <button className="text-button" onClick={() => setShowAll(false)}>
-              Show less
-            </button>
-          )}
           <button disabled={Boolean(openingEditor)} onClick={() => onOpenEditor("intellij")}>
             {openingEditor === "intellij" ? <Loader2 size={14} className="spin" /> : <FileSearch size={14} />}
             Open PR in IntelliJ

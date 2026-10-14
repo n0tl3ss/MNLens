@@ -30,10 +30,16 @@
 
 .second-opinion-error {
   margin: 0;
-  color: #8f3140;
+  color: var(--mn-danger-ink);
   font-size: 13px;
 }
 
-[data-theme="dark"] .second-opinion-error {
-  color: #ff9db0;
+.second-opinion-fallback {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--mn-warn-border);
+  border-radius: 6px;
+  background: var(--mn-warn-soft);
+  color: var(--mn-warn-ink);
+  font-size: 12.5px;
 }

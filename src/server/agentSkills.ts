@@ -39,18 +39,12 @@ export function phaseOutputContract(): string {
 
 export function phaseInstructions(phase: FixPhase): string {
   switch (phase) {
-    case "research":
-      return `Research pass (read-only):
-- Build a precise picture of the problem: map each reviewer comment, failing check, and high-confidence analysis finding to the exact files, functions and tests involved.
-- Identify the project conventions that later passes must follow: module layout, naming, test framework and style, how similar features are implemented elsewhere in this repo.
-- Check whether the linked issue's acceptance criteria are fully covered by the PR; list gaps explicitly.
-- Do not edit files in this pass except a tiny metadata/context correction that unblocks later phases.
-- Output a numbered work plan for Implementation and Tests/QA: each item names the file(s), the change, and the test that will prove it.`;
     case "implementation":
       return `Implementation pass:
-- Execute the research plan with the smallest coherent change set. Address reviewer comments first (they outrank AI findings), then failing checks, then high-confidence findings.
+- Start by mapping each reviewer comment, failing check and high-confidence finding to the exact files, functions and tests involved, and note the project conventions the change must follow (module layout, naming, test framework, how similar features are implemented in this repo). Keep this short; it is orientation, not a report.
+- Then make the smallest coherent change set. Address reviewer comments first (they outrank AI findings), then failing checks, then high-confidence findings.
 - Do not broaden the PR scope, rename things for taste, reformat untouched code, or upgrade unrelated dependencies.
-- Follow the conventions found during research; when the repo has a pattern for this kind of change, copy that pattern.
+- When the repo has a pattern for this kind of change, copy that pattern.
 - For dependency/CVE fixes trace the dependency tree and update the root dependency, BOM or platform first; pin a transitive version only as a last resort and say why.
 - Preserve existing authorship/copyright metadata; do not invent @author or generated-by lines in new files.
 - Leave no debug prints, commented-out code, TODOs without an owner, or stray files (logs, build output, editor settings).
@@ -63,23 +57,13 @@ export function phaseInstructions(phase: FixPhase): string {
 - Run the narrowest test target that covers the changed code and report the exact command and result. Do not run the full suite unless the change is cross-cutting.
 - If no new test is justified, explain why existing coverage suffices and name the exact tests/commands that should pass.
 - Keep test-only cleanup minimal and label it as test-only.`;
-    case "docs":
-      return `Docs pass:
-- Update documentation, examples, configuration references, migration notes or changelog entries only when user-facing behavior, setup, configuration keys, dependency usage or terminology changed.
-- Match the existing docs format (AsciiDoc/Markdown/Javadoc), heading structure and tone; keep additions short and example-driven.
-- Verify that code snippets in docs still compile or match the implemented API names exactly.
-- If nothing needs updating, say so explicitly and do not edit files.`;
-    case "security":
-      return `Security pass:
-- Review the full prepared diff for: injection (SQL/command/path/template), unsafe deserialization, auth/authz bypass, secret or token handling, insecure defaults, overly broad permissions, unsafe shell/process execution, SSRF/open redirects, and data exposure in logs or error messages.
-- For dependency changes, check that new versions are real, released, and free of known advisories; prefer root-level updates over transitive pins.
-- Make focused fixes only for concrete issues introduced or exposed by this patch; do not refactor pre-existing code you were not asked to touch, but report pre-existing issues you noticed under OPEN QUESTIONS.
-- State explicitly when the diff has no security-relevant surface.`;
     case "final-review":
       return `Final review pass:
 - Read the complete prepared diff as the human reviewer will see it. Remove speculative, unrelated or over-broad changes and anything that does not serve a reviewer comment, failing check or confirmed finding.
 - Confirm every reviewer comment and human follow-up instruction is either addressed or has an explicit reason it was not.
 - Check hygiene: no debug output, no leftover TODOs without owners, no formatting-only churn, consistent naming, imports cleaned up, new files have the repo's standard header if one is required.
+- Docs: if user-facing behavior, setup, configuration keys, dependency usage or terminology changed, update the docs, examples or changelog in the existing format (AsciiDoc/Markdown/Javadoc), short and example-driven, with snippets that match the implemented API names. Otherwise say so and touch nothing.
+- Security: scan the diff for injection (SQL/command/path/template), unsafe deserialization, auth/authz bypass, secret or token handling, insecure defaults, overly broad permissions, unsafe shell/process execution, SSRF/open redirects and data exposure in logs or error messages; for dependency changes confirm the versions are real, released and free of known advisories. Fix only concrete issues this patch introduces or exposes; report pre-existing ones under OPEN QUESTIONS. State explicitly when the diff has no security-relevant surface.
 - Produce the final SUMMARY the reviewer should read first and list the exact verification commands that should pass. Do not start new feature work.`;
     default:
       return "- Continue the fix conservatively and keep the patch reviewable.";
@@ -143,6 +127,8 @@ Comment quality:
 - "kind": blocking = must change before merge (bugs, data loss, security, broken contract, missing required test); important = should change, merge could be acceptable with a follow-up; suggestion = better design/readability, author's call; nit = style; question = you need the author's answer to decide; praise = call out something done well (at most 1-2).
 - "rationale" is for the human reviewer only: what evidence in the diff supports this and how confident you are. Mention when a comment depends on something you could not verify.
 - "criterion": copy the acceptance criterion text this comment relates to, when there is one.
+- "suggestion": when the fix is small and certain (a typo, an off-by-one, a missing null check, a wrong constant, a misnamed identifier) and the comment is anchored to a single RIGHT-side line, give the complete replacement for that one line, with its original indentation and no code fences. MNLens posts it as a GitHub suggestion the author applies in one click. Use null when the change spans several lines or needs judgment.
+- The prior analysis lists assumptions (defaults, implicit contracts) and edge cases with their test coverage. Turn an unverified high-severity assumption into a "question" comment at its location, and an uncovered high-severity edge case into an "important" comment asking for the test, unless the diff already proves them.
 - Honor the repository review rules and reviewer calibration notes below; do not raise issues the maintainers have dismissed before.
 
 Final comment ("finalComment"):

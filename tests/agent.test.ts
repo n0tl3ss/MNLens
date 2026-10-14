@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { extractAgentSessionId, parseAgentOutput, parseClaudeOutput, prepareAgentRun } from "../src/server/agent";
 import { defaultAgentSettings, mergeSettings, resetAgentSettingsCache, resolveTierModel } from "../src/server/agentSettings";
 
@@ -62,6 +65,25 @@ describe("agent invocations", () => {
     expect(invocation.args).toContain("--no-session-persistence");
     expect(invocation.input).toBe("hello");
     expect(invocation.label).toBe("Claude (sonnet)");
+  });
+
+  it("hands the reviewer's MCP servers to Claude and pre-approves them for read-only runs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mnlens-mcp-"));
+    const file = join(dir, "review-mcp.json");
+    await writeFile(file, JSON.stringify({ mcpServers: { jira: { command: "jira-mcp" }, "bad name!": { command: "x" } } }));
+    process.env.MNLENS_AGENT_SETTINGS_JSON = JSON.stringify({ agent: "claude", claudeMcpConfig: file });
+    const invocation = await prepareAgentRun({ task: "deep-analysis", prompt: "hello", access: "read-only", cwd: "/tmp" });
+    expect(invocation.args).toEqual(expect.arrayContaining(["--mcp-config", file]));
+    const allowed = invocation.args[invocation.args.indexOf("--allowedTools") + 1];
+    expect(allowed).toContain("mcp__jira");
+    expect(allowed).not.toContain("bad name");
+
+    // A missing file never breaks a review: the run simply goes without MCP.
+    process.env.MNLENS_AGENT_SETTINGS_JSON = JSON.stringify({ agent: "claude", claudeMcpConfig: join(dir, "missing.json") });
+    resetAgentSettingsCache();
+    const without = await prepareAgentRun({ task: "deep-analysis", prompt: "hello", access: "read-only", cwd: "/tmp" });
+    expect(without.args).not.toContain("--mcp-config");
+    await rm(dir, { recursive: true, force: true });
   });
 
   it("builds a resumable full-access Claude Code invocation for fix passes", async () => {

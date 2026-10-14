@@ -1,8 +1,8 @@
-import { Check, GitBranch, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { Check, GitBranch, Layers, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { ActionMenu } from "./ActionMenu";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import type { AnalysisResult, Job, PrDetail, PrListItem, RepositoryBranch } from "../../../shared/types";
+import type { AnalysisResult, Job, PrDetail, PrListItem, PrStack, RepositoryBranch } from "../../../shared/types";
 import type { ReviewReadiness, ReviewScore } from "../reviewScoring";
 import { PrScoreCard } from "./ReviewStatusCards";
 import { AuthorLink, Badge, plural, relativeDate } from "./uiBits";
@@ -10,7 +10,6 @@ import "./prDetailHeader.css";
 
 export function PrDetailHeader({
   analysis,
-  attentionMode,
   detail,
   isOwnedByCurrentUser,
   job,
@@ -27,10 +26,10 @@ export function PrDetailHeader({
   onImprovePr,
   onReanalyze,
   onUpdateBranch,
-  onToggleAttention
+  stack,
+  onOpenStack
 }: {
   analysis?: AnalysisResult;
-  attentionMode: boolean;
   detail?: PrDetail;
   isOwnedByCurrentUser: boolean;
   job?: Job;
@@ -47,7 +46,9 @@ export function PrDetailHeader({
   onImprovePr: () => void;
   onReanalyze: () => void;
   onUpdateBranch: () => void;
-  onToggleAttention: () => void;
+  /** Stack membership, when known; renders a chip that opens the Stack tab. */
+  stack?: PrStack;
+  onOpenStack?: () => void;
 }) {
   const needsDeepAnalysis = !analysis && job?.mode !== "deep";
   const [editingTarget, setEditingTarget] = useState(false);
@@ -165,7 +166,6 @@ export function PrDetailHeader({
             <ActionMenu
               title="More actions"
               items={[
-                { label: attentionMode ? "Attention mode: on" : "Attention mode", checked: attentionMode, onSelect: onToggleAttention, title: "Show only the highest-value review work." },
                 ...(needsBranchWork ? [] : [{ label: rebasing ? "Preparing branch update..." : "Update branch", disabled: rebasing, onSelect: onUpdateBranch, title: "Prepare a rebase/merge preview; nothing is pushed until you approve." }]),
                 ...(isOwnedByCurrentUser ? [{ label: selectedFixRunning ? "Improving PR..." : "Improve PR with the agent", disabled: selectedFixRunning, onSelect: onImprovePr, title: "Ask the agent to address review comments, failing checks and test gaps. It prepares code only; it does not push." }] : []),
                 { label: "Clear cached data for this PR", danger: true, onSelect: onClearCache }
@@ -178,7 +178,17 @@ export function PrDetailHeader({
 
       <div className="status-strip">
         {readiness && <Badge tone={readiness.tone}>{readiness.label}</Badge>}
-        {attentionMode && <Badge tone="queue">attention mode</Badge>}
+        {isOwnedByCurrentUser && (
+          <span title="You authored this PR. The review runs as a self-review: GitHub only accepts comment-only reviews on your own PR, and fixes go through 'Improve PR with the agent'.">
+            <Badge tone="accent">your PR · self-review</Badge>
+          </span>
+        )}
+        {stack?.isStacked && (
+          <button type="button" className="badge stack" onClick={onOpenStack} title="Open the Stack tab: chain, merge order and restack">
+            <Layers size={11} /> stack {stack.position}/{stack.chain.length}
+            {stack.parent ? ` on #${stack.parent.number}` : ""}
+          </button>
+        )}
         <Badge tone={toneForType(analysis?.type)}>{analysis?.type ?? pr.aiType ?? "not analyzed"}</Badge>
         {job && <Badge tone={job.status === "failed" ? "danger" : "neutral"}>{job.status}</Badge>}
         {pr.isDraft && <Badge>draft</Badge>}

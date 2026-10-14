@@ -19,6 +19,15 @@ describe("repository-committed rules", () => {
 describe("agent accuracy", () => {
   const entry = (title: string, verdict: FindingFeedback["verdict"], commentKind: FindingFeedback["commentKind"]): FindingFeedback => ({ id: `${title}${verdict}`, prKey: "acme__app__1", repository: "acme/app", kind: "draft-comment", title, verdict, at: "", commentKind });
 
+  it("reports the newest verdicts as a trend window once older ones fall outside it", () => {
+    const at = (index: number) => `2026-10-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`;
+    const early = Array.from({ length: 8 }, (_, index) => ({ ...entry(`old-${index}`, "dismissed", "nit"), at: at(index) }));
+    const late = Array.from({ length: 10 }, (_, index) => ({ ...entry(`new-${index}`, "kept", "nit"), at: at(index + 8) }));
+    expect(draftCommentAccuracy(early).recent).toBeUndefined();
+    const accuracy = draftCommentAccuracy([...late, ...early]);
+    expect(accuracy).toMatchObject({ kept: 10, dismissed: 8, recent: { kept: 10, dismissed: 0, window: 10 } });
+  });
+
   it("counts kept vs dismissed suggested comments per kind", () => {
     const accuracy = draftCommentAccuracy([entry("a", "kept", "blocking"), entry("b", "kept", "nit"), entry("c", "dismissed", "nit"), entry("d", "dismissed", "nit"), { ...entry("e", "kept", undefined), kind: "risk" }]);
     expect(accuracy).toEqual({ kept: 2, dismissed: 2, byKind: { blocking: { kept: 1, dismissed: 0 }, nit: { kept: 1, dismissed: 2 } } });

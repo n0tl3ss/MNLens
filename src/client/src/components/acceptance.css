@@ -1,19 +1,19 @@
 .acceptance-card {
   display: grid;
   gap: 10px;
-  border-left: 4px solid #9fbac4;
+  border-left: 4px solid var(--mn-border-strong);
 }
 
 .acceptance-card.all-proven {
-  border-left-color: #2e8a6c;
+  border-left-color: var(--mn-ok);
 }
 
 .acceptance-card.has-unproven {
-  border-left-color: #b58a2e;
+  border-left-color: var(--mn-warn);
 }
 
 .acceptance-card.has-failed {
-  border-left-color: #b04455;
+  border-left-color: var(--mn-danger);
 }
 
 .acceptance-score {
@@ -34,11 +34,11 @@
 }
 
 .acceptance-stale {
-  color: #6b4e08;
+  color: var(--mn-warn-ink);
 }
 
 .acceptance-error {
-  color: #8f3140;
+  color: var(--mn-danger-ink);
 }
 
 .acceptance-list {
@@ -53,13 +53,13 @@
   display: grid;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid #d2d4cc;
+  border: 1px solid var(--mn-border);
   border-radius: 7px;
-  background: rgba(246, 245, 241, 0.6);
+  background: var(--mn-surface-raised);
 }
 
 .acceptance-item.failed {
-  border-color: #d9b0b4;
+  border-color: var(--mn-danger-border);
 }
 
 .acceptance-item-head {
@@ -107,19 +107,6 @@
   text-decoration: underline;
 }
 
-[data-theme="dark"] .acceptance-item {
-  border-color: #3b454b;
-  background: rgba(246, 245, 241, 0.03);
-}
-
-[data-theme="dark"] .acceptance-stale {
-  color: #e9d7a3;
-}
-
-[data-theme="dark"] .acceptance-error {
-  color: #ff9db0;
-}
-
 .finding-feedback {
   display: inline-flex;
   gap: 2px;
@@ -141,27 +128,17 @@
 .finding-feedback button:hover,
 .finding-feedback button.active {
   opacity: 1;
-  border-color: #9fbac4;
+  border-color: var(--mn-border-strong);
 }
 
 .finding-feedback button.active.kept {
-  background: #ddfaf3;
-  color: #0d685a;
+  background: var(--mn-ok-soft);
+  color: var(--mn-ok-ink);
 }
 
 .finding-feedback button.active.dismissed {
-  background: #ecdcd9;
-  color: #8f3140;
-}
-
-[data-theme="dark"] .finding-feedback button.active.kept {
-  background: rgba(31, 157, 122, 0.25);
-  color: #8ee8cf;
-}
-
-[data-theme="dark"] .finding-feedback button.active.dismissed {
-  background: rgba(196, 60, 90, 0.25);
-  color: #ff9db0;
+  background: var(--mn-danger-soft);
+  color: var(--mn-danger-ink);
 }
 
 .review-memory-card {
@@ -175,7 +152,7 @@
   gap: 4px 10px;
   align-items: center;
   padding: 6px 0;
-  border-top: 1px solid #e1e8ea;
+  border-top: 1px solid var(--mn-border-soft);
   font-size: 13px;
 }
 
@@ -184,6 +161,28 @@
   font-size: 12px;
 }
 
-[data-theme="dark"] .review-memory-pattern {
-  border-top-color: #2b3440;
+.acceptance-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.acceptance-command code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--mn-code-inline-bg);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.acceptance-command button {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.acceptance-run-error {
+  font-size: 12px;
 }

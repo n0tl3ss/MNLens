@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import type { AcceptanceContract, AcceptanceCriterion, CiCheck, CriterionStatus, PrDetail, UpdateCriterionRequest, VerificationJob } from "../shared/types.js";
+import { acceptanceTotals, effectiveCriterionStatus } from "../shared/acceptance.js";
+import { enqueueVerification, parseVerificationCommand } from "./verification.js";
 import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
 import { readAnalysis, readVerificationJobsForPr } from "./cache.js";
 import { ensureAnalysisWorktree, extractJson } from "./codex.js";
@@ -35,7 +37,8 @@ const criterionSchema = z.object({
   evidence: z
     .array(z.object({ kind: z.enum(["test", "file", "ci", "command", "comment", "docs"]).default("file"), ref: z.string().default(""), note: z.string().default("") }))
     .default([]),
-  note: z.string().default("")
+  note: z.string().default(""),
+  command: z.string().default("")
 });
 
 const contractSchema = z.object({
@@ -57,13 +60,14 @@ export function acceptanceJsonSchema(): Record<string, unknown> {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["text", "source", "origin", "status", "evidence", "note"],
+          required: ["text", "source", "origin", "status", "evidence", "note", "command"],
           properties: {
             text: { type: "string" },
             source: { type: "string", enum: ["linked-issue", "pr-body", "derived"] },
             origin: { type: "string" },
             status: { type: "string", enum: ["proven", "unproven", "failed", "not-applicable"] },
             note: { type: "string" },
+            command: { type: "string" },
             evidence: {
               type: "array",
               items: {
@@ -95,7 +99,7 @@ export async function writeAcceptanceContract(contract: AcceptanceContract): Pro
 
 export async function generateAcceptanceContract(
   detail: PrDetail,
-  options: { force?: boolean; ciChecks?: CiCheck[]; onStatus?: (message: string) => void } = {}
+  options: { force?: boolean; ciChecks?: CiCheck[]; autoVerify?: boolean; onStatus?: (message: string) => void } = {}
 ): Promise<AcceptanceContract> {
   const existing = await readAcceptanceContract(detail.key);
   if (existing && !options.force && existing.diffHash === detail.diffHash) return existing;
@@ -138,6 +142,7 @@ export async function generateAcceptanceContract(
         status: item.status,
         evidence: item.evidence.filter((evidence) => evidence.ref.trim()).map((evidence) => ({ kind: evidence.kind, ref: evidence.ref.trim(), note: evidence.note || undefined })),
         note: item.note || undefined,
+        command: item.command.trim() || undefined,
         // Human overrides survive regeneration as long as the criterion text is the same.
         humanStatus: previous?.humanStatus,
         humanNote: previous?.humanNote,
@@ -158,6 +163,46 @@ export async function generateAcceptanceContract(
   };
   await writeAcceptanceContract(contract);
   options.onStatus?.(`${agentDisplayName(invocation.agent)} mapped ${criteria.length} criteria.`);
+  if (options.autoVerify ?? true) await scheduleAcceptanceVerification(contract, detail, options.onStatus);
+  return contract;
+}
+
+/** Up to three distinct, runnable commands the contract names, in order of first appearance. */
+export function acceptanceCommands(contract: Pick<AcceptanceContract, "criteria">, limit = 3): string[] {
+  const commands: string[] = [];
+  const seen = new Set<string>();
+  for (const criterion of contract.criteria) {
+    const parsed = criterion.command ? parseVerificationCommand(criterion.command) : undefined;
+    if (!parsed || seen.has(parsed.display)) continue;
+    seen.add(parsed.display);
+    commands.push(parsed.display);
+    if (commands.length >= limit) break;
+  }
+  return commands;
+}
+
+/**
+ * "Proven" should mean "ran": start a local verification job for each command
+ * the contract names and attach the job to every criterion it covers. Results
+ * flow back through the verification job list; see shared/acceptance.ts for
+ * how a failed run turns a criterion red.
+ */
+export async function scheduleAcceptanceVerification(contract: AcceptanceContract, pr: Pick<PrDetail, "owner" | "repo" | "number">, onStatus?: (message: string) => void): Promise<AcceptanceContract> {
+  const commands = acceptanceCommands(contract);
+  if (commands.length === 0) return contract;
+  onStatus?.(`Starting ${commands.length} local test run${commands.length === 1 ? "" : "s"} for the acceptance criteria.`);
+  for (const command of commands) {
+    try {
+      const job = await enqueueVerification({ owner: pr.owner, repo: pr.repo, number: pr.number }, command);
+      for (const criterion of contract.criteria) {
+        const parsed = criterion.command ? parseVerificationCommand(criterion.command) : undefined;
+        if (parsed?.display === command) criterion.verification = { jobId: job.id, command, startedAt: job.createdAt };
+      }
+    } catch (error) {
+      contract.limitations.push(`Could not run \`${command}\`: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  await writeAcceptanceContract(contract);
   return contract;
 }
 
@@ -179,21 +224,12 @@ export async function updateCriterion(prKey: string, criterionId: string, patch:
   return contract;
 }
 
-export function effectiveStatus(criterion: Pick<AcceptanceCriterion, "status" | "humanStatus">): CriterionStatus {
-  return criterion.humanStatus ?? criterion.status;
+export function effectiveStatus(criterion: Pick<AcceptanceCriterion, "status" | "humanStatus" | "verification">, jobs: VerificationJob[] = []): CriterionStatus {
+  return effectiveCriterionStatus(criterion, jobs);
 }
 
-export function contractTotals(contract: Pick<AcceptanceContract, "criteria"> | undefined): { total: number; proven: number; unproven: number; failed: number; notApplicable: number } {
-  const totals = { total: 0, proven: 0, unproven: 0, failed: 0, notApplicable: 0 };
-  for (const criterion of contract?.criteria ?? []) {
-    totals.total += 1;
-    const status = effectiveStatus(criterion);
-    if (status === "proven") totals.proven += 1;
-    else if (status === "failed") totals.failed += 1;
-    else if (status === "not-applicable") totals.notApplicable += 1;
-    else totals.unproven += 1;
-  }
-  return totals;
+export function contractTotals(contract: Pick<AcceptanceContract, "criteria"> | undefined, jobs: VerificationJob[] = []): ReturnType<typeof acceptanceTotals> {
+  return acceptanceTotals(contract, jobs);
 }
 
 export function buildAcceptancePrompt(
@@ -219,6 +255,7 @@ ${context.hasCheckout ? "- You have a read-only checkout of the PR. Open the cha
 - "unproven": the change looks intended to meet it but nothing exercises it; say what test would prove it in the note.
 - "not-applicable": the criterion is out of scope for this PR or explicitly deferred by the author (cite the comment).
 - Evidence refs must be real: test method/class names you saw, path:line ranges, CI check names from the CI list, or commands from the verification list. Never fabricate a test name.
+- "command": the exact local command, from the repository root, that exercises this criterion: the project's wrapper (./gradlew, ./mvnw, npm ...), the exact project path and test class, e.g. ./gradlew :micronaut-foo:test --tests '*BarSpec'. Use the repository's own guidance and build files for the project path and task names; one command may cover several criteria, and it should be the narrowest target that proves them. Leave it empty when nothing runnable exists. MNLens runs these commands and marks a criterion failed when its command fails, so never name a command you have not seen in the build.
 
 Step 3 — limitations: list what you could not verify locally (external services, credentials, UI judgment) so the human knows what remains manual.
 

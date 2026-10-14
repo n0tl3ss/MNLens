@@ -53,8 +53,6 @@ function analysis(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
     reviewerFocus: [],
     risks: [],
     testsToCheck: [],
-    docs: [],
-    similarImplementations: [],
     caveats: [],
     draftComment: "",
     generatedAt: now,
@@ -116,5 +114,33 @@ describe("plan helpers", () => {
 
     expect(pins[0]?.target.line).toBe(3);
     expect(pins[0]?.draftBody).toMatch(/lifecycle|coverage/i);
+  });
+
+  it("pins reading-guide steps at the first diff line of their range", () => {
+    const pr = detail({
+      diff: [
+        "diff --git a/src/main/java/example/Feature.java b/src/main/java/example/Feature.java",
+        "--- a/src/main/java/example/Feature.java",
+        "+++ b/src/main/java/example/Feature.java",
+        "@@ -1,4 +1,5 @@",
+        " import java.util.List;",
+        " public class Feature {",
+        "+  void registerMetrics(Object pool) { telemetry.registerMetrics(pool); }",
+        " }"
+      ].join("\n")
+    });
+    const pins = buildOverviewLinePins(
+      pr.files[0],
+      analysis({
+        readingGuide: [
+          { path: "src/main/java/example/Feature.java", lines: "3-3", title: "Where metrics are registered", explanation: "The new method registers the pool.", whyItMatters: "Only production change." },
+          { path: "src/main/java/example/Feature.java", lines: "40-50", title: "Too far from the diff", explanation: "x" },
+          { path: "src/test/java/example/FeatureTest.java", lines: "1-2", title: "Other file", explanation: "y" }
+        ]
+      }),
+      pr.diff
+    );
+    expect(pins).toHaveLength(1);
+    expect(pins[0]).toMatchObject({ kind: "guide", target: { line: 3, side: "RIGHT" }, title: "Read 1: Where metrics are registered", recommendation: "Only production change." });
   });
 });

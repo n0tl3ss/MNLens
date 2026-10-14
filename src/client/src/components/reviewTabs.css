@@ -1,10 +1,11 @@
+/* Review tabs: grouped by review phase; the active tab sits on the baseline with a primary underline. */
 .tabs {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
-  border-bottom: 1px solid #cfd1c8;
+  border-bottom: 1px solid var(--mn-border);
 }
 
 .tab-list {
@@ -18,28 +19,66 @@
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 4px;
-  padding-top: 14px;
+  gap: 2px;
+  padding-top: 16px;
 }
 
 .tab-group + .tab-group {
   padding-left: 10px;
-  border-left: 1px dashed #cfd1c8;
+  border-left: 1px dashed var(--mn-border);
 }
 
 .tab-group-label {
   position: absolute;
   top: 0;
-  left: 0;
+  left: 2px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #5f6a6e;
+  color: var(--mn-muted);
 }
 
 .tab-group + .tab-group .tab-group-label {
-  left: 10px;
+  left: 12px;
+}
+
+.tabs button {
+  position: relative;
+  min-height: 34px;
+  padding: 7px 10px 9px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--mn-muted);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.tabs button:hover:not(.active) {
+  border-color: transparent;
+  background: var(--mn-hover-overlay);
+  color: var(--mn-ink);
+}
+
+.tabs .active {
+  border-color: var(--mn-border);
+  background: var(--mn-surface);
+  color: var(--mn-ink);
+  font-weight: 750;
+  box-shadow: 0 1px 0 var(--mn-surface);
+}
+
+.tabs .active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--mn-primary);
 }
 
 .tab-badge {
@@ -48,7 +87,8 @@
   margin-left: 6px;
   padding: 0 5px;
   border-radius: 999px;
-  background: rgba(20, 34, 49, 0.12);
+  background: var(--mn-inset);
+  color: var(--mn-text);
   font-size: 11px;
   font-weight: 700;
   line-height: 18px;
@@ -56,45 +96,13 @@
 }
 
 .tabs .active .tab-badge {
-  background: rgba(246, 245, 241, 0.28);
-}
-
-.tabs button {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  border-bottom: 0;
-}
-
-.tabs .active {
-  border-color: #2a7a93;
-  background: #2a7a93;
-  color: #f6f5f1;
-  box-shadow: 0 -2px 0 rgba(47, 159, 134, 0.22) inset;
+  background: var(--mn-primary-soft);
+  color: var(--mn-primary-ink);
 }
 
 .tab-refresh {
   flex-shrink: 0;
-}
-
-[data-theme="dark"] .tabs {
-  border-color: #3a4146;
-}
-
-[data-theme="dark"] .tab-group + .tab-group {
-  border-color: #3a4146;
-}
-
-[data-theme="dark"] .tab-group-label {
-  color: #9aa4a9;
-}
-
-[data-theme="dark"] .tab-badge {
-  background: rgba(246, 245, 241, 0.14);
-}
-
-[data-theme="dark"] .tabs .active {
-  background: #2a7a93;
-  color: #f6f5f1;
+  margin-bottom: 6px;
 }
 
 @media (max-width: 720px) {

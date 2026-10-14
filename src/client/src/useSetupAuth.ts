@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AuthStatus, SetupStatus } from "../../shared/types";
-import { getAuthStatus, getLocalSession, getSetupStatus, storeGithubToken } from "./api";
+import { getAuthStatus, getGithubRateLimit, getLocalSession, getSetupStatus, storeGithubToken } from "./api";
 import { availableAgentsFrom } from "./setupAgents";
 
 interface UseSetupAuthOptions {
   onError: (message: string | undefined) => void;
   onNotice: (message: string | undefined) => void;
 }
+
+/** Full auth re-check (user, scopes, budgets) costs three `gh` calls, so it runs rarely. */
+const authRefreshMs = 10 * 60_000;
+/** `gh api rate_limit` is free, so the budget chip can follow real consumption closely. */
+const rateLimitRefreshMs = 60_000;
 
 export function useSetupAuth({ onError, onNotice }: UseSetupAuthOptions) {
   const [auth, setAuth] = useState<AuthStatus | undefined>();
@@ -22,12 +27,33 @@ export function useSetupAuth({ onError, onNotice }: UseSetupAuthOptions) {
     void getLocalSession().then((session) => setBetaLimitations(session.betaLimitations)).catch(() => setBetaLimitations([]));
     void refreshSetupStatus();
     void refreshAuth();
-    const timer = window.setInterval(() => void refreshAuth(), 2 * 60_000);
-    return () => window.clearInterval(timer);
+    const authTimer = window.setInterval(() => void refreshAuth(), authRefreshMs);
+    const rateTimer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void refreshRateLimit();
+    }, rateLimitRefreshMs);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshRateLimit();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(authTimer);
+      window.clearInterval(rateTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   async function refreshAuth() {
     setAuth(await getAuthStatus());
+  }
+
+  /** Updates only the GitHub budget on the existing auth status; silent on failure so the banner never flickers. */
+  async function refreshRateLimit() {
+    try {
+      const next = await getGithubRateLimit();
+      setAuth((current) => (current?.ghAuthenticated ? { ...current, githubRateLimit: next } : current));
+    } catch {
+      // Keep the last known budget.
+    }
   }
 
   async function refreshSetupStatus() {
@@ -96,6 +122,7 @@ export function useSetupAuth({ onError, onNotice }: UseSetupAuthOptions) {
     savingAuthToken,
     shouldShowSetup,
     refreshAuth,
+    refreshRateLimit,
     refreshSetupStatus,
     saveGithubToken,
     setAuthTokenInput,

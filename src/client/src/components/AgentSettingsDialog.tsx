@@ -182,6 +182,28 @@ export function AgentSettingsDialog({
           </label>
         </section>
 
+        <section className="agent-settings-section">
+          <h4>Claude context</h4>
+          <p className="muted">
+            Claude Code already reads the repository's CLAUDE.md and the skills in the checkout and in <code>~/.claude</code> during every run. MCP servers are the one part of your setup a non-interactive run does not pick up on its own.
+          </p>
+          <label className="budget-row">
+            <span>
+              <strong>MCP config file for Claude runs</strong>
+              <em className="muted">
+                Absolute path to a JSON file in Claude Code's <code>mcpServers</code> format (the same shape <code>claude mcp add --json</code> writes). It is passed as <code>--mcp-config</code> and every listed server's tools are pre-approved, also for read-only analysis, so list only servers whose tools are safe to call without a prompt.
+              </em>
+            </span>
+            <input
+              type="text"
+              value={draft.claudeMcpConfig ?? ""}
+              placeholder="/Users/you/.mnlens/review-mcp.json"
+              spellCheck={false}
+              onChange={(event) => setDraft({ ...draft, claudeMcpConfig: event.target.value || undefined })}
+            />
+          </label>
+        </section>
+
         {error && <p className="agent-settings-error">{error}</p>}
 
         <footer>
@@ -201,7 +223,8 @@ export function AgentSettingsDialog({
                   agent: draft.agent,
                   tiers: draft.tiers,
                   taskTiers: draft.taskTiers,
-                  maxBudgetUsdPerRun: draft.maxBudgetUsdPerRun ?? null
+                  maxBudgetUsdPerRun: draft.maxBudgetUsdPerRun ?? null,
+                  claudeMcpConfig: draft.claudeMcpConfig?.trim() || null
                 })
               }
             >

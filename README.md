@@ -4,7 +4,7 @@
 
 # MNLens
 
-**MNLens is a local-first GitHub pull request review workstation.** It brings queue triage, stacked-PR awareness, linked issues, CI status, review comments, risk analysis, test planning, research, agent-assisted fixes, local verification, artifacts, and final handoff into one human-controlled review flow.
+**MNLens is a local-first GitHub pull request review workstation.** It brings queue triage, stacked-PR awareness, linked issues, CI status, review comments, risk analysis, acceptance criteria that are actually run, agent-assisted fixes, local verification and one structured comment back to the author into one human-controlled review flow.
 
 MNLens is not a hosted bot. It runs on your machine, uses your local `gh`, `git`, and coding-agent CLI (**Codex** or **Claude Code**, your choice), stores data locally, and keeps review submission, commits, rebases, and pushes behind explicit human approval.
 
@@ -26,12 +26,12 @@ On first launch the setup screen checks `git`, `gh`, your agent CLI and the OS c
 ## How A Review Flows
 
 1. **Queue** — Fast Analyze scores the visible PRs from metadata (no agent call); stacked PRs show a `2/3` badge.
-2. **Deep Analyze** — the agent (standard tier) returns a structured review: classification, evidence, reviewer focus, risks, test assessment, research, draft comment. Repo rules and your past 👍/👎 verdicts calibrate the prompt.
-3. **Acceptance contract** — criteria from the linked issue / PR body are mapped to proof (tests, `path:line`, CI, local runs). Unproven holds, failed blocks; you can override.
+2. **Deep Analyze** — the agent (standard tier) runs inside a read-only checkout of the PR and returns a structured review: classification, evidence, reading guide, assumptions, edge cases, reviewer focus, risks, test assessment, draft comment. Repo rules and your past 👍/👎 verdicts calibrate the prompt.
+3. **Acceptance contract** — built right after the analysis, in the same loop: criteria from the linked issue / PR body are mapped to proof (tests, `path:line`, CI) and each criterion names the narrowest local command that exercises it. MNLens runs up to three of those commands in the checkout straight away; a red run demotes "proven" to failed, a green run earns the *ran green* badge. Unproven holds, failed blocks; you can override.
 4. **Review tab** — the review the agent would actually post: inline comments anchored to diff lines (blocking / important / question / suggestion / nit / praise), a final review comment, and a verdict, laid out as an ordered procedure with **Mandatory → Recommended → Optional → Decide** tiers. "Add to my review" copies a suggested comment into your own draft; "Use as review comment" fills the review dialog. You still choose Approve / Request changes yourself.
 5. **Second opinion** (optional, economy tier) — the other vendor's model audits the analysis and reports disputes and misses.
-6. **Verify / Fix** — run the suggested commands locally, or let the agent prepare a patch through the research → implementation → tests/QA → docs → security → final-review pipeline in a disposable worktree. Nothing is committed or pushed until you approve.
-7. **Handoff** — copy the handoff note, or post one structured **Feedback to author** comment (criteria table, kept findings, verification) with your identity.
+6. **Verify / Fix** — run the suggested commands locally, or let the agent prepare a patch through the implementation → tests/QA → final-review pipeline (three passes in one session; the final pass carries the docs and security checklist) in a disposable worktree. Nothing is committed or pushed until you approve.
+7. **Comment** — your draft comments, the PR conversation, and one structured **Feedback to author** comment (criteria table with what ran, kept findings, verification) posted with your identity.
 
 ## Why It Exists
 
@@ -52,27 +52,32 @@ Code review work is usually scattered across GitHub tabs, CI logs, local termina
 - **Recommended review (Review tab):** the agent drafts the review it would post — line-anchored comments with a kind, body and reviewer-only rationale, the final comment, and an APPROVE / REQUEST_CHANGES / COMMENT verdict — plus a must / should / optional checklist for the human. Anchors are validated against the diff, so a suggested comment drops into your draft without GitHub rejecting it; anything the agent could not anchor is flagged "place manually". Nothing is posted until you submit.
 - **Focused Overview:** the first screen is the decision — recommendation, summary, acceptance contract, second opinion and the evidence / focus / risk columns. PR context, project, readiness and the rules & memory tooling sit in collapsible groups that remember their state.
 - **Team sharing:** rules committed in the repo (`.mnlens/review-rules.json`), a shared team folder for rules + review memory (per-machine memory files merged on read), and a per-repo agent-accuracy score from kept/dismissed suggested comments. See *Team Use*.
-- **Review-flow tab layout:** tabs are grouped **Understand** (Overview, Research, Commits) → **Review** (Review, Diff) → **Act** (agent fix, Comment, Handoff), with counters for suggested and drafted comments. Secondary actions (attention mode, branch update, cache) sit behind a `…` menu; settings (agent, team sharing, data) behind the gear in the sidebar.
-- **Acceptance contract:** the agent extracts acceptance criteria from linked issues and the PR body, then marks each one proven / unproven / failed / n/a with concrete evidence (test name, `path:line`, CI check, local run). You can override any verdict; unproven criteria hold the recommendation, failed ones block it. The contract flows into the handoff and the author comment.
+- **Review-flow tab layout:** tabs are grouped **Understand** (Overview, Commits, and Stack for stacked PRs) → **Review** (Review, Diff) → **Act** (agent fix, Comment), with counters for suggested and drafted comments and the stack position. Secondary actions (branch update, cache) sit behind a `…` menu; settings (agent, team sharing, data) behind the gear in the sidebar. The sidebar's agent chip shows whether the selected agent CLI is installed and signed in, and whether the other vendor is available for second opinions.
+- **Understand before you judge:** Deep Analyze returns a **reading guide** (the order to read the diff, with what each part does and why it matters; each step opens the file in the Diff tab), the **assumptions & defaults** the change relies on (default values, implicit contracts, "callers always pass X", each with what breaks if it is wrong and how to verify it) and the **edge cases to probe** with their test coverage. Uncovered edge cases and all assumptions form the mandatory "challenge" step of the Review tab, feed the author comment, and can be pinned onto diff lines.
+- **Self-review of your own (AI-generated) PRs:** tick *Include my PRs*. For a PR you authored the analysis runs as an adversarial self-review, the Review tab shows "ready for reviewers / needs work" instead of approve / request changes, findings go to *Improve PR with the agent*, and the dialog posts a comment-only review (the only kind GitHub allows on your own PR) with what you already checked.
+- **Analysis in a checkout:** Deep Analyze runs inside a shallow, read-only checkout of the PR (one base clone per repository, a git worktree per PR), must inspect callers and tests before answering, and lists the files it read. The repository's own guidance (CLAUDE.md, AGENTS.md, Copilot instructions, CONTRIBUTING, PR template) is fed to the analysis and the review draft so conventions and test commands come from the maintainers, not from the model.
+- **One-click suggestions:** when a fix is small and certain, the review draft carries the exact replacement line; "Add to my review" posts it as a GitHub ```suggestion``` block the author applies in one click.
+- **Second opinion always available:** if the other vendor's CLI is missing or signed out, the audit falls back to a different tier of the same vendor and says so.
+- **Acceptance contract:** the agent extracts acceptance criteria from linked issues and the PR body, then marks each one proven / unproven / failed / n/a with concrete evidence (test name, `path:line`, CI check, local run). Each criterion also carries the exact local command that proves it; MNLens runs those commands automatically after Deep Analyze (and on demand from the card), so *proven* means a test exists **and** it was seen passing on this machine. You can override any verdict; unproven criteria hold the recommendation, failed ones block it. The contract flows into the Review tab's checklist and the author comment.
 - **Review memory:** 👍 / 👎 on any finding records your verdict per repository. Verdicts calibrate future Deep Analyze prompts ("reviewers dismissed this 4x"), surface as patterns, and can be promoted to repo rules in one click.
 - **Feedback to author:** build a single structured, human-edited comment (criteria table with evidence, kept findings, second-opinion notes, local verification) and post it to the PR with your identity.
 - **Stack merge plan:** bottom-up readiness per PR in the stack (approved, clean, not draft, parent merged, merge-queue aware) and a guarded **Merge #root** that refuses to merge out of order; children are retargeted by GitHub and offered for restack.
-- **Live updates:** job state streams to the UI over server-sent events (polling remains as fallback).
+- **Live updates:** job state streams to the UI over server-sent events (polling remains as fallback). The GitHub API budget chip follows the busiest metered resource (GraphQL, REST or search) and refreshes every minute and after each queue refresh.
+- **One palette, two themes:** every colour comes from a single token set in `src/client/src/styles.css`; light is the default and dark swaps the same tokens, so both themes stay consistent.
 - **Second opinion:** one click asks the *other* agent (economy tier) to audit the deep analysis against the diff and report disputed findings, misses, and problems in the draft comment. Two vendors rarely hallucinate the same risk.
 - **Agent spend ledger:** every agent run is recorded per PR (task, agent, model, tier, duration, cost when the CLI reports it) and shown in the Overview.
 - **Stale-analysis detection:** cached analyses are fingerprinted against comments, reviews, linked issues and base branch; the Overview flags when the discussion moved on, and Deep Analyze refreshes automatically.
-- **Research profiles:** technology-specific research (code-search queries, curated references, prompt guidance) is data in `research-profiles.json`, not code.
-- **Stacked PRs:** MNLens detects PRs whose base branch is another open PR's head, shows the chain (root → leaf), your position in it, parent/children state, and a one-click *Restack onto parent* preview. Analysis prompts know the diff is incremental to the parent.
+- **Stacked PRs:** MNLens detects PRs whose base branch is another open PR's head and gives them a **Stack** tab: the chain (root → leaf), your position in it, parent/children state, the bottom-up merge plan and a one-click *Restack onto parent* preview. A chip in the PR header shows the position and opens the tab. Analysis prompts know the diff is incremental to the parent.
 - **Fast Analyze visible:** lightweight scoring for queue triage without running a deep agent review for every PR.
-- **Deep Analyze:** richer agent-backed review guidance with evidence, risks, test quality, research, and final comment draft.
-- **Review tabs:** Overview, Research, Commits, Review, Diff, Codex/Claude, Comment, and Handoff.
+- **Deep Analyze:** richer agent-backed review guidance with evidence, risks, test quality, and final comment draft.
+- **Review tabs:** Overview, Commits, Stack, Review, Diff, Codex/Claude, and Comment.
+- **Agent accuracy with a trend:** the Review tab shows how often this agent's suggested comments were kept in the repository, plus the keep rate of the last ten verdicts, so you can see whether calibration (rules, verdicts) is actually improving the agent.
 - **Reviewer Focus:** unresolved GitHub line comments are promoted into actionable review items with agent actions.
 - **Code-aware diff viewer:** file review state, overview pins, inline comment drafting, and `Cmd/Ctrl+F` find inside code views.
 - **CI interpretation:** failing checks can be explained or addressed through the agent.
 - **Tests To Check:** prefers runnable/local verification and doc-render artifacts over manual checklists.
 - **Agent fix sessions:** run, retry, continue, guide, cancel, inspect logs, and review prepared code changes before push.
 - **Artifacts:** generated screenshots, rendered docs, logs, and review bundles.
-- **GitHub Projects:** attach a PR, and optionally linked issues, to organization/user Projects V2 when token permissions allow it.
 - **Local data controls:** export review bundles or clear local cache/worktrees/artifacts.
 - **Desktop app:** Electron wrapper that starts the local server and opens MNLens in a native window.
 
@@ -137,8 +142,8 @@ Every task is assigned a **tier**, and every tier maps to a model per agent:
 
 | Tier | Claude default | Codex default | Used for |
 | --- | --- | --- | --- |
-| economy | `haiku` (low effort) | `gpt-6-luna` (low) | risk/CI/research Q&A, fix-session questions, research & docs passes, QA failure classification, manual-check investigation, setup probe |
-| standard | `sonnet` (medium) | `gpt-6.1-sol` (medium) | Deep Analyze, review draft, acceptance contract, implementation, tests/QA, security and final-review passes, rebase/merge conflict resolution |
+| economy | `haiku` (low effort) | `gpt-6-luna` (low) | risk/CI Q&A, fix-session questions, QA failure classification, manual-check investigation, setup probe |
+| standard | `sonnet` (medium) | `gpt-6.1-sol` (medium) | Deep Analyze, review draft, acceptance contract, implementation, tests/QA and final-review passes, rebase/merge conflict resolution |
 | premium | `opus` (high) | `gpt-6-astra` (high) | never by default; opt in per task for unusually hard PRs |
 
 At Oct 2026 list prices the economy tier is roughly 20x cheaper than standard on both vendors (≈$0.10/$0.50 vs ≈$2/$10 per 1M input/output tokens), and premium is 2–5x standard. Claude aliases always resolve to the newest model in that family; OpenAI ids are explicit and should match what your account exposes to Codex. Environment overrides: `MNLENS_AGENT=codex|claude`, `MNLENS_AGENT_SETTINGS_JSON='{...}'`, `MNLENS_CLAUDE_CONFIG_DIR`, `MNLENS_TEAM_DIR`, `MNLENS_MEMBER_ID`.
@@ -147,11 +152,11 @@ Running fix sessions keep the agent they started with; switching agents applies 
 
 ### Agent instruction sets
 
-The prompts MNLens gives the agents live in `src/server/agentSkills.ts`: shared operating rules (read the repo's AGENTS.md/CONTRIBUTING, never commit/push/comment, no secrets, cite file:line evidence, be economical), a fixed response contract for pipeline passes (SUMMARY / CHANGES / EVIDENCE / OPEN QUESTIONS / marker), and per-pass instructions for Research, Implementation, Tests/QA, Docs, Security and Final review, plus the manual-check and conflict-resolution rules.
+The prompts MNLens gives the agents live in `src/server/agentSkills.ts`: shared operating rules (read the repo's AGENTS.md/CONTRIBUTING, never commit/push/comment, no secrets, cite file:line evidence, be economical), a fixed response contract for pipeline passes (SUMMARY / CHANGES / EVIDENCE / OPEN QUESTIONS / marker), and per-pass instructions for Implementation (which starts by mapping the feedback onto the code), Tests/QA and Final review (hygiene plus the docs and security checklist), plus the manual-check and conflict-resolution rules.
 
-### Research profiles
+### Your own Claude Code setup
 
-`<cache>/research-profiles.json` (or `MNLENS_RESEARCH_PROFILES_JSON`) holds an array of profiles with `triggers`, `codeSearchQueries`, `exactMatchTerms`, `relevanceTerms`, `curatedSources` and `promptGuidance`. Built-ins cover Oracle UCP/OpenTelemetry, generic framework instrumentation, and dependency/CVE updates; a user profile with the same `id` replaces a built-in, and `"enabled": false` turns one off.
+Deep Analyze and the review draft run inside a checkout of the PR, so Claude Code picks up the repository's `CLAUDE.md`, `.claude/skills` and your `~/.claude` skills exactly as it would in a terminal, and MNLens additionally feeds the repo's guidance files (AGENTS.md, Copilot instructions, CONTRIBUTING, PR template) into every prompt. MCP servers are the one thing a non-interactive run does not pick up on its own: point *Agent & models → Claude context* at a JSON file in Claude Code's `mcpServers` format and MNLens passes it as `--mcp-config` on every Claude run, with the listed servers' tools pre-approved (also for read-only analysis, so only list servers whose tools are safe to call without a prompt). Codex reads your `~/.codex/config.toml`, MCP servers included.
 
 ## Stacked Pull Requests
 
@@ -193,13 +198,11 @@ For read/review workflows:
 - Actions: read
 - Checks: read
 - Commit statuses: read
-- Projects: read, if you want to list GitHub Projects
 
 For write workflows:
 
 - Pull requests: write, to submit reviews
 - Issues: write, to reply in conversations where GitHub treats PRs as issues
-- Projects: write, to attach PRs and linked issues to GitHub Projects
 - Contents: write, only if you want MNLens to push approved fixes or rebases
 
 Classic PAT fallback:
@@ -284,7 +287,7 @@ MNLens stores local state under `.pra-cache` in development and under the app us
 - review progress
 - agent (Codex/Claude) logs, session ids and worktrees
 - agent model settings (`agent-settings.json`), usage ledger (`agent-usage.json`), team folder setting (`team-settings.json`)
-- acceptance contracts (`acceptance/`), review memory per repository (`review-memory/`), research profiles
+- acceptance contracts (`acceptance/`), review memory per repository (`review-memory/`)
 - verification logs
 - rendered docs/screenshots/artifacts
 - exported review bundles
@@ -306,7 +309,7 @@ Use **Export data** to create a review bundle. Use **Clear local data** to delet
 ## Security Model
 
 - GitHub tokens are stored in the OS credential store when possible.
-- **Agents never receive the reviewer's GitHub token.** Codex/Claude runs get `GH_TOKEN`/`GITHUB_TOKEN` stripped from their environment, and agent worktrees have git credential helpers cleared, so an agent cannot push, comment or review on its own even in full-access fix passes. MNLens performs pushes itself through an askpass script bound to its own process. Set `MNLENS_AGENT_GITHUB_TOKEN` to a separate read-only fine-grained token if agents should be able to read GitHub during research.
+- **Agents never receive the reviewer's GitHub token.** Codex/Claude runs get `GH_TOKEN`/`GITHUB_TOKEN` stripped from their environment, and agent worktrees have git credential helpers cleared, so an agent cannot push, comment or review on its own even in full-access fix passes. MNLens performs pushes itself through an askpass script bound to its own process. Set `MNLENS_AGENT_GITHUB_TOKEN` to a separate read-only fine-grained token if agents should be able to read GitHub during analysis or fixes.
 - GitHub Enterprise Server: set `MNLENS_GITHUB_HOST=github.example.com`.
 - The local server requires an MNLens session token for API requests.
 - MNLens should not be exposed on a public network.

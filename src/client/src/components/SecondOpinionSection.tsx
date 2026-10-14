@@ -1,6 +1,7 @@
 import { Scale } from "lucide-react";
 import type { AnalysisResult } from "../../../shared/types";
 import { Badge } from "./uiBits";
+import { agentHealthLabel, type AgentHealthState } from "../setupAgents";
 import "./secondOpinion.css";
 
 const agentName = (agent: "codex" | "claude" | undefined) => (agent === "claude" ? "Claude" : "Codex");
@@ -14,18 +15,22 @@ export function SecondOpinionSection({
   diffHash,
   busy,
   error,
+  otherAgentState,
   onRequest
 }: {
   analysis?: AnalysisResult;
   diffHash?: string;
   busy: boolean;
   error?: string;
+  /** Setup state of the other vendor's CLI; anything but "ready" means the opinion falls back to a different model of the same vendor. */
+  otherAgentState?: AgentHealthState;
   onRequest: () => void;
 }) {
   if (!analysis) return null;
   const opinion = analysis.secondOpinion;
   const stale = Boolean(opinion && diffHash && opinion.diffHash !== diffHash);
   const other = analysis.agent === "claude" ? "Codex" : "Claude";
+  const otherUnavailable = otherAgentState === "signed-out" || otherAgentState === "missing";
   return (
     <section className="summary-card second-opinion">
       <div className="panel-title">
@@ -38,6 +43,11 @@ export function SecondOpinionSection({
             Ask {other} (economy tier) to audit {agentName(analysis.agent)}'s findings against the diff. Two vendors rarely hallucinate the same risk; disagreements point to what deserves your attention.
             {stale ? " The previous opinion was for an older diff." : ""}
           </p>
+          {otherUnavailable && (
+            <p className="muted">
+              {other} is {agentHealthLabel(otherAgentState)} on this machine, so the audit will come from a different {agentName(analysis.agent)} model instead: still a fresh read, but not a second vendor.
+            </p>
+          )}
           <button type="button" onClick={onRequest} disabled={busy}>
             {busy ? "Auditing..." : `Get ${other} second opinion`}
           </button>
@@ -51,6 +61,7 @@ export function SecondOpinionSection({
               {agentName(opinion.agent)} ({opinion.model}) · confidence {Math.round(opinion.confidence * 100)}%{typeof opinion.costUsd === "number" ? ` · ~$${opinion.costUsd.toFixed(3)}` : ""}
             </span>
           </p>
+          {opinion.fallbackReason && <p className="muted second-opinion-fallback">{opinion.fallbackReason}</p>}
           {opinion.summary && <p>{opinion.summary}</p>}
           {opinion.disputed.length > 0 && (
             <div className="second-opinion-group">

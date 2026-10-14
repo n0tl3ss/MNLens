@@ -5,10 +5,10 @@
   flex: 0 0 auto;
   min-height: 22px;
   padding: 3px 7px;
-  border: 1px solid #cfd1c8;
+  border: 1px solid var(--mn-border);
   border-radius: 999px;
-  background: #eaf5f8;
-  color: #263d4a;
+  background: var(--mn-surface-soft);
+  color: var(--mn-text);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -17,45 +17,70 @@
 }
 
 .badge.feature {
-  border-color: #80cdf0;
-  background: #dff4ff;
-  color: #095f91;
+  border-color: var(--mn-primary-border);
+  background: var(--mn-primary-soft);
+  color: var(--mn-primary-ink);
 }
 
 .badge.improvement {
-  border-color: #8edfd1;
-  background: #e1faf5;
-  color: #0c6758;
+  border-color: var(--mn-primary-border);
+  background: var(--mn-primary-soft);
+  color: var(--mn-primary-ink);
 }
 
 .badge.danger {
-  border-color: #d9b0b4;
-  background: #f0e4e2;
-  color: #8f3140;
+  border-color: var(--mn-danger-border);
+  background: var(--mn-danger-soft);
+  color: var(--mn-danger-ink);
 }
 
 .badge.added {
-  border-color: #8edfd1;
-  background: #ddfaf3;
-  color: #0d685a;
+  border-color: var(--mn-ok-border);
+  background: var(--mn-ok-soft);
+  color: var(--mn-ok-ink);
 }
 
 .badge.review-needed {
-  border-color: #9fbac4;
-  background: #edf6f9;
-  color: #263d4a;
+  border-color: var(--mn-border-strong);
+  background: var(--mn-surface-soft);
+  color: var(--mn-text);
 }
 
 .badge.queue {
-  background: #e9e8ef;
-  color: #40379c;
-  border-color: #b6adff;
+  border-color: var(--mn-warn-border);
+  background: var(--mn-warn-soft);
+  color: var(--mn-warn-ink);
+}
+
+.badge.accent,
+.badge.stack {
+  border-color: var(--mn-accent-border);
+  background: var(--mn-accent-soft);
+  color: var(--mn-accent-ink);
+}
+
+.badge svg {
+  margin-right: 1px;
+}
+
+button.badge {
+  gap: 4px;
+  min-height: 22px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button.badge:hover {
+  border-color: var(--mn-accent);
+  text-decoration: underline;
 }
 
 .badge.label {
-  background: #e9e8ef;
-  color: #4a4690;
-  border: 1px solid #bcb9dc;
+  background: var(--mn-accent-soft);
+  color: var(--mn-accent-ink);
+  border: 1px solid var(--mn-accent-border);
   font-style: italic;
 }
 
@@ -65,29 +90,29 @@
   gap: 3px;
   min-width: 128px;
   padding: 10px 12px;
-  border: 1px solid #cfd1c8;
-  border-top: 4px solid #8ca7b2;
+  border: 1px solid var(--mn-border);
+  border-top: 4px solid var(--mn-faint);
   border-radius: 8px;
-  background: rgba(246, 245, 241, 0.9);
+  background: var(--mn-surface);
   text-align: right;
 }
 
 .pr-score-card.added {
-  border-top-color: #2f9f86;
+  border-top-color: var(--mn-ok);
 }
 
 .pr-score-card.improvement {
-  border-top-color: #2a7a93;
+  border-top-color: var(--mn-primary);
 }
 
 .pr-score-card.queue {
-  border-top-color: #5d5aa8;
-  background: #ecebf0;
+  border-top-color: var(--mn-warn);
+  background: var(--mn-warn-soft);
 }
 
 .pr-score-card.danger {
-  border-top-color: #b9483f;
-  background: #f2e9e7;
+  border-top-color: var(--mn-danger);
+  background: var(--mn-danger-soft);
 }
 
 .pr-score-card div {
@@ -98,26 +123,26 @@
 }
 
 .pr-score-card strong {
-  color: #20292d;
+  color: var(--mn-ink);
   font-size: 28px;
   line-height: 1;
 }
 
 .pr-score-card span,
 .pr-score-card small {
-  color: #5f6a6e;
+  color: var(--mn-muted);
   font-size: 11px;
   font-weight: 800;
 }
 
 .pr-score-card p {
-  color: #1d3340;
+  color: var(--mn-ink);
   font-size: 12px;
   font-weight: 850;
 }
 
 .pr-score-card em {
-  color: #5f6a6e;
+  color: var(--mn-muted);
   font-size: 12px;
   font-style: italic;
 }
@@ -134,12 +159,10 @@
 .summary-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid #cfd1c8;
+  border: 1px solid var(--mn-border);
   border-radius: 8px;
-  background: rgba(246, 245, 241, 0.92);
-  box-shadow:
-    0 1px 0 rgba(42, 122, 147, 0.06),
-    0 16px 48px rgba(21, 75, 104, 0.045);
+  background: var(--mn-surface);
+  box-shadow: var(--mn-shadow-card);
 }
 
 .summary-card p,
@@ -153,17 +176,17 @@
 }
 
 .insight-section {
-  border-top: 4px solid #2a7a93;
+  border-top: 4px solid var(--mn-primary);
 }
 
 .insight-section.evidence {
-  border-top-color: #2f9f86;
+  border-top-color: var(--mn-ok);
 }
 
 .insight-section.risk {
-  border-top-color: #b9483f;
+  border-top-color: var(--mn-danger);
 }
 
 .insight-section.tests {
-  border-top-color: #5d5aa8;
+  border-top-color: var(--mn-accent);
 }

@@ -1,16 +1,20 @@
+import type { GithubRateLimitInfo, GithubRateLimitResource } from "../shared/types.js";
+
 const defaultCooldownMs = 30 * 60_000;
+
+/**
+ * GitHub meters REST ("core"), GraphQL and search separately. MNLens's queue,
+ * PR details and stack detection run on GraphQL through `gh`, so the REST
+ * budget can sit at 5000/5000 while GraphQL is being drained. The status below
+ * therefore tracks every resource and reports the busiest one as the headline.
+ */
+const displayedResources = ["core", "graphql", "search", "code_search"] as const;
+/** Hourly budgets drive the headline; the per-minute search budgets only take over when fully drained. */
+const headlineResources = ["core", "graphql"] as const;
 
 let rateLimitedUntil = 0;
 let rateLimitMessage = "";
-let latestPrimaryRateLimit:
-  | {
-      limit?: number;
-      remaining?: number;
-      used?: number;
-      resetAt?: string;
-      resource?: string;
-    }
-  | undefined;
+let latestResources: Record<string, GithubRateLimitResource> = {};
 
 export class GithubRateLimitError extends Error {
   readonly status = 429;
@@ -33,60 +37,81 @@ export function noteGithubRateLimit(output: string): boolean {
   return true;
 }
 
+/** Record the `x-ratelimit-*` headers of one REST response (`gh api -i ...`). */
 export function noteGithubRateLimitHeaders(headers: string): void {
   const limit = parseRateHeader(headers, "x-ratelimit-limit");
   const remaining = parseRateHeader(headers, "x-ratelimit-remaining");
   const used = parseRateHeader(headers, "x-ratelimit-used");
   const reset = parseRateHeader(headers, "x-ratelimit-reset");
-  const resource = parseStringHeader(headers, "x-ratelimit-resource");
-  if (limit === undefined && remaining === undefined && used === undefined && reset === undefined && !resource) return;
-  latestPrimaryRateLimit = {
-    limit,
-    remaining,
-    used,
-    resetAt: reset === undefined ? undefined : new Date(reset * 1000).toISOString(),
-    resource
+  const resource = parseStringHeader(headers, "x-ratelimit-resource") ?? "core";
+  if (limit === undefined && remaining === undefined && used === undefined && reset === undefined) return;
+  latestResources = {
+    ...latestResources,
+    [resource]: { limit, remaining, used, resetAt: epochToIso(reset) }
   };
   applyPrimaryCooldownIfExhausted();
 }
 
+/** Record the body of `gh api rate_limit`, which lists every metered resource. */
 export function noteGithubRateLimitBody(body: unknown): void {
-  const core = body && typeof body === "object" && "resources" in body ? (body as { resources?: { core?: Record<string, unknown> } }).resources?.core : undefined;
-  if (!core) return;
-  latestPrimaryRateLimit = {
-    limit: numberValue(core.limit),
-    remaining: numberValue(core.remaining),
-    used: numberValue(core.used),
-    resetAt: numberValue(core.reset) === undefined ? undefined : new Date(Number(core.reset) * 1000).toISOString(),
-    resource: "core"
-  };
+  const resources = body && typeof body === "object" && "resources" in body ? (body as { resources?: Record<string, unknown> }).resources : undefined;
+  if (!resources || typeof resources !== "object") return;
+  const next: Record<string, GithubRateLimitResource> = {};
+  for (const [name, value] of Object.entries(resources)) {
+    if (!value || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    next[name] = {
+      limit: numberValue(entry.limit),
+      remaining: numberValue(entry.remaining),
+      used: numberValue(entry.used),
+      resetAt: epochToIso(numberValue(entry.reset))
+    };
+  }
+  if (Object.keys(next).length === 0) return;
+  latestResources = next;
   applyPrimaryCooldownIfExhausted();
 }
 
 export function resetGithubRateLimitForTests(): void {
   rateLimitedUntil = 0;
   rateLimitMessage = "";
-  latestPrimaryRateLimit = undefined;
+  latestResources = {};
 }
 
-export function githubRateLimitStatus(): {
-  limited: boolean;
-  limit?: number;
-  remaining?: number;
-  used?: number;
-  resetAt?: string;
-  resource?: string;
-  until?: string;
-  message?: string;
-  retryAfterSeconds?: number;
-} {
+/**
+ * Picks the resource the reviewer should watch: the one with the smallest
+ * share of its budget left. Ties (e.g. two untouched budgets) go to the one
+ * that has been used most, then to REST "core".
+ */
+export function pickBusiestRateLimitResource(resources: Record<string, GithubRateLimitResource>): string | undefined {
+  const measurable = Object.entries(resources).filter(([name, value]) => (displayedResources as readonly string[]).includes(name) && typeof value.limit === "number" && typeof value.remaining === "number" && value.limit > 0);
+  const drainedSearch = measurable.filter(([name, value]) => !(headlineResources as readonly string[]).includes(name) && value.remaining === 0);
+  const candidates = drainedSearch.length > 0 ? drainedSearch : measurable.filter(([name]) => (headlineResources as readonly string[]).includes(name));
+  if (candidates.length === 0) return measurable[0]?.[0] ?? Object.keys(resources)[0];
+  candidates.sort(([nameA, a], [nameB, b]) => {
+    const ratio = a.remaining! / a.limit! - b.remaining! / b.limit!;
+    if (ratio !== 0) return ratio;
+    const used = (b.used ?? 0) - (a.used ?? 0);
+    if (used !== 0) return used;
+    return displayedResources.indexOf(nameA as (typeof displayedResources)[number]) - displayedResources.indexOf(nameB as (typeof displayedResources)[number]);
+  });
+  return candidates[0][0];
+}
+
+export function githubRateLimitStatus(): GithubRateLimitInfo {
   const now = Date.now();
-  if (rateLimitedUntil <= now) {
-    return { limited: false, ...latestPrimaryRateLimit };
-  }
+  const resource = pickBusiestRateLimitResource(latestResources);
+  const primary = resource ? latestResources[resource] : undefined;
+  const base: GithubRateLimitInfo = {
+    limited: false,
+    ...(primary ?? {}),
+    resource,
+    resources: Object.keys(latestResources).length > 0 ? { ...latestResources } : undefined
+  };
+  if (rateLimitedUntil <= now) return base;
   return {
+    ...base,
     limited: true,
-    ...latestPrimaryRateLimit,
     until: new Date(rateLimitedUntil).toISOString(),
     message: rateLimitMessage || "GitHub API rate limit reached.",
     retryAfterSeconds: Math.max(1, Math.ceil((rateLimitedUntil - now) / 1000))
@@ -129,14 +154,23 @@ function parseStringHeader(headers: string, name: string): string | undefined {
 }
 
 function numberValue(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
 
+function epochToIso(seconds: number | undefined): string | undefined {
+  return seconds === undefined ? undefined : new Date(seconds * 1000).toISOString();
+}
+
+/** A fully drained REST or GraphQL budget pauses GitHub work until that budget resets. */
 function applyPrimaryCooldownIfExhausted(): void {
-  if (latestPrimaryRateLimit?.remaining !== 0 || !latestPrimaryRateLimit.resetAt) return;
-  const resetAtMs = new Date(latestPrimaryRateLimit.resetAt).getTime();
-  if (!Number.isFinite(resetAtMs) || resetAtMs <= Date.now()) return;
-  rateLimitedUntil = Math.max(rateLimitedUntil, resetAtMs);
-  rateLimitMessage = "GitHub primary API rate limit exhausted.";
+  for (const name of ["core", "graphql"]) {
+    const resource = latestResources[name];
+    if (!resource || resource.remaining !== 0 || !resource.resetAt) continue;
+    const resetAtMs = new Date(resource.resetAt).getTime();
+    if (!Number.isFinite(resetAtMs) || resetAtMs <= Date.now()) continue;
+    rateLimitedUntil = Math.max(rateLimitedUntil, resetAtMs);
+    rateLimitMessage = `GitHub ${name === "core" ? "REST" : "GraphQL"} API rate limit exhausted.`;
+  }
 }

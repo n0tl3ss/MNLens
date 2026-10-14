@@ -1,37 +1,24 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewInsight, SourceLink } from "../shared/types.js";
-import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
+import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewInsight } from "../shared/types.js";
+import { agentDisplayName, agentScratchDir, codexSchemaPathFor, runAgent } from "./agent.js";
 import { readAnalysis, writeAnalysis } from "./cache.js";
+import { deltaAgainstPrevious } from "./analysisDelta.js";
 import { runCommand } from "./command.js";
-import { githubCliEnv, githubHost, hardenWorktreeCredentials } from "./githubHost.js";
+import { githubCliEnv, hardenWorktreeCredentials } from "./githubHost.js";
 import { readGithubToken } from "./keychain.js";
-import { cacheDir, projectRoot } from "./paths.js";
+import { cacheDir } from "./paths.js";
 import { getPrStack, stackPromptContext } from "./stacks.js";
 import { analysisContextHash } from "../shared/analysisContext.js";
 import { calibrationPromptBlock } from "./reviewMemory.js";
 import { listRepoRules } from "./repoRules.js";
-import { exactMatchPattern, loadResearchProfiles, matchingProfiles, profileRelevance, type ResearchProfile } from "./researchProfiles.js";
 
 // Re-exported for modules that still import the Codex home from here.
 export { codexHome, ensureCodexHome } from "./agent.js";
 
 const maxDiffChars = 70_000;
-
-const sourceSchema = z.object({
-  title: z.string().default(""),
-  url: z.string().default(""),
-  reason: z.string().default(""),
-  framework: z.string().default(""),
-  repository: z.string().default(""),
-  filePath: z.string().default(""),
-  codeSnippet: z.string().default(""),
-  snippetSourceUrl: z.string().default(""),
-  comparison: z.string().default(""),
-  caveat: z.string().default("")
-});
 
 const insightSchema = z.object({
   title: z.string().default(""),
@@ -39,6 +26,23 @@ const insightSchema = z.object({
   perspective: z.string().default(""),
   recommendation: z.string().default(""),
   severity: z.enum(["info", "low", "medium", "high"]).default("medium")
+});
+
+const readingGuideStepSchema = z.object({
+  path: z.string().default(""),
+  lines: z.string().default(""),
+  title: z.string().default(""),
+  explanation: z.string().default(""),
+  whyItMatters: z.string().default("")
+});
+
+const assumptionSchema = insightSchema.extend({
+  location: z.string().default("")
+});
+
+const edgeCaseSchema = insightSchema.extend({
+  location: z.string().default(""),
+  covered: z.enum(["yes", "partial", "no", "unknown"]).catch("unknown")
 });
 
 const testAssessmentSchema = z.object({
@@ -69,9 +73,11 @@ const analysisSchema = z.object({
     gaps: [],
     recommendedTests: []
   }),
-  docs: z.array(sourceSchema).default([]),
-  similarImplementations: z.array(sourceSchema).default([]),
   caveats: z.array(z.string()).default([]),
+  readingGuide: z.array(readingGuideStepSchema).default([]),
+  assumptions: z.array(assumptionSchema).default([]),
+  edgeCases: z.array(edgeCaseSchema).default([]),
+  inspectedFiles: z.array(z.string()).default([]),
   draftComment: z.string().default(""),
   modelNote: z.string().default("")
 });
@@ -106,20 +112,23 @@ export async function analyzePr(
   hooks.onStatus?.("Checking whether this PR is part of a stack.");
   const stack = await getPrStack(detail.owner, detail.repo, detail.number).catch((): PrStack | undefined => undefined);
 
-  hooks.onStatus?.("Collecting targeted research candidates from the changed files.");
-  const profiles = matchingProfiles(detail, await loadResearchProfiles(), maxDiffChars);
-  const researchCandidates = await targetedResearchCandidates(detail, profiles);
   const calibration = await calibrationPromptBlock(detail.repository).catch(() => "");
   const repoRules = (await listRepoRules(detail.repository).catch(() => [])).filter((rule) => rule.enabled);
-  const prompt = buildPrompt(detail, researchCandidates, stack, profiles, { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`) });
-  hooks.onStatus?.("Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context.");
+  const reviewerIsAuthor = await reviewerIsPrAuthor(detail);
+  hooks.onStatus?.("Preparing a read-only checkout of the PR so the agent can read surrounding code.");
+  // Same shallow clone the acceptance contract uses. Without it the agent only sees the diff and has to guess
+  // about callers, defaults and existing tests, which is where a standalone `claude` session in the repo beats it.
+  const repoDir = await ensureAnalysisWorktree(detail).catch(() => undefined);
+  const repoGuidance = await readRepoGuidance(repoDir);
+  const prompt = buildPrompt(detail, stack, { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`), reviewerIsAuthor, hasCheckout: Boolean(repoDir), repoGuidance });
+  hooks.onStatus?.(repoDir ? "Running agent analysis inside the PR checkout with diff, comments, linked issues, CI, stack context, and local review policy context." : "Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context (no checkout available).");
   const { invocation, result, output } = await runAgent(
     {
       task: "deep-analysis",
       prKey: detail.key,
       prompt,
       access: "read-only",
-      cwd: projectRoot,
+      cwd: repoDir ?? (await agentScratchDir()),
       webSearch: true,
       outputSchema: schema,
       outputLastMessagePath: outputPath
@@ -139,8 +148,6 @@ export async function analyzePr(
     diffHash: detail.diffHash,
     contextHash,
     ...normalized,
-    docs: cleanSources(normalized.docs),
-    similarImplementations: cleanSources(mergeResearchCandidates(normalized.similarImplementations, researchCandidates, profiles)),
     generatedAt: new Date().toISOString(),
     agent: invocation.agent,
     model: invocation.model,
@@ -149,6 +156,14 @@ export async function analyzePr(
       ? { parentNumber: stack.parent?.number, parentTitle: stack.parent?.title, position: stack.position, size: stack.chain.length }
       : undefined
   };
+  // Compared with the last analysis of a different diff, so the reviewer sees what the new commits resolved.
+  const delta = await deltaAgainstPrevious(detail, cached, analysis).catch(() => undefined);
+  if (delta) {
+    analysis.delta = delta;
+    hooks.onStatus?.(
+      `Compared with the previous analysis: ${delta.resolved.length} resolved, ${delta.added.length} new, ${delta.persisting.length} persisting${delta.carriedVerdicts ? `, ${delta.carriedVerdicts} verdict(s) carried over` : ""}.`
+    );
+  }
   await writeAnalysis(analysis);
   hooks.onStatus?.("Analysis complete.");
   return analysis;
@@ -156,7 +171,7 @@ export async function analyzePr(
 
 export async function askRisk(detail: PrDetail, risk: ReviewInsight | { observation: string }, question: string): Promise<string> {
   const { invocation, output } = await runAgent(
-    { task: "quick-answer", prKey: detail.key, prompt: buildRiskQuestionPrompt(detail, risk, question), access: "read-only", cwd: projectRoot, webSearch: true },
+    { task: "quick-answer", prKey: detail.key, prompt: buildRiskQuestionPrompt(detail, risk, question), access: "read-only", cwd: await agentScratchDir(), webSearch: true },
     { timeoutMs: 5 * 60_000 }
   );
   return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
@@ -164,26 +179,73 @@ export async function askRisk(detail: PrDetail, risk: ReviewInsight | { observat
 
 export async function askCiFailure(detail: PrDetail, check: CiCheck, log = ""): Promise<string> {
   const { invocation, output } = await runAgent(
-    { task: "ci-explain", prKey: detail.key, prompt: buildCiFailurePrompt(detail, check, log), access: "read-only", cwd: projectRoot },
+    { task: "ci-explain", prKey: detail.key, prompt: buildCiFailurePrompt(detail, check, log), access: "read-only", cwd: await agentScratchDir() },
     { timeoutMs: 5 * 60_000 }
   );
   return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
 }
 
-export async function askResearch(detail: PrDetail, source: SourceLink, question: string): Promise<string> {
-  const { invocation, output } = await runAgent(
-    { task: "research-answer", prKey: detail.key, prompt: buildResearchQuestionPrompt(detail, source, question), access: "read-only", cwd: projectRoot, webSearch: true },
-    { timeoutMs: 5 * 60_000 }
-  );
-  return output.text || `${agentDisplayName(invocation.agent)} did not return an answer.`;
+const repoGuidanceFiles = ["CLAUDE.md", "AGENTS.md", ".github/copilot-instructions.md", "CONTRIBUTING.md", ".github/CONTRIBUTING.md", ".github/PULL_REQUEST_TEMPLATE.md", "MAINTAINING.md", ".cursorrules"];
+
+export interface RepoGuidance {
+  path: string;
+  excerpt: string;
+}
+
+/**
+ * The repository's own guidance for contributors and coding agents (CLAUDE.md,
+ * AGENTS.md, Copilot instructions, CONTRIBUTING, PR template). Fed to the
+ * analysis and review-draft prompts so the agent judges the PR against the
+ * maintainers' conventions and test commands instead of generic ones.
+ */
+export async function readRepoGuidance(repoDir: string | undefined, limits = { perFile: 2500, total: 7000 }): Promise<RepoGuidance[]> {
+  if (!repoDir) return [];
+  const candidates = [...repoGuidanceFiles];
+  try {
+    const instructions = (await readdir(join(repoDir, ".github", "instructions"))).filter((name) => name.endsWith(".md")).sort().slice(0, 4);
+    candidates.push(...instructions.map((name) => `.github/instructions/${name}`));
+  } catch {
+    // No Copilot instructions directory.
+  }
+  const guidance: RepoGuidance[] = [];
+  let total = 0;
+  for (const relative of candidates) {
+    let text: string;
+    try {
+      text = (await readFile(join(repoDir, relative), "utf8")).trim();
+    } catch {
+      continue;
+    }
+    if (!text) continue;
+    const excerpt = text.length > limits.perFile ? `${text.slice(0, limits.perFile)}\n[truncated]` : text;
+    if (total + excerpt.length > limits.total) break;
+    total += excerpt.length;
+    guidance.push({ path: relative, excerpt });
+  }
+  return guidance;
+}
+
+export function repoGuidancePromptBlock(guidance: RepoGuidance[] | undefined): string {
+  if (!guidance || guidance.length === 0) return "";
+  return `\nRepository guidance written by the maintainers for contributors and coding agents. Judge the PR against these conventions, cite the file when the PR deviates from them, and prefer the commands they name in testsToCheck:\n${guidance.map((item) => `--- ${item.path} ---\n${item.excerpt}`).join("\n\n")}\n`;
+}
+
+/** True when the signed-in reviewer wrote the PR (self-review of agent-generated code). Best-effort; never blocks analysis. */
+async function reviewerIsPrAuthor(detail: PrDetail): Promise<boolean> {
+  try {
+    // Dynamic import: gh.ts imports this module for list normalization, so a static import would be circular.
+    const { currentUsername } = await import("./gh.js");
+    const username = await currentUsername();
+    return Boolean(username && detail.author && username.toLowerCase() === detail.author.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 export function buildPrompt(
   detail: PrDetail,
-  researchCandidates: SourceLink[] = [],
   stack?: PrStack,
-  profiles: ResearchProfile[] = [],
-  context: { calibration?: string; repoRules?: string[] } = {}
+  context: { calibration?: string; repoRules?: string[]; reviewerIsAuthor?: boolean; hasCheckout?: boolean; repoGuidance?: RepoGuidance[] } = {}
 ): string {
   const diff =
     detail.diff.length > maxDiffChars
@@ -209,11 +271,24 @@ export function buildPrompt(
       files: detail.files
     },
     diff,
-    targetedResearchCandidates: researchCandidates,
     stack: stackPromptContext(stack)
   };
 
-  return `You are helping a human review a GitHub pull request made by an agent.
+  const selfReview = context.reviewerIsAuthor
+    ? `
+The reviewer is the PR author, reviewing code that was largely written by an AI agent before asking colleagues for review. Be adversarial on their behalf: treat nothing in the PR body as proven, prioritize assumptions, defaults and edge cases the agent may have invented, and write draftComment as self-review notes for the author (what to fix or double-check before requesting review) rather than as a message to someone else.
+`
+    : "";
+  const checkout = context.hasCheckout
+    ? `
+You are working inside a read-only checkout of the PR at its head commit. Do not judge from the diff alone. Before writing the JSON, do all of the following and cite what you read as path:line:
+1. Open every changed production (non-test) file around each hunk so you see the surrounding control flow, defaults and error handling, not just the changed lines.
+2. For each changed or newly introduced symbol (method, class, constant, configuration key), grep the repository for its callers and usages, and read the ones that decide how the change behaves: where defaults are set, where state is persisted or versioned, where errors are handled, where the symbol is wired in.
+3. Find the tests that exercise the changed symbols (grep for their names) and check what they actually assert.
+List every file you opened beyond the diff in inspectedFiles (repository-relative paths). For a change to production code an empty inspectedFiles is not acceptable. Stay targeted: read the files that decide behavior, not whole directories.
+`
+    : "";
+  return `You are helping a human review a GitHub pull request made by an agent.${selfReview}${checkout}
 
 Classify the PR as exactly one of: feature, bug, improvement, refactor, docs, test, chore, unknown.
 
@@ -223,12 +298,7 @@ Behavior rules:
 - If a \`stack\` object is present, the PR is stacked on a parent PR: judge only the incremental diff against the parent branch, mention the parent PR number in the summary, and treat "depends on parent being correct" as a caveat rather than a risk.
 - Treat the PR body and linked issues as primary intent evidence. If linked issues exist, compare the PR against the issue request/bug report before judging completeness, risks, tests, and review comments.
 - For bug PRs, explain previous behavior and new behavior when inferable.
-- For feature PRs, search for authoritative docs and similar GitHub implementations when useful. Include source URLs. Call out caveats and edge cases.
-- Use targetedResearchCandidates first. If a candidate contains the exact API/class introduced by the PR, it should usually outrank broader framework docs or generic OpenTelemetry examples.
-- For each similarImplementation, include the framework/ecosystem, repository, filePath, URL, a comparison to this PR, and a caveat or reviewer check.
-- codeSnippet must be an exact excerpt copied from the linked implementation or documentation, not inferred usage. Set snippetSourceUrl to the exact blob/raw/docs URL used for the snippet. If you cannot verify an exact snippet, leave codeSnippet and snippetSourceUrl empty and explain the gap in caveat.
-- Keep snippets small, usually 5-25 lines. Do not paste whole files.
-${profiles.flatMap((profile) => profile.promptGuidance).map((line) => `- ${line}`).join("\n")}
+- For feature PRs, check the authoritative documentation of the APIs the change relies on only when a finding depends on it, and cite the URL in that finding. Do not collect reference links for their own sake. Call out caveats and edge cases.
 - For improvement PRs, explain what changed, why it helps, and tradeoffs.
 - For every PR, produce concrete reviewer focus areas, risks, tests to check, and a draft review comment.
 - Scale the amount of analysis to the source-code change, not the total PR size. If most changes are tests/docs and production/source code is tiny, keep reviewerFocus, risks, caveats, and draftComment short. Do not make the human read more AI text than the source change warrants.
@@ -244,9 +314,13 @@ ${profiles.flatMap((profile) => profile.promptGuidance).map((line) => `- ${line}
 - For docs-only PRs, testsToCheck should focus on documentation correctness: build/render the docs, inspect the changed page/section, and capture screenshot or rendered HTML evidence when possible. Do not suggest generic commands like \`git diff --check\` unless the PR specifically changes whitespace, line endings, or formatting rules.
 - If an integration behavior is important but not currently covered, write it as an automatable item such as "Add/run automated test: ..." or "Add/run TCK coverage: ...", with the behavior and pass/fail assertion. Do not turn it into manual work just because no command exists yet.
 - Only write "Manual verification:" items when automation is not realistic, such as requiring real cloud resources, external credentials/accounts, paid services, release permissions, visual/UX judgment, or infrastructure that cannot be provisioned locally. Manual items must include pass/fail criteria.
+- Look deliberately for these pitfalls, which structured reviews tend to skip: (a) logic duplicated from an existing path (a fast path, a fallback, a copy of a switch) that can drift from the original; (b) a cheap guard placed after expensive work it could have skipped (ordering of checks, work done before an early return); (c) behavior changes hidden inside an "optimization" (a scope, a conversion, a callback or side effect that is no longer executed); (d) conversions or wrappers the new path skips (type adaptation, null handling, error mapping) that the old path still performs; (e) version or state compatibility (persisted formats, cache keys, STATE_VERSION-style markers) left unchanged while recorded data changed; (f) caller assumptions about ordering, threading or identity (the same instance returned, no extra wrapping). Report each as a risk, assumption or edge case with its location.
+- readingGuide: the order a human should read this diff to understand it fastest. 3-8 steps for a typical PR, 1-2 for a tiny one. Start from the entry point or the behavior change, not from file order. Each step: path (must be a file in the diff), lines (a "start-end" range in the new file, or "" for the whole file), a short title, a plain-language explanation of what that code does, and whyItMatters for the review.
+- assumptions: every default value, default behavior, implicit contract or environmental assumption this PR introduces or relies on: configuration defaults, null/empty handling, ordering, timeouts and limits, encodings, feature flags, "callers always pass X", threading, compatibility with existing data or older versions. For each: title; observation = the assumption and where it lives; perspective = what breaks or who is affected if it is wrong; recommendation = the fastest way for the reviewer to verify it (a test to read, a call site to grep, a question for the author); location = "path:line" in the diff; severity by blast radius. Leave the array empty rather than inventing assumptions.
+- edgeCases: boundary, empty/null, error-path, concurrency, ordering, compatibility and resource scenarios the changed code can actually hit. For each: title; observation = the scenario and the code path involved; perspective = the expected behavior and what the current code appears to do; recommendation = how to check it (an existing test name, a test to add, a command); location = "path:line"; covered = "yes" when an existing test exercises it, "partial", "no", or "unknown". Uncovered high-severity edge cases must also appear in testAssessment.gaps.
 - Be explicit when evidence is missing. Do not invent docs or source links.
 - Prefer concise, review-useful language over broad summaries.
-${context.repoRules && context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}
+${context.repoRules && context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}${repoGuidancePromptBlock(context.repoGuidance)}
 PR packet:
 ${JSON.stringify(payload, null, 2)}
 `;
@@ -404,40 +478,6 @@ function isVulnerabilityAuditCheck(check: CiCheck): boolean {
   return text.includes("vulnerab") || text.includes("cve") || text.includes("audit");
 }
 
-function buildResearchQuestionPrompt(detail: PrDetail, source: SourceLink, question: string): string {
-  return `You are helping a human reviewer evaluate one research source for a GitHub PR.
-
-Answer concisely and practically:
-- Say whether the source is directly relevant, partially relevant, or noise.
-- Compare it to the PR's actual implementation.
-- Call out concrete edge cases, tests, or docs the reviewer should inspect.
-- If the source is weak, say what better source/search would help.
-
-Do not make code changes. Do not invent unavailable facts.
-
-Reviewer question:
-${question.trim()}
-
-PR:
-${JSON.stringify(
-  {
-    repository: detail.repository,
-    number: detail.number,
-    title: detail.title,
-    body: detail.body,
-    linkedIssues: detail.linkedIssues ?? [],
-    files: detail.files,
-    baseRefName: detail.baseRefName
-  },
-  null,
-  2
-)}
-
-Research source:
-${JSON.stringify(source, null, 2)}
-`;
-}
-
 export function analysisJsonSchema(): Record<string, unknown> {
   return {
         type: "object",
@@ -456,9 +496,11 @@ export function analysisJsonSchema(): Record<string, unknown> {
           "riskDetails",
           "testsToCheck",
           "testAssessment",
-          "docs",
-          "similarImplementations",
           "caveats",
+          "readingGuide",
+          "assumptions",
+          "edgeCases",
+          "inspectedFiles",
           "draftComment",
           "modelNote"
         ],
@@ -479,57 +521,45 @@ export function analysisJsonSchema(): Record<string, unknown> {
           riskDetails: { type: "array", items: insightJsonSchema() },
           testsToCheck: { type: "array", items: { type: "string" } },
           testAssessment: testAssessmentJsonSchema(),
-          docs: { type: "array", items: sourceJsonSchema() },
-          similarImplementations: { type: "array", items: sourceJsonSchema() },
           caveats: { type: "array", items: { type: "string" } },
+          readingGuide: { type: "array", items: readingGuideStepJsonSchema() },
+          assumptions: { type: "array", items: insightJsonSchema({ location: true }) },
+          edgeCases: { type: "array", items: insightJsonSchema({ location: true, covered: true }) },
+          inspectedFiles: { type: "array", items: { type: "string" } },
           draftComment: { type: "string" },
           modelNote: { type: "string" }
         }
   };
 }
 
-function sourceJsonSchema() {
+function readingGuideStepJsonSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: [
-      "title",
-      "url",
-      "reason",
-      "framework",
-      "repository",
-      "filePath",
-      "codeSnippet",
-      "snippetSourceUrl",
-      "comparison",
-      "caveat"
-    ],
+    required: ["path", "lines", "title", "explanation", "whyItMatters"],
     properties: {
+      path: { type: "string" },
+      lines: { type: "string" },
       title: { type: "string" },
-      url: { type: "string" },
-      reason: { type: "string" },
-      framework: { type: "string" },
-      repository: { type: "string" },
-      filePath: { type: "string" },
-      codeSnippet: { type: "string" },
-      snippetSourceUrl: { type: "string" },
-      comparison: { type: "string" },
-      caveat: { type: "string" }
+      explanation: { type: "string" },
+      whyItMatters: { type: "string" }
     }
   };
 }
 
-function insightJsonSchema() {
+function insightJsonSchema(extra: { location?: boolean; covered?: boolean } = {}) {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "observation", "perspective", "recommendation", "severity"],
+    required: ["title", "observation", "perspective", "recommendation", "severity", ...(extra.location ? ["location"] : []), ...(extra.covered ? ["covered"] : [])],
     properties: {
       title: { type: "string" },
       observation: { type: "string" },
       perspective: { type: "string" },
       recommendation: { type: "string" },
-      severity: { type: "string", enum: ["info", "low", "medium", "high"] }
+      severity: { type: "string", enum: ["info", "low", "medium", "high"] },
+      ...(extra.location ? { location: { type: "string" } } : {}),
+      ...(extra.covered ? { covered: { type: "string", enum: ["yes", "partial", "no", "unknown"] } } : {})
     }
   };
 }
@@ -626,11 +656,61 @@ export async function normalizeAnalysisWithLocalGradleChecks<T extends RawAnalys
   };
 }
 
+const worktreeLocks = new Map<string, Promise<unknown>>();
+
+/** Serializes git operations per directory so a Deep Analyze and an acceptance run on the same PR never race on index.lock. */
+async function withWorktreeLock<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const previous = worktreeLocks.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(work);
+  worktreeLocks.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (worktreeLocks.get(key) === next) worktreeLocks.delete(key);
+  }
+}
+
+/**
+ * Read-only checkout of the PR head for analysis and the acceptance contract.
+ *
+ * One shallow clone per repository (`_repos/<owner>__<repo>`) holds the objects;
+ * each PR gets a `git worktree` off it, so analyzing twenty PRs of one
+ * repository costs one clone plus twenty single-commit fetches instead of
+ * twenty clones. Checkouts made before this layout (a full clone per PR) keep
+ * working through the legacy branch below.
+ */
 export async function ensureAnalysisWorktree(detail: PrDetail): Promise<string> {
   const token = await readGithubToken();
   if (!token) throw new Error("GitHub token is required to prepare a PR checkout for Gradle project validation.");
-  const repoDir = join(cacheDir, "analysis-worktrees", detail.key);
-  await mkdir(dirname(repoDir), { recursive: true });
+  const root = join(cacheDir, "analysis-worktrees");
+  const repoDir = join(root, detail.key);
+  await mkdir(root, { recursive: true });
+  const gitEnv = githubCliEnv(token);
+  const legacyClone = existsSync(join(repoDir, ".git")) && statSync(join(repoDir, ".git")).isDirectory();
+  if (!legacyClone) {
+    const baseDir = join(root, "_repos", `${detail.owner}__${detail.repo}`);
+    const pullRef = `refs/mnlens/pull/${detail.number}`;
+    return withWorktreeLock(baseDir, async () => {
+      if (!existsSync(join(baseDir, ".git"))) {
+        await rm(baseDir, { recursive: true, force: true });
+        await mkdir(dirname(baseDir), { recursive: true });
+        await runCommand("gh", ["repo", "clone", detail.repository, baseDir, "--", "--depth", "1"], { env: gitEnv, timeoutMs: 10 * 60_000, redact: [token] });
+        await hardenWorktreeCredentials(baseDir);
+        await runCommand("git", ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], { cwd: baseDir, timeoutMs: 30_000 }).catch(() => undefined);
+      }
+      // Fetch just the PR head commit; works for merged and fork PRs where `gh pr checkout` cannot find the branch.
+      await runCommand("git", ["fetch", "--depth", "1", "origin", `+refs/pull/${detail.number}/head:${pullRef}`], { cwd: baseDir, env: gitEnv, timeoutMs: 5 * 60_000, redact: [token] });
+      await runCommand("git", ["worktree", "prune"], { cwd: baseDir, timeoutMs: 30_000 }).catch(() => undefined);
+      if (existsSync(join(repoDir, ".git"))) {
+        await runCommand("git", ["checkout", "--detach", pullRef], { cwd: repoDir, env: gitEnv, timeoutMs: 60_000, redact: [token] });
+      } else {
+        await rm(repoDir, { recursive: true, force: true });
+        await runCommand("git", ["worktree", "add", "--detach", repoDir, pullRef], { cwd: baseDir, env: gitEnv, timeoutMs: 60_000, redact: [token] });
+      }
+      return repoDir;
+    });
+  }
+  return withWorktreeLock(repoDir, async () => {
   if (!existsSync(join(repoDir, ".git"))) {
     await rm(repoDir, { recursive: true, force: true });
     await runCommand("gh", ["repo", "clone", detail.repository, repoDir, "--", "--depth", "1"], {
@@ -640,13 +720,21 @@ export async function ensureAnalysisWorktree(detail: PrDetail): Promise<string> 
     });
     await hardenWorktreeCredentials(repoDir);
   }
-  await runCommand("gh", ["pr", "checkout", String(detail.number), "--detach"], {
-    cwd: repoDir,
-    env: githubCliEnv(token),
-    timeoutMs: 5 * 60_000,
-    redact: [token]
-  });
+  // Legacy full clone per PR: restore the refspec (--depth implies --single-branch) and fetch the PR head directly.
+  await runCommand("git", ["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], { cwd: repoDir, timeoutMs: 30_000 }).catch(() => undefined);
+  try {
+    await runCommand("git", ["fetch", "--depth", "1", "origin", `+refs/pull/${detail.number}/head`], { cwd: repoDir, env: gitEnv, timeoutMs: 5 * 60_000, redact: [token] });
+    await runCommand("git", ["checkout", "--detach", "FETCH_HEAD"], { cwd: repoDir, env: gitEnv, timeoutMs: 60_000, redact: [token] });
+  } catch {
+    await runCommand("gh", ["pr", "checkout", String(detail.number), "--detach"], {
+      cwd: repoDir,
+      env: gitEnv,
+      timeoutMs: 5 * 60_000,
+      redact: [token]
+    });
+  }
   return repoDir;
+  });
 }
 
 async function discoverActualGradleProjects(repoDir: string, gradleCommand: string): Promise<Set<string>> {
@@ -803,116 +891,6 @@ export function extractJson(text: string): string {
   const last = trimmed.lastIndexOf("}");
   if (first >= 0 && last > first) return trimmed.slice(first, last + 1);
   throw new Error("The agent did not return a JSON object");
-}
-
-function cleanSources(sources: SourceLink[]): SourceLink[] {
-  return sources.filter((source) => source.url.trim().length > 0 || source.title.trim().length > 0);
-}
-
-async function targetedResearchCandidates(detail: PrDetail, profiles: ResearchProfile[]): Promise<SourceLink[]> {
-  if (profiles.length === 0) return [];
-  const curated = profiles.flatMap((profile) => profile.curatedSources);
-  const queries = profiles.flatMap((profile) => profile.codeSearchQueries);
-  const token = await readGithubToken();
-  const results: SourceLink[] = [];
-  if (token && queries.length > 0) {
-    for (const query of queries) {
-      const found = await searchGithubCode(query, token, profiles).catch(() => []);
-      results.push(...found);
-      if (dedupeSources(results).length >= 8) break;
-    }
-  }
-  return dedupeSources([...curated, ...results])
-    .sort((a, b) => sourceRelevance(b, profiles, detail) - sourceRelevance(a, profiles, detail))
-    .slice(0, 8);
-}
-
-async function searchGithubCode(query: string, token: string, profiles: ResearchProfile[]): Promise<SourceLink[]> {
-  const result = await runCommand(
-    "gh",
-    ["api", "search/code", "-f", `q=${query}`, "-H", "Accept: application/vnd.github.text-match+json"],
-    {
-      cwd: projectRoot,
-      env: githubCliEnv(token),
-      redact: [token],
-      timeoutMs: 90_000
-    }
-  );
-  const payload = JSON.parse(result.stdout) as { items?: Array<Record<string, unknown>> };
-  const items = payload.items ?? [];
-  return items.map((item) => sourceFromCodeSearchItem(item, query, profiles)).filter((item): item is SourceLink => Boolean(item));
-}
-
-function sourceFromCodeSearchItem(item: Record<string, unknown>, query: string, profiles: ResearchProfile[]): SourceLink | undefined {
-  const path = String(item.path ?? "");
-  const url = String(item.url ?? "");
-  const repository = repositoryName(item.repository);
-  if (!path && !url) return undefined;
-  const codeSnippet = snippetFromTextMatches(item.textMatches);
-  const pattern = exactMatchPattern(profiles);
-  const exact = pattern ? pattern.test(`${path}\n${codeSnippet}`) : false;
-  const subject = profiles.map((profile) => profile.subject).join(" / ") || "the PR's subject";
-  return {
-    title: `${repository || "GitHub"} ${path.split("/").pop() || "code result"}`,
-    url,
-    reason: exact
-      ? `Targeted GitHub code search result for ${query}; contains ${subject} API usage.`
-      : `Targeted GitHub code search result for ${query}; inspect for relevance before relying on it.`,
-    framework: "GitHub code search",
-    repository,
-    filePath: path,
-    codeSnippet,
-    snippetSourceUrl: url,
-    comparison: exact
-      ? `Compare how this code handles ${subject} against the PR's implementation (construction, lifecycle, error handling, tests).`
-      : `Use only if it directly matches ${subject} in this PR.`,
-    caveat: exact
-      ? "This is a code-search candidate; reviewer should still verify repository context and whether the implementation is production quality."
-      : `Lower relevance because it may be generic code rather than ${subject}.`
-  };
-}
-
-function repositoryName(value: unknown): string {
-  if (!value || typeof value !== "object") return "";
-  const record = value as Record<string, unknown>;
-  return String(record.fullName ?? record.nameWithOwner ?? record.name ?? "");
-}
-
-function snippetFromTextMatches(value: unknown): string {
-  if (!Array.isArray(value)) return "";
-  return value
-    .map((match) => {
-      if (!match || typeof match !== "object") return "";
-      const record = match as Record<string, unknown>;
-      return String(record.fragment ?? "").trim();
-    })
-    .filter(Boolean)
-    .join("\n...\n")
-    .slice(0, 2_000);
-}
-
-function mergeResearchCandidates(sources: SourceLink[], candidates: SourceLink[], profiles: ResearchProfile[]): SourceLink[] {
-  if (candidates.length === 0) return sources;
-  const relevantSources = sources.filter((source) => sourceRelevance(source, profiles) > 0);
-  const merged = dedupeSources([...candidates, ...relevantSources]);
-  return merged.sort((a, b) => sourceRelevance(b, profiles) - sourceRelevance(a, profiles)).slice(0, 8);
-}
-
-function dedupeSources(sources: SourceLink[]): SourceLink[] {
-  const seen = new Set<string>();
-  const result: SourceLink[] = [];
-  for (const source of sources) {
-    const key = `${source.repository}:${source.filePath}:${source.url}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(source);
-  }
-  return result;
-}
-
-function sourceRelevance(source: SourceLink, profiles: ResearchProfile[], detail?: PrDetail): number {
-  const text = `${source.title}\n${source.repository}\n${source.filePath}\n${source.reason}\n${source.codeSnippet}\n${source.comparison}\n${detail?.title ?? ""}`;
-  return profileRelevance(text, profiles);
 }
 
 export function typeDisplayName(type: AnalysisType): string {

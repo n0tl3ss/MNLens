@@ -11,7 +11,7 @@ import { AuthorLink, Badge } from "./uiBits";
 import "./diffViewer.css";
 
 type PlanFileSignal = {
-  kind: "risk" | "focus" | "evidence" | "test";
+  kind: "risk" | "focus" | "evidence" | "assumption" | "edge case" | "test" | "guide";
   title: string;
   body: string;
   recommendation?: string;

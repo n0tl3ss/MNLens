@@ -1,5 +1,5 @@
 import { Send } from "lucide-react";
-import type { AnalysisResult, PrDetail, PrFile, ReviewComment, ReviewProgress } from "../../../shared/types";
+import type { AnalysisResult, PrDetail, PrFile, ReadingGuideStep, ReviewComment, ReviewProgress } from "../../../shared/types";
 import { isDocsPath, isTestPath } from "../reviewHelpers";
 import type { DraftReviewComment } from "./CommentTab";
 import { DiffViewer, extractFileDiff, type OverviewLinePin } from "./DiffViewer";
@@ -8,6 +8,7 @@ import { Badge, plural } from "./uiBits";
 export function DiffTab({
   detail,
   analysis: _analysis,
+  readingGuide = [],
   progress,
   reviewComments,
   expandedFile,
@@ -22,6 +23,8 @@ export function DiffTab({
 }: {
   detail: PrDetail;
   analysis?: AnalysisResult;
+  /** Agent-suggested order in which to read the files (fresh analysis only). */
+  readingGuide?: ReadingGuideStep[];
   progress?: ReviewProgress;
   reviewComments: DraftReviewComment[];
   expandedFile?: string;
@@ -37,6 +40,8 @@ export function DiffTab({
   const reviewedFiles = new Set(progress?.reviewedFiles ?? []);
   const draftCount = reviewComments.filter((comment) => comment.body.trim().length > 0).length;
   const groupedFiles = groupChangedFiles(detail.files);
+  const knownPaths = new Set(detail.files.map((file) => file.path));
+  const readingSteps = readingGuide.filter((step) => knownPaths.has(step.path));
 
   function toggleReviewedFile(path: string) {
     const next = reviewedFiles.has(path)
@@ -48,6 +53,22 @@ export function DiffTab({
   return (
     <div className="panel">
       <h3>Changed Files</h3>
+      {readingSteps.length > 0 && (
+        <ol className="diff-reading-order" aria-label="Suggested reading order">
+          {readingSteps.map((step, index) => (
+            <li key={`${step.path}:${index}`} className={expandedFile === step.path ? "active" : ""}>
+              <button type="button" onClick={() => expandedFile !== step.path && onToggleExpandedFile(step.path)} title={step.explanation}>
+                <span className="diff-reading-step">{index + 1}</span>
+                <strong>{step.title}</strong>
+                <code>
+                  {step.path.split("/").pop()}
+                  {step.lines ? `:${step.lines}` : ""}
+                </code>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="file-list expandable">
         {groupedFiles.map((group) => (
           <section className={`changed-file-group ${group.id}`} key={group.id}>

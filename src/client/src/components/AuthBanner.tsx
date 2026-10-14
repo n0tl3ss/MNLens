@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ShieldAlert } from "lucide-react";
-import type { AuthStatus } from "../../../shared/types";
+import type { AuthStatus, GithubRateLimitInfo, GithubRateLimitResource } from "../../../shared/types";
 import { GitHubTokenPermissions, secureStoreName } from "./SetupScreen";
 import "./setup.css";
 
@@ -31,7 +31,11 @@ export function AuthBanner({
           {auth.scopeCheck === "limited" ? " - public repository scope" : ""}
           {auth.scopeCheck === "missing" ? " - limited token permissions" : ""}
         </span>
-        {rate && <span className={`auth-rate-limit ${rate.tone}`}>{rate.label}</span>}
+        {rate && (
+          <span className={`auth-rate-limit ${rate.tone}`} title={rate.title}>
+            {rate.label}
+          </span>
+        )}
       </div>
     );
   }
@@ -78,18 +82,49 @@ export function AuthBanner({
   );
 }
 
-function rateLimitLabel(auth: AuthStatus): { label: string; tone: "ok" | "warn" | "danger" } | undefined {
-  const rate = auth.githubRateLimit;
-  if (!rate) return { label: "GitHub API limit unknown", tone: "warn" };
+const resourceNames: Record<string, string> = {
+  core: "REST",
+  graphql: "GraphQL",
+  search: "search",
+  code_search: "code search"
+};
+
+function resourceName(resource: string | undefined): string {
+  if (!resource) return "";
+  return resourceNames[resource] ?? resource.replace(/_/g, " ");
+}
+
+function timeOf(iso: string | undefined): string | undefined {
+  if (!iso) return undefined;
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? undefined : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/** One line per metered budget for the chip tooltip. */
+export function rateLimitBreakdown(resources: Record<string, GithubRateLimitResource> | undefined): string {
+  if (!resources) return "";
+  return Object.entries(resources)
+    .filter(([, value]) => typeof value.limit === "number" && typeof value.remaining === "number")
+    .map(([name, value]) => `${resourceName(name)}: ${value.remaining}/${value.limit} left${value.resetAt ? `, resets ${timeOf(value.resetAt) ?? ""}` : ""}`)
+    .join("\n");
+}
+
+export function rateLimitLabel(auth: Pick<AuthStatus, "githubRateLimit">): { label: string; tone: "ok" | "warn" | "danger"; title: string } | undefined {
+  const rate: GithubRateLimitInfo | undefined = auth.githubRateLimit;
+  if (!rate) return { label: "GitHub API limit unknown", tone: "warn", title: "MNLens has not received a rate-limit response from GitHub yet." };
+  const breakdown = rateLimitBreakdown(rate.resources);
   if (rate.limited) {
-    const reset = rate.until ? new Date(rate.until).toLocaleTimeString() : rate.resetAt ? new Date(rate.resetAt).toLocaleTimeString() : "later";
-    return { label: `GitHub rate limited until ${reset}`, tone: "danger" };
+    const reset = timeOf(rate.until) ?? timeOf(rate.resetAt) ?? "later";
+    return { label: `GitHub rate limited until ${reset}`, tone: "danger", title: [rate.message, breakdown].filter(Boolean).join("\n\n") };
   }
-  if (typeof rate.remaining !== "number" || typeof rate.limit !== "number") return { label: "GitHub API limit checking", tone: "warn" };
-  const reset = rate.resetAt ? `, resets ${new Date(rate.resetAt).toLocaleTimeString()}` : "";
+  if (typeof rate.remaining !== "number" || typeof rate.limit !== "number") return { label: "GitHub API limit checking", tone: "warn", title: breakdown };
+  const reset = rate.resetAt ? `, resets ${timeOf(rate.resetAt) ?? ""}` : "";
   const ratio = rate.limit > 0 ? rate.remaining / rate.limit : 1;
+  // The headline is the busiest budget; GraphQL is what the queue and PR views actually spend.
+  const api = rate.resource && rate.resource !== "core" ? `GitHub ${resourceName(rate.resource)} API` : "GitHub API";
   return {
-    label: `GitHub API ${rate.remaining}/${rate.limit} left${reset}`,
-    tone: ratio < 0.1 ? "danger" : ratio < 0.25 ? "warn" : "ok"
+    label: `${api} ${rate.remaining}/${rate.limit} left${reset}`,
+    tone: ratio < 0.1 ? "danger" : ratio < 0.25 ? "warn" : "ok",
+    title: breakdown ? `GitHub API budgets per resource (the busiest one is shown):\n${breakdown}` : "GitHub API budget for the busiest metered resource."
   };
 }

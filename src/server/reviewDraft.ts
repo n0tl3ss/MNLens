@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { z } from "zod";
-import type { AcceptanceContract, AnalysisResult, PrDetail, RepoReviewRule, ReviewDraft, SuggestedReviewComment } from "../shared/types.js";
+import type { AcceptanceContract, AnalysisResult, PrDetail, RepoReviewRule, ReviewDraft, SuggestedReviewComment, VerificationJob } from "../shared/types.js";
 import { annotateDiff, resolveAnchor, type AnnotatedDiff } from "../shared/diffLines.js";
 import { readAcceptanceContract, effectiveStatus } from "./acceptance.js";
-import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
+import { agentDisplayName, agentScratchDir, codexSchemaPathFor, runAgent } from "./agent.js";
 import { reviewDraftInstructions } from "./agentSkills.js";
-import { readAnalysis } from "./cache.js";
+import { readAnalysis, readVerificationJobsForPr } from "./cache.js";
 import { listRepoRules } from "./repoRules.js";
-import { extractJson } from "./codex.js";
-import { cacheDir, projectRoot } from "./paths.js";
+import { extractJson, readRepoGuidance, repoGuidancePromptBlock, type RepoGuidance } from "./codex.js";
+import { cacheDir } from "./paths.js";
 import { calibrationPromptBlock } from "./reviewMemory.js";
 
 /**
@@ -46,7 +47,8 @@ const draftSchema = z.object({
         title: z.string().default(""),
         body: z.string().default(""),
         rationale: z.string().default(""),
-        criterion: z.string().nullable().optional()
+        criterion: z.string().nullable().optional(),
+        suggestion: z.string().nullable().optional()
       })
     )
     .default([]),
@@ -69,7 +71,7 @@ export function reviewDraftJsonSchema(): Record<string, unknown> {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["path", "side", "line", "kind", "title", "body", "rationale", "criterion"],
+          required: ["path", "side", "line", "kind", "title", "body", "rationale", "criterion", "suggestion"],
           properties: {
             path: { type: "string" },
             side: { type: "string", enum: ["LEFT", "RIGHT"] },
@@ -78,7 +80,8 @@ export function reviewDraftJsonSchema(): Record<string, unknown> {
             title: { type: "string" },
             body: { type: "string" },
             rationale: { type: "string" },
-            criterion: { type: ["string", "null"] }
+            criterion: { type: ["string", "null"] },
+            suggestion: { type: ["string", "null"] }
           }
         }
       },
@@ -106,13 +109,17 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
   const existing = await readReviewDraft(detail.key);
   if (existing && !options.force && existing.diffHash === detail.diffHash) return existing;
 
-  const [analysis, acceptance, rules, calibration] = await Promise.all([
+  const [analysis, acceptance, rules, calibration, verificationJobs] = await Promise.all([
     readAnalysis(detail.key),
     readAcceptanceContract(detail.key),
     listRepoRules(detail.repository).catch(() => [] as RepoReviewRule[]),
-    calibrationPromptBlock(detail.repository).catch(() => "")
+    calibrationPromptBlock(detail.repository).catch(() => ""),
+    readVerificationJobsForPr(detail.key).catch(() => [] as VerificationJob[])
   ]);
   const annotated = annotateDiff(detail.diff);
+  // Reuse the analysis checkout when it exists (no git operations here); the draft then follows the repo's own conventions.
+  const worktree = join(cacheDir, "analysis-worktrees", detail.key);
+  const repoGuidance = existsSync(worktree) ? await readRepoGuidance(worktree).catch(() => [] as RepoGuidance[]) : [];
   const outputPath = join(cacheDir, "agent-output", `${detail.key}-review-draft-${Date.now()}.json`);
   await mkdir(dirname(outputPath), { recursive: true });
   const schema = reviewDraftJsonSchema();
@@ -127,10 +134,12 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
         analysis: analysis?.diffHash === detail.diffHash ? analysis : undefined,
         acceptance: acceptance?.diffHash === detail.diffHash ? acceptance : undefined,
         repoRules: rules.filter((rule) => rule.enabled).map((rule) => `${rule.title}: ${rule.body}`),
-        calibration
+        calibration,
+        repoGuidance,
+        verificationJobs
       }),
       access: "read-only",
-      cwd: projectRoot,
+      cwd: await agentScratchDir(),
       outputSchema: schema,
       outputLastMessagePath: outputPath
     },
@@ -182,7 +191,9 @@ export function normalizeComments(comments: RawComment[], annotated: Pick<Annota
       body,
       rationale: comment.rationale.trim(),
       criterion: comment.criterion?.trim() || undefined,
-      unanchored: anchor.unanchored || undefined
+      unanchored: anchor.unanchored || undefined,
+      // A suggestion replaces the anchored line, so it only makes sense for a resolved RIGHT-side anchor.
+      suggestion: !anchor.unanchored && anchor.side === "RIGHT" && anchor.line !== undefined && comment.suggestion?.trim() ? comment.suggestion.replace(/\s+$/, "") : undefined
     });
   }
   return result.sort((a, b) => kindRank(a.kind) - kindRank(b.kind));
@@ -202,7 +213,7 @@ function cleanList(items: string[]): string[] {
 export function buildReviewDraftPrompt(
   detail: PrDetail,
   annotated: Pick<AnnotatedDiff, "text" | "files">,
-  context: { analysis?: AnalysisResult; acceptance?: AcceptanceContract; repoRules: string[]; calibration: string }
+  context: { analysis?: AnalysisResult; acceptance?: AcceptanceContract; repoRules: string[]; calibration: string; repoGuidance?: RepoGuidance[]; verificationJobs?: VerificationJob[] }
 ): string {
   const analysis = context.analysis
     ? {
@@ -213,16 +224,18 @@ export function buildReviewDraftPrompt(
         reviewerFocus: context.analysis.reviewerFocusDetails ?? context.analysis.reviewerFocus,
         risks: context.analysis.riskDetails ?? context.analysis.risks,
         testAssessment: context.analysis.testAssessment,
+        assumptions: context.analysis.assumptions ?? [],
+        edgeCases: context.analysis.edgeCases ?? [],
         caveats: context.analysis.caveats,
         secondOpinion: context.analysis.secondOpinion ? { verdict: context.analysis.secondOpinion.verdict, disputed: context.analysis.secondOpinion.disputed, missed: context.analysis.secondOpinion.missed } : undefined
       }
     : undefined;
   const acceptance = context.acceptance
-    ? context.acceptance.criteria.map((criterion) => ({ text: criterion.text, status: effectiveStatus(criterion), humanOverride: Boolean(criterion.humanStatus), evidence: criterion.evidence.map((item) => `${item.kind}:${item.ref}`), note: criterion.humanNote ?? criterion.note }))
+    ? context.acceptance.criteria.map((criterion) => ({ text: criterion.text, status: effectiveStatus(criterion, context.verificationJobs ?? []), humanOverride: Boolean(criterion.humanStatus), evidence: criterion.evidence.map((item) => `${item.kind}:${item.ref}`), command: criterion.command, note: criterion.humanNote ?? criterion.note }))
     : undefined;
   const existingThreads = (detail.reviewComments ?? []).slice(0, 30).map((comment) => ({ path: comment.path, line: comment.line, side: comment.side, author: comment.author, resolved: comment.isResolved, body: comment.body.slice(0, 300) }));
   return `${reviewDraftInstructions()}
-${context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}
+${context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}${repoGuidancePromptBlock(context.repoGuidance)}
 Pull request:
 ${JSON.stringify({ repository: detail.repository, number: detail.number, title: detail.title, author: detail.author, body: detail.body, baseRefName: detail.baseRefName, isDraft: detail.isDraft, files: detail.files, linkedIssues: (detail.linkedIssues ?? []).map((issue) => ({ number: issue.number, title: issue.title, body: (issue.body ?? "").slice(0, 3000) })) }, null, 2)}
 

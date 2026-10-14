@@ -2,7 +2,7 @@ import type { AnalysisResult, PrDetail, ReviewComment, ReviewInsight, ReviewProg
 import { extractFileDiff, type OverviewLinePin } from "./components/DiffViewer";
 
 export type PlanFileSignal = {
-  kind: "risk" | "focus" | "evidence" | "test";
+  kind: "risk" | "focus" | "evidence" | "assumption" | "edge case" | "test" | "guide";
   title: string;
   body: string;
   recommendation?: string;
@@ -76,6 +76,8 @@ export function buildFileReviewSignals(file: PrDetail["files"][number], analysis
   const risks = relevantInsights(file.path, analysis.riskDetails ?? [], fileDiff);
   const focus = relevantInsights(file.path, analysis.reviewerFocusDetails ?? [], fileDiff);
   const evidence = relevantInsights(file.path, analysis.evidenceDetails ?? [], fileDiff);
+  const assumptions = relevantInsights(file.path, analysis.assumptions ?? [], fileDiff);
+  const edgeCases = relevantInsights(file.path, (analysis.edgeCases ?? []).filter((item) => item.covered !== "yes"), fileDiff);
 
   for (const item of risks.slice(0, 3)) {
     signals.push({
@@ -107,9 +109,29 @@ export function buildFileReviewSignals(file: PrDetail["files"][number], analysis
       tone: "feature"
     });
   }
+  for (const item of assumptions.slice(0, 2)) {
+    signals.push({
+      kind: "assumption",
+      title: item.title || "Assumption",
+      body: item.perspective ? `${item.observation} If wrong: ${item.perspective}` : item.observation,
+      recommendation: item.recommendation,
+      severity: item.severity,
+      tone: toneForSeverity(item.severity) === "danger" ? "danger" : "queue"
+    });
+  }
+  for (const item of edgeCases.slice(0, 2)) {
+    signals.push({
+      kind: "edge case",
+      title: item.title || "Edge case",
+      body: item.perspective ? `${item.observation} Expected: ${item.perspective}` : item.observation,
+      recommendation: item.recommendation,
+      severity: item.severity,
+      tone: toneForSeverity(item.severity) === "danger" ? "danger" : "queue"
+    });
+  }
   const testSignal = relevantTextForFile(file.path, analysis.testsToCheck);
   if (testSignal) signals.push({ kind: "test", title: "Verification", body: testSignal, tone: "added" });
-  return dedupePlanSignals(signals).slice(0, 7);
+  return dedupePlanSignals(signals).slice(0, 9);
 }
 
 export function buildOverviewLinePins(file: PrDetail["files"][number], analysis: AnalysisResult | undefined, diff: string): OverviewLinePin[] {
@@ -117,7 +139,8 @@ export function buildOverviewLinePins(file: PrDetail["files"][number], analysis:
   const signals = buildFileReviewSignals(file, analysis, diff);
   const fileDiff = extractFileDiff(diff, file.path);
   const usedTargets = new Set<string>();
-  const pins: OverviewLinePin[] = [];
+  const pins: OverviewLinePin[] = readingGuidePins(file.path, analysis, fileDiff);
+  for (const pin of pins) usedTargets.add(`${pin.target.path}:${pin.target.side}:${pin.target.line}`);
   for (const signal of signals) {
     const target = findBestSignalTarget(fileDiff, file.path, signal);
     if (!target) continue;
@@ -135,7 +158,74 @@ export function buildOverviewLinePins(file: PrDetail["files"][number], analysis:
       draftBody: authorCommentForSignal(signal)
     });
   }
-  return pins.slice(0, 5);
+  return pins.slice(0, 6);
+}
+
+/**
+ * Reading-guide steps that name a line range become pins at the first line of
+ * that range (snapped to the nearest line present in the diff), so the guide
+ * is visible while reading the code, not only on the Overview.
+ */
+export function readingGuidePins(path: string, analysis: Pick<AnalysisResult, "readingGuide">, fileDiff: string): OverviewLinePin[] {
+  const steps = (analysis.readingGuide ?? []).map((step, index) => ({ step, index })).filter(({ step }) => step.path === path && /^\d+/.test(step.lines ?? ""));
+  if (steps.length === 0) return [];
+  const available = rightSideLines(fileDiff);
+  if (available.size === 0) return [];
+  const pins: OverviewLinePin[] = [];
+  for (const { step, index } of steps) {
+    const start = Number(/^(\d+)/.exec(step.lines ?? "")?.[1]);
+    const line = nearestLine(available, start, 12);
+    if (line === undefined) continue;
+    pins.push({
+      target: { path, line, side: "RIGHT" },
+      kind: "guide",
+      title: `Read ${index + 1}: ${step.title}`,
+      body: step.explanation,
+      recommendation: step.whyItMatters || undefined,
+      tone: "feature",
+      draftBody: `Could you add a short comment or doc note explaining this part? ${step.explanation}`
+    });
+  }
+  return pins;
+}
+
+/** New-file line numbers that appear in the diff (added and context lines). */
+function rightSideLines(fileDiff: string): Set<number> {
+  const lines = new Set<number>();
+  let current = 0;
+  let inHunk = false;
+  for (const line of fileDiff.split("\n")) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) {
+      current = Number(hunk[1]);
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      lines.add(current);
+      current += 1;
+    } else if (line.startsWith(" ") || line === "") {
+      lines.add(current);
+      current += 1;
+    } else if (line.startsWith("\\")) {
+      continue;
+    } else if (!line.startsWith("-")) {
+      inHunk = false;
+    }
+  }
+  return lines;
+}
+
+function nearestLine(available: Set<number>, wanted: number, tolerance: number): number | undefined {
+  if (!Number.isFinite(wanted)) return undefined;
+  if (available.has(wanted)) return wanted;
+  let best: number | undefined;
+  for (const candidate of available) {
+    const distance = Math.abs(candidate - wanted);
+    if (distance <= tolerance && (best === undefined || distance < Math.abs(best - wanted))) best = candidate;
+  }
+  return best;
 }
 
 export function authorCommentForSignal(signal: PlanFileSignal): string {

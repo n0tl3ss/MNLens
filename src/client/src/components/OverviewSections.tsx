@@ -1,7 +1,7 @@
-import { Clipboard } from "lucide-react";
+import { BookOpen, Clipboard, FileCode2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { LinkedIssue, PrDetail, ReviewProgress } from "../../../shared/types";
+import type { LinkedIssue, PrDetail, ReadingGuideStep, ReviewProgress } from "../../../shared/types";
 import type { ReviewScore } from "../reviewScoring";
 import { AuthorLink, Badge, plural } from "./uiBits";
 
@@ -65,6 +65,57 @@ export function FinalRecommendationSection({ recommendation }: { recommendation:
       <ScoreExplanation score={recommendation.score} />
     </section>
   );
+}
+
+/**
+ * The order in which to read the diff, written by the agent so a human can
+ * understand the change in minutes: entry point first, then the behavior
+ * change, then supporting code and tests. Each step opens its file in the Diff tab.
+ */
+export function ReadingGuideSection({ steps, onOpenInDiff }: { steps: ReadingGuideStep[]; onOpenInDiff?: (path: string) => void }) {
+  if (steps.length === 0) return null;
+  return (
+    <section className="summary-card reading-guide-card">
+      <div className="panel-title">
+        <div>
+          <h3>Reading guide</h3>
+          <p className="muted">Read the diff in this order to understand it fastest; each step says what the code does and why it matters.</p>
+        </div>
+        <BookOpen size={18} />
+      </div>
+      <ol className="reading-guide">
+        {steps.map((step, index) => (
+          <li key={`${step.path}:${step.lines ?? ""}:${index}`}>
+            <div className="reading-guide-head">
+              <strong>{step.title}</strong>
+              {onOpenInDiff ? (
+                <button type="button" className="text-button reading-guide-path" onClick={() => onOpenInDiff(step.path)} title="Open this file in the Diff tab">
+                  <FileCode2 size={13} /> {shortPath(step.path)}
+                  {step.lines ? `:${step.lines}` : ""}
+                </button>
+              ) : (
+                <code className="reading-guide-path">
+                  {shortPath(step.path)}
+                  {step.lines ? `:${step.lines}` : ""}
+                </code>
+              )}
+            </div>
+            <p>{step.explanation}</p>
+            {step.whyItMatters && (
+              <p className="reading-guide-why">
+                <b>Why it matters:</b> {step.whyItMatters}
+              </p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function shortPath(path: string): string {
+  const parts = path.split("/");
+  return parts.length > 3 ? `…/${parts.slice(-3).join("/")}` : path;
 }
 
 export function PrContextSection({ detail, progress }: { detail: PrDetail; progress?: ReviewProgress }) {

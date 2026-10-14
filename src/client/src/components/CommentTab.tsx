@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AnalysisResult, ExistingReviewComment, FixJob, PrDetail, ReviewComment, ReviewInsight, ReviewProgress, VerificationJob } from "../../../shared/types";
 import { InsightQuestionBox, InsightSection } from "./InsightSection";
+import { AuthorFeedbackSection } from "./AuthorFeedbackSection";
 import { AuthorLink, Badge } from "./uiBits";
 
 export type DraftReviewComment = ReviewComment & { id: string };
@@ -26,7 +27,13 @@ export function CommentTab({
   onUpdateConversationReplyDraft,
   onCancelConversationReply,
   onSubmitConversationReply,
-  onResolveReviewThread
+  onResolveReviewThread,
+  feedbackPreview,
+  feedbackBusy,
+  feedbackError,
+  selfReview,
+  onPreviewFeedback,
+  onPostFeedback
 }: {
   detail: PrDetail;
   analysis?: AnalysisResult;
@@ -47,6 +54,12 @@ export function CommentTab({
   onCancelConversationReply: (commentId: number) => void;
   onSubmitConversationReply: (commentId: number) => void;
   onResolveReviewThread: (threadId: string) => void;
+  feedbackPreview?: string;
+  feedbackBusy?: boolean;
+  feedbackError?: string;
+  selfReview?: boolean;
+  onPreviewFeedback?: (note: string) => void;
+  onPostFeedback?: (body: string) => void;
 }) {
   const generatedComment = buildFinalReviewComment(detail, analysis, progress, reviewComments, verificationJobs, fixJobs, canApproveWithoutComments);
   const text = generatedComment || analysis?.draftComment || "Analyze this PR to generate a draft review comment.";
@@ -64,13 +77,15 @@ export function CommentTab({
         fixJobs={fixJobs}
         canApproveWithoutComments={canApproveWithoutComments}
       />
+      {onPreviewFeedback && onPostFeedback && (
+        <AuthorFeedbackSection preview={feedbackPreview} busy={feedbackBusy} error={feedbackError} selfReview={selfReview} onPreview={onPreviewFeedback} onPost={onPostFeedback} />
+      )}
       {lineComments.length > 0 && (
         <InsightSection
           title="Line Comments"
           tone="focus"
           items={[]}
           details={lineCommentInsights(lineComments)}
-          compact={false}
           detail={detail}
           onStartFix={onStartFix}
           onDraftComment={(body, target) => {

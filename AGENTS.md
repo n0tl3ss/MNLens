@@ -21,8 +21,9 @@ The app is intentionally human-in-the-loop. Do not add behavior that commits, pu
 - `src/server` - Express routes, GitHub/agent/verification/rebase/stack/cache services.
   - `agent.ts` builds CLI invocations for Codex or Claude Code and parses their output; `agentSettings.ts` holds the task → tier → model routing; `agentSkills.ts` holds every prompt/instruction set handed to agents.
   - `githubHost.ts` is the only place that knows the GitHub host, builds MNLens's own `gh`/`git` auth env, and defines what agents may NOT inherit (reviewer tokens).
-  - `researchProfiles.ts` turns technology-specific research heuristics into data; `secondOpinion.ts` runs the cross-agent audit; `usage.ts` is the per-PR cost ledger.
+  - `secondOpinion.ts` runs the cross-agent audit (same-vendor fallback when the other CLI is unavailable); `usage.ts` is the per-PR cost ledger.
   - `acceptance.ts` builds the acceptance-criteria contract (criteria → evidence → status, with human overrides); `reviewMemory.ts` stores reviewer verdicts and produces calibration text and rule suggestions; `feedback.ts` renders the author comment; `events.ts` is the SSE bus.
+  - `analysisDelta.ts` compares a Deep Analyze re-run with the last analysis of a different diff (resolved / persisting / added, matched by `verdictKey` then observation text) and carries reviewer verdicts onto retitled findings; `cache.ts` keeps the last five analyses per PR in `.pra-cache/analysis-history/` for it. The Overview's "Since the last analysis" card reads `AnalysisResult.delta`.
   - `teamStore.ts` is the optional shared folder (`MNLENS_TEAM_DIR` / `team-settings.json`); `repoRules.ts` merges rules from the repo file (`.mnlens/review-rules.json`), the team folder and the local cache — always read rules through `listRepoRules`, never `cache.readRepoRules` directly.
   - `reviewDraft.ts` produces the Review tab's draft (line-anchored comments, final comment, verdict, must/should/optional checklist); anchors are validated with `src/shared/diffLines.ts`.
   - `stacks.ts` reconstructs stacked-PR chains from open PRs' base/head branches.
@@ -83,10 +84,11 @@ If E2E tests fail because a stale dev server is running, stop the old server and
 ## Development Rules For Agents
 
 - Keep patches focused. Avoid unrelated redesigns or broad refactors.
+- Colours come only from the tokens in `src/client/src/styles.css` (`--mn-*`); light is the default and `[data-theme="dark"]` swaps the same tokens. Never hard-code a colour or add a `[data-theme="dark"]` override in component CSS; add or reuse a token instead. Status tones are fixed: `added`/ok = teal, `queue`/pending = amber, `danger` = red, `accent`/`stack`/`label` = violet, `improvement` = primary.
 - Preserve human approval gates for review submission, commit, push, and rebase confirmation.
 - Never pass the reviewer's GitHub token to an agent process. Agent runs go through `prepareAgentRun`, which strips `GH_TOKEN`/`GITHUB_TOKEN`; MNLens's own `gh`/`git` calls use `githubCliEnv(token)`. Call `hardenWorktreeCredentials(repoDir)` after every clone an agent will work in.
 - Do not hard-code `github.com`; use `githubHost()` / `githubWebUrl()`.
-- Prompts for agents belong in `src/server/agentSkills.ts` (or `researchProfiles.ts` for technology-specific guidance), not inline in pipeline code.
+- Prompts for agents belong in `src/server/agentSkills.ts`, not inline in pipeline code.
 - Do not weaken the local session-token guard.
 - Do not expose the server remotely unless the existing explicit opt-in remains in place.
 - Treat GitHub API rate limits as important. Avoid adding aggressive polling.
@@ -114,6 +116,11 @@ If E2E tests fail because a stale dev server is running, stop the old server and
 ### Change agent/fix behavior
 
 1. Inspect `src/server/agent.ts` (CLI flags per agent), `src/server/agentSettings.ts` (model routing), `src/server/codex.ts` (analysis prompts/schema), `src/server/fix.ts`, and the fix UI in `src/client/src/components/CodexTab.tsx`.
+   - Deep Analyze runs inside the read-only PR checkout from `ensureAnalysisWorktree` (shared with the acceptance contract; it fetches `refs/pull/N/head`, so merged and fork PRs work). Keep it there: without the checkout the agent only sees the diff and loses to a plain `claude` session in the repo.
+   - The analysis schema has `readingGuide`, `assumptions` and `edgeCases` (with `covered`). New fields must get zod defaults so analyses cached before them still parse; the Review tab's step 2 and the author comment read them.
+   - Deep Analyze (deep mode) builds the acceptance contract in the same job and `scheduleAcceptanceVerification` runs up to three criterion commands through the verification queue. Criterion status is computed by `src/shared/acceptance.ts` (`effectiveCriterionStatus`: override > failed run > agent verdict) on both server and client; never reimplement it locally.
+   - The fix pipeline is three passes (implementation, tests/QA, final review) in one agent session; docs and security live in the final-review instructions, not in extra passes. Keep it that way: every extra pass re-reads the session context and roughly adds a third to the cost.
+   - `claudeMcpConfig` (agent settings) is handed to every Claude run as `--mcp-config` and its servers are pre-approved in read-only runs; CLAUDE.md and skills need no plumbing because the runs happen inside the PR checkout.
 2. Never call `codex` or `claude` directly; go through `prepareAgentRun`/`runAgent` so both agents stay in sync and session ids are recovered the same way.
 3. Pick the cheapest tier that can do the job when adding a task (`defaultTaskTiers`); premium is opt-in only.
 4. Preserve retry/resume/cancel semantics. Jobs persisted before multi-agent support have no `agent` field and are Codex sessions.

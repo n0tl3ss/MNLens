@@ -21,12 +21,8 @@ import type {
   AskFixRequest,
   AskFixResponse,
   AnalyzeResponse,
-  AttachGithubProjectRequest,
-  AttachGithubProjectResponse,
   AskCiRequest,
   AskCiResponse,
-  AskResearchRequest,
-  AskResearchResponse,
   AskRiskRequest,
   AskRiskResponse,
   AuthStatus,
@@ -38,7 +34,7 @@ import type {
   FixJob,
   FixLiveDiffResponse,
   FixRequest,
-  GithubProject,
+  GithubRateLimitInfo,
   ManualVerificationRequest,
   PushFixRequest,
   LocalSessionStatus,
@@ -108,16 +104,11 @@ export function getAuthStatus(): Promise<AuthStatus> {
   return request<AuthStatus>("/api/auth/status");
 }
 
-export function getGithubProjects(owner: string): Promise<GithubProject[]> {
-  return request<GithubProject[]>(`/api/github-projects/${encodeURIComponent(owner)}`);
+export function getGithubRateLimit(): Promise<GithubRateLimitInfo> {
+  return request<GithubRateLimitInfo>("/api/github/rate-limit");
 }
 
-export function attachGithubProject(payload: AttachGithubProjectRequest): Promise<AttachGithubProjectResponse> {
-  return request<AttachGithubProjectResponse>("/api/github-projects/attach", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
+
 
 export function getSetupStatus(): Promise<SetupStatus> {
   return request<SetupStatus>("/api/setup/status");
@@ -186,12 +177,6 @@ export function askCiFailure(payload: AskCiRequest): Promise<AskCiResponse> {
   });
 }
 
-export function askResearch(payload: AskResearchRequest): Promise<AskResearchResponse> {
-  return request<AskResearchResponse>("/api/ask-research", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
 
 export function getCiChecks(pr: PrRef): Promise<CiCheck[]> {
   return request<CiCheck[]>(`/api/ci/${pr.owner}/${pr.repo}/${pr.number}`);
