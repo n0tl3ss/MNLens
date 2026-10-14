@@ -9,6 +9,7 @@ export const agentIds: AgentId[] = ["codex", "claude"];
 export const modelTiers: ModelTier[] = ["economy", "standard", "premium"];
 
 export const agentTasks: AgentTask[] = [
+  "analysis-reading",
   "deep-analysis",
   "quick-answer",
   "ci-explain",
@@ -59,8 +60,16 @@ export const defaultTierModels: Record<AgentId, Record<ModelTier, TierModel>> = 
  * QA failure classification) runs on the
  * economy tier, where the price is roughly 20x lower. Premium is never the
  * default; reviewers opt in per task when a PR is unusually hard.
+ *
+ * Deep Analyze is two runs: the reading pass does the judging inside the PR
+ * checkout, the extraction pass only rewrites its notes into the analysis
+ * schema. Both default to standard: measured on micronaut-micrometer#1259,
+ * haiku took 4x longer than sonnet on the extraction (248s vs 57s, three
+ * structured-output turns), cost the same ($0.19) and invented line numbers
+ * the notes did not contain. See AGENTS.md.
  */
 export const defaultTaskTiers: Record<AgentTask, ModelTier> = {
+  "analysis-reading": "standard",
   "deep-analysis": "standard",
   "quick-answer": "economy",
   "ci-explain": "economy",
@@ -78,7 +87,8 @@ export const defaultTaskTiers: Record<AgentTask, ModelTier> = {
 };
 
 export const taskDescriptions: Record<AgentTask, string> = {
-  "deep-analysis": "Deep Analyze: structured review guidance for a PR",
+  "analysis-reading": "Deep Analyze: reading pass (reads the PR checkout, writes review notes)",
+  "deep-analysis": "Deep Analyze: extraction pass (turns the notes into the structured review)",
   "quick-answer": "Ask about a risk / focus item",
   "ci-explain": "Explain a failing CI check",
   "fix-implementation": "Fix pipeline: implementation pass",

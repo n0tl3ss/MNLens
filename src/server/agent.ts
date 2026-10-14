@@ -34,6 +34,13 @@ export interface AgentRunRequest {
   webSearch?: boolean;
   /** JSON schema the final message must satisfy (deep analysis). */
   outputSchema?: Record<string, unknown>;
+  /**
+   * Stream the agent's transcript (tool calls and results) instead of only the final
+   * envelope, so the caller can log it live and see which files the run opened.
+   * Full-access runs always stream; a structured-output run cannot (Claude's
+   * `--json-schema` needs the single `json` envelope).
+   */
+  streamTranscript?: boolean;
   /** File path where Codex should write the final message (Codex only; ignored by Claude). */
   outputLastMessagePath?: string;
   /** Explicit agent override; defaults to the configured agent. */
@@ -237,9 +244,10 @@ export async function claudeMcpConfig(path: string | undefined): Promise<{ path:
 }
 
 function claudeArgs(request: AgentRunRequest & { model: string; effort?: string; persist: boolean; maxBudgetUsd?: number; mcpConfig?: { path: string; servers: string[] } }): string[] {
-  // Long-running fix passes stream NDJSON so the session log shows live tool activity; one-shot
-  // read-only calls use the compact `json` envelope (required for --json-schema structured output).
-  const streaming = request.access === "full-access" && !request.outputSchema;
+  // Long-running fix passes and the analysis reading pass stream NDJSON so the session log shows live
+  // tool activity and the files the run opened; one-shot calls use the compact `json` envelope
+  // (required for --json-schema structured output).
+  const streaming = (request.access === "full-access" || Boolean(request.streamTranscript)) && !request.outputSchema;
   const args = ["-p", "--output-format", streaming ? "stream-json" : "json", ...(streaming ? ["--verbose"] : []), "--model", request.model];
   if (request.effort) args.push("--effort", request.effort);
   if (request.sessionId) args.push("--resume", request.sessionId);

@@ -2,11 +2,14 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewInsight } from "../shared/types.js";
-import { agentDisplayName, agentScratchDir, codexSchemaPathFor, runAgent } from "./agent.js";
+import type { AgentId, AnalysisPass, AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewInsight } from "../shared/types.js";
+import { agentDisplayName, agentScratchDir, codexSchemaPathFor, createAgentLogFormatter, currentAgent, runAgent } from "./agent.js";
+import { readAgentSettings } from "./agentSettings.js";
+import { analysisExtractionInstructions, analysisFieldRules, readingPassInstructions } from "./agentSkills.js";
 import { readAnalysis, writeAnalysis } from "./cache.js";
 import { deltaAgainstPrevious } from "./analysisDelta.js";
-import { budgetDiff } from "./diffBudget.js";
+import { budgetDiff, diffOutline } from "./diffBudget.js";
+import { filesReadFromTranscript, parseFilesReadList, resolveReadPaths, stripFilesReadList } from "./readingPass.js";
 import { runCommand } from "./command.js";
 import { githubCliEnv, hardenWorktreeCredentials } from "./githubHost.js";
 import { readGithubToken } from "./keychain.js";
@@ -20,6 +23,8 @@ import { listRepoRules } from "./repoRules.js";
 export { codexHome, ensureCodexHome } from "./agent.js";
 
 const maxDiffChars = 100_000;
+/** The reading pass sees less of the diff on purpose: whatever is not in the prompt has to be read in the checkout. */
+const readingDiffChars = 60_000;
 
 const insightSchema = z.object({
   title: z.string().default(""),
@@ -121,38 +126,24 @@ export async function analyzePr(
   // about callers, defaults and existing tests, which is where a standalone `claude` session in the repo beats it.
   const repoDir = await ensureAnalysisWorktree(detail).catch(() => undefined);
   const repoGuidance = await readRepoGuidance(repoDir);
-  const prompt = buildPrompt(detail, stack, { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`), reviewerIsAuthor, hasCheckout: Boolean(repoDir), repoGuidance });
-  hooks.onStatus?.(repoDir ? "Running agent analysis inside the PR checkout with diff, comments, linked issues, CI, stack context, and local review policy context." : "Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context (no checkout available).");
-  const { invocation, result, output } = await runAgent(
-    {
-      task: "deep-analysis",
-      prKey: detail.key,
-      prompt,
-      access: "read-only",
-      cwd: repoDir ?? (await agentScratchDir()),
-      webSearch: true,
-      outputSchema: schema,
-      outputLastMessagePath: outputPath
-    },
-    { timeoutMs: 10 * 60_000, onStdout: hooks.onStdout, onStderr: hooks.onStderr }
-  );
-  if (output.isError) throw new Error(output.text || `${invocation.label} reported an error without a message.`);
+  const context: AnalysisPromptContext = { calibration, repoRules: repoRules.map((rule) => `${rule.title}: ${rule.body}`), reviewerIsAuthor, repoGuidance };
+  const run = repoDir
+    ? await analyzeInTwoPasses(detail, stack, repoDir, context, { outputPath, schema }, hooks)
+    : await analyzeFromDiffOnly(detail, stack, context, { outputPath, schema }, hooks);
 
-  hooks.onStatus?.(`Parsing and normalizing ${agentDisplayName(invocation.agent)} review guidance.`);
-  const parsed =
-    output.structured && typeof output.structured === "object"
-      ? analysisSchema.parse(output.structured)
-      : parseCodexOutput(invocation.agent === "codex" ? await readOutput(outputPath, result.stdout) : output.text);
-  const normalized = await normalizeAnalysisWithLocalGradleChecks(detail, normalizeAnalysisForDetail(detail, parsed));
+  hooks.onStatus?.(`Parsing and normalizing ${agentDisplayName(run.agent)} review guidance.`);
+  const normalized = await normalizeAnalysisWithLocalGradleChecks(detail, normalizeAnalysisForDetail(detail, run.parsed));
   const analysis: AnalysisResult = {
     prKey: detail.key,
     diffHash: detail.diffHash,
     contextHash,
     ...normalized,
     generatedAt: new Date().toISOString(),
-    agent: invocation.agent,
-    model: invocation.model,
-    costUsd: output.costUsd,
+    agent: run.agent,
+    model: run.model,
+    costUsd: run.costUsd,
+    passes: run.passes,
+    readingNotes: run.readingNotes,
     stack: stack?.isStacked
       ? { parentNumber: stack.parent?.number, parentTitle: stack.parent?.title, position: stack.position, size: stack.chain.length }
       : undefined
@@ -168,6 +159,143 @@ export async function analyzePr(
   await writeAnalysis(analysis);
   hooks.onStatus?.("Analysis complete.");
   return analysis;
+}
+
+export interface AnalysisPromptContext {
+  calibration?: string;
+  repoRules?: string[];
+  reviewerIsAuthor?: boolean;
+  repoGuidance?: RepoGuidance[];
+}
+
+interface AnalysisRun {
+  parsed: RawAnalysis;
+  agent: AgentId;
+  model: string;
+  costUsd?: number;
+  passes?: AnalysisPass[];
+  readingNotes?: string;
+}
+
+type AnalysisHooks = NonNullable<Parameters<typeof analyzePr>[2]>;
+
+/**
+ * Deep Analyze as two agent runs.
+ *
+ * Pass 1 (reading, standard tier) gets a short colleague-style brief and no
+ * output schema, so its turns go into reading the checkout; MNLens streams its
+ * transcript and recovers the files it opened. Pass 2 (extraction, economy
+ * tier) turns the notes plus the annotated diff into the analysis schema and
+ * may not add findings of its own. One schema-constrained call used to do both
+ * and spent its turns on the JSON instead of the code (3 files read where a
+ * plain `claude` session read 10, see AGENTS.md).
+ */
+async function analyzeInTwoPasses(
+  detail: PrDetail,
+  stack: PrStack | undefined,
+  repoDir: string,
+  context: AnalysisPromptContext,
+  output: { outputPath: string; schema: Record<string, unknown> },
+  hooks: AnalysisHooks
+): Promise<AnalysisRun> {
+  const format = createAgentLogFormatter(await currentAgent());
+  hooks.onStatus?.("Pass 1 of 2: the agent reads the PR in its checkout (changed files, callers, tests) and writes review notes.");
+  const readingPath = `${output.outputPath}.reading.md`;
+  const readingStarted = Date.now();
+  const reading = await runAgent(
+    {
+      task: "analysis-reading",
+      prKey: detail.key,
+      prompt: buildReadingPrompt(detail, stack, context),
+      access: "read-only",
+      cwd: repoDir,
+      webSearch: true,
+      streamTranscript: true,
+      outputLastMessagePath: readingPath
+    },
+    { timeoutMs: 10 * 60_000, onStdout: (chunk) => hooks.onStdout?.(format(chunk)), onStderr: hooks.onStderr }
+  );
+  const readingDurationMs = Date.now() - readingStarted;
+  if (reading.output.isError) throw new Error(reading.output.text || `${reading.invocation.label} reported an error while reading the PR.`);
+  const rawNotes = reading.invocation.agent === "codex" ? await readOutput(readingPath, reading.output.text) : reading.output.text;
+  if (!rawNotes.trim()) throw new Error(`${reading.invocation.label} returned no review notes for the PR.`);
+  if (reading.invocation.agent !== "codex") await writeFile(readingPath, rawNotes).catch(() => undefined);
+  // What the agent opened, from its tool calls and from the list it was asked to end with; only files in the checkout count.
+  const filesRead = resolveReadPaths([...filesReadFromTranscript(reading.invocation.agent, reading.result.stdout), ...parseFilesReadList(rawNotes)], repoDir);
+  const changed = new Set(detail.files.map((file) => file.path));
+  const inspectedFiles = filesRead.filter((path) => !changed.has(path));
+  const readingNotes = stripFilesReadList(rawNotes);
+  hooks.onStatus?.(
+    `Pass 1 done: ${reading.invocation.label} read ${filesRead.length} file${filesRead.length === 1 ? "" : "s"} in the checkout (${inspectedFiles.length} beyond the diff)${
+      typeof reading.output.costUsd === "number" ? `, ~$${reading.output.costUsd.toFixed(3)}` : ""
+    }. Pass 2 of 2: writing the structured review from the notes.`
+  );
+
+  const extractionStarted = Date.now();
+  const extraction = await runAgent(
+    {
+      task: "deep-analysis",
+      prKey: detail.key,
+      prompt: buildExtractionPrompt(detail, stack, { ...context, readingNotes, inspectedFiles }),
+      access: "read-only",
+      cwd: await agentScratchDir(),
+      outputSchema: output.schema,
+      outputLastMessagePath: output.outputPath
+    },
+    { timeoutMs: 5 * 60_000, onStdout: hooks.onStdout, onStderr: hooks.onStderr }
+  );
+  const extractionDurationMs = Date.now() - extractionStarted;
+  if (extraction.output.isError) throw new Error(extraction.output.text || `${extraction.invocation.label} reported an error while structuring the review notes.`);
+  const parsed =
+    extraction.output.structured && typeof extraction.output.structured === "object"
+      ? analysisSchema.parse(extraction.output.structured)
+      : parseCodexOutput(extraction.invocation.agent === "codex" ? await readOutput(output.outputPath, extraction.result.stdout) : extraction.output.text);
+  // The file list comes from the reading pass, never from the model.
+  parsed.inspectedFiles = inspectedFiles;
+  const costs = [reading.output.costUsd, extraction.output.costUsd].filter((cost): cost is number => typeof cost === "number");
+  return {
+    parsed,
+    agent: reading.invocation.agent,
+    model: reading.invocation.model,
+    costUsd: costs.length > 0 ? costs.reduce((sum, cost) => sum + cost, 0) : undefined,
+    passes: [
+      { task: "analysis-reading", agent: reading.invocation.agent, model: reading.invocation.model, tier: reading.invocation.tier, costUsd: reading.output.costUsd, durationMs: readingDurationMs, filesRead: filesRead.length },
+      { task: "deep-analysis", agent: extraction.invocation.agent, model: extraction.invocation.model, tier: extraction.invocation.tier, costUsd: extraction.output.costUsd, durationMs: extractionDurationMs }
+    ],
+    readingNotes
+  };
+}
+
+/** No checkout (no GitHub token, clone failed): one schema-constrained call over the diff, as before the two-pass flow. */
+async function analyzeFromDiffOnly(
+  detail: PrDetail,
+  stack: PrStack | undefined,
+  context: AnalysisPromptContext,
+  output: { outputPath: string; schema: Record<string, unknown> },
+  hooks: AnalysisHooks
+): Promise<AnalysisRun> {
+  hooks.onStatus?.("Running agent analysis with PR diff, comments, linked issues, CI, stack context, and local review policy context (no checkout available).");
+  const { invocation, result, output: agentOutput } = await runAgent(
+    {
+      task: "deep-analysis",
+      prKey: detail.key,
+      prompt: buildPrompt(detail, stack, context),
+      access: "read-only",
+      cwd: await agentScratchDir(),
+      webSearch: true,
+      // The reading pass's tier: without a checkout this single call is the one doing the judging.
+      tier: (await readAgentSettings()).taskTiers["analysis-reading"],
+      outputSchema: output.schema,
+      outputLastMessagePath: output.outputPath
+    },
+    { timeoutMs: 10 * 60_000, onStdout: hooks.onStdout, onStderr: hooks.onStderr }
+  );
+  if (agentOutput.isError) throw new Error(agentOutput.text || `${invocation.label} reported an error without a message.`);
+  const parsed =
+    agentOutput.structured && typeof agentOutput.structured === "object"
+      ? analysisSchema.parse(agentOutput.structured)
+      : parseCodexOutput(invocation.agent === "codex" ? await readOutput(output.outputPath, result.stdout) : agentOutput.text);
+  return { parsed, agent: invocation.agent, model: invocation.model, costUsd: agentOutput.costUsd };
 }
 
 export async function askRisk(detail: PrDetail, risk: ReviewInsight | { observation: string }, question: string): Promise<string> {
@@ -243,82 +371,91 @@ async function reviewerIsPrAuthor(detail: PrDetail): Promise<boolean> {
   }
 }
 
-export function buildPrompt(
-  detail: PrDetail,
-  stack?: PrStack,
-  context: { calibration?: string; repoRules?: string[]; reviewerIsAuthor?: boolean; hasCheckout?: boolean; repoGuidance?: RepoGuidance[] } = {}
-): string {
-  const { text: diff } = budgetDiff(detail.diff, maxDiffChars, { hasCheckout: context.hasCheckout });
-  const payload = {
-    pr: {
-      repository: detail.repository,
-      number: detail.number,
-      title: detail.title,
-      body: detail.body,
-      linkedIssues: detail.linkedIssues ?? [],
-      author: detail.author,
-      labels: detail.labels,
-      url: detail.url,
-      baseRefName: detail.baseRefName,
-      headRefName: detail.headRefName,
-      additions: detail.additions,
-      deletions: detail.deletions,
-      changedFiles: detail.changedFiles,
-      reviewDecision: detail.reviewDecision,
-      mergeStateStatus: detail.mergeStateStatus,
-      files: detail.files
-    },
-    diff,
-    stack: stackPromptContext(stack)
+function prPacket(detail: PrDetail) {
+  return {
+    repository: detail.repository,
+    number: detail.number,
+    title: detail.title,
+    body: detail.body,
+    linkedIssues: detail.linkedIssues ?? [],
+    author: detail.author,
+    labels: detail.labels,
+    url: detail.url,
+    baseRefName: detail.baseRefName,
+    headRefName: detail.headRefName,
+    additions: detail.additions,
+    deletions: detail.deletions,
+    changedFiles: detail.changedFiles,
+    reviewDecision: detail.reviewDecision,
+    mergeStateStatus: detail.mergeStateStatus,
+    files: detail.files
   };
+}
 
+function policyBlocks(context: AnalysisPromptContext): string {
+  return `${context.repoRules && context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}`;
+}
+
+/** Pass 1 of Deep Analyze: the colleague-style reading brief, with the budgeted diff and the PR packet. */
+export function buildReadingPrompt(detail: PrDetail, stack?: PrStack, context: AnalysisPromptContext = {}): string {
+  // New files are stubbed: their diff is the file itself, and withholding it is what makes the agent open them in the checkout.
+  const { text: diff, stubbed } = budgetDiff(detail.diff, readingDiffChars, { hasCheckout: true, stubAddedFiles: true });
+  const stackContext = stackPromptContext(stack);
+  return `${readingPassInstructions({ repository: detail.repository, number: detail.number, reviewerIsAuthor: context.reviewerIsAuthor, stacked: Boolean(stackContext), newFiles: stubbed })}
+${policyBlocks(context)}${repoGuidancePromptBlock(context.repoGuidance)}
+Pull request:
+${JSON.stringify(prPacket(detail), null, 2)}
+${stackContext ? `\nStack context:\n${JSON.stringify(stackContext, null, 2)}\n` : ""}
+Diff:
+${diff}
+`;
+}
+
+/**
+ * Pass 2 of Deep Analyze: the reading notes plus a one-line-per-file outline of
+ * the diff, to be rewritten into the analysis schema. The outline, not the diff:
+ * the notes carry the content and the file:line pointers, and handing the hunks
+ * over again cost more than the reading pass (sonnet, $0.44) or stalled haiku
+ * past its timeout on micronaut-micrometer#1259.
+ */
+export function buildExtractionPrompt(detail: PrDetail, stack: PrStack | undefined, context: AnalysisPromptContext & { readingNotes: string; inspectedFiles: string[] }): string {
+  const payload = { pr: prPacket(detail), stack: stackPromptContext(stack) };
+  return `${analysisExtractionInstructions({ inspectedFiles: context.inspectedFiles, reviewerIsAuthor: context.reviewerIsAuthor })}
+
+${analysisFieldRules()}
+${policyBlocks(context)}
+PR packet:
+${JSON.stringify(payload, null, 2)}
+
+Reviewer notes from the reading pass:
+${context.readingNotes.trim()}
+
+Diff outline (one line per changed file: change kind, +/- counts, and the new-file line range of each hunk):
+${diffOutline(detail.diff)}
+`;
+}
+
+/** Diff-only Deep Analyze (no checkout available): one schema-constrained call that both judges and structures. */
+export function buildPrompt(detail: PrDetail, stack?: PrStack, context: AnalysisPromptContext = {}): string {
+  const { text: diff } = budgetDiff(detail.diff, maxDiffChars);
+  const payload = { pr: prPacket(detail), diff, stack: stackPromptContext(stack) };
   const selfReview = context.reviewerIsAuthor
     ? `
 The reviewer is the PR author, reviewing code that was largely written by an AI agent before asking colleagues for review. Be adversarial on their behalf: treat nothing in the PR body as proven, prioritize assumptions, defaults and edge cases the agent may have invented, and write draftComment as self-review notes for the author (what to fix or double-check before requesting review) rather than as a message to someone else.
 `
     : "";
-  const checkout = context.hasCheckout
-    ? `
-You are working inside a read-only checkout of the PR at its head commit. Do not judge from the diff alone. Open files with the Read tool and search with Grep or Glob; Bash is limited to read-only git (log, show, diff, blame, grep), rg and grep, so cat, ls, find and build commands are denied. A denied command is not a reason to stop inspecting: use Read and Grep instead. Before writing the JSON, do all of the following and cite what you read as path:line:
-1. Open every changed production (non-test) file around each hunk so you see the surrounding control flow, defaults and error handling, not just the changed lines.
-2. For each changed or newly introduced symbol (method, class, constant, configuration key), grep the repository for its callers and usages, and read the ones that decide how the change behaves: where defaults are set, where state is persisted or versioned, where errors are handled, where the symbol is wired in.
-3. Find the tests that exercise the changed symbols (grep for their names) and check what they actually assert.
-List every file you opened beyond the diff in inspectedFiles (repository-relative paths). For a change to production code an empty inspectedFiles is not acceptable. Stay targeted: read the files that decide behavior, not whole directories.
-`
-    : "";
-  return `You are helping a human review a GitHub pull request made by an agent.${selfReview}${checkout}
+  return `You are helping a human review a GitHub pull request made by an agent.${selfReview}
+No checkout of the repository is available: judge from the diff and the PR packet below, say so in caveats, and leave inspectedFiles empty.
 
 Classify the PR as exactly one of: feature, bug, improvement, refactor, docs, test, chore, unknown.
 
 Return only JSON that matches the provided schema. Do not wrap it in Markdown.
 
-Behavior rules:
-- If a \`stack\` object is present, the PR is stacked on a parent PR: judge only the incremental diff against the parent branch, mention the parent PR number in the summary, and treat "depends on parent being correct" as a caveat rather than a risk.
-- Treat the PR body and linked issues as primary intent evidence. If linked issues exist, compare the PR against the issue request/bug report before judging completeness, risks, tests, and review comments.
-- For bug PRs, explain previous behavior and new behavior when inferable.
-- For feature PRs, check the authoritative documentation of the APIs the change relies on only when a finding depends on it, and cite the URL in that finding. Do not collect reference links for their own sake. Call out caveats and edge cases.
-- For improvement PRs, explain what changed, why it helps, and tradeoffs.
-- For every PR, produce concrete reviewer focus areas, risks, tests to check, and a draft review comment.
-- Scale the amount of analysis to the source-code change, not the total PR size. If most changes are tests/docs and production/source code is tiny, keep reviewerFocus, risks, caveats, and draftComment short. Do not make the human read more AI text than the source change warrants.
-- Put test edge-case coverage at the center of the review. Explicitly compare changed production/source behavior against tests: which behavior paths are covered, which edge cases are missing, and whether the tests would fail before the PR.
-- For docs-only, test-only, or very small bug/improvement PRs, prefer 1-3 high-signal reviewer focus items and 0-2 risks unless there is a real blocker.
-- Reviewer focus and risks should include judgment, not just neutral observations. Say whether the implementation looks right, should be done differently, is missing an edge case, or needs proof. Prefer reviewer-useful phrases like "My take: this is probably correct if...", "This should be improved because...", "Missing edge case:", or "I would not approve until...".
-- For every evidence item, also add a matching evidenceDetails item with title, observation, perspective, recommendation, and severity. Evidence perspective should explain what the fact means for review confidence, not just restate the fact.
-- For every reviewerFocus item, also add a matching reviewerFocusDetails item with title, observation, perspective, recommendation, and severity.
-- For every risk item, also add a matching riskDetails item with title, observation, perspective, recommendation, and severity.
-- Add testAssessment that rates how well this PR is tested. Be direct: strong/good only when changed production behavior, regression paths, and important edge cases are covered; partial/weak when tests are mostly bean-presence, snapshots, happy path, or docs-only. For each gap, connect it to a concrete changed source behavior or edge case.
-- For testsToCheck, keep manual work to the minimum. Prefer runnable commands, existing CI checks, or a concrete automated-test/TCK suggestion over manual verification.
-- For Gradle multi-project builds, do not guess project paths. Before proposing a module-scoped command, verify the project path from \`settings.gradle\`, \`settings.gradle.kts\`, or \`./gradlew projects\`. Prefer the exact included project name that owns the changed file path, and quote wildcard \`--tests\` patterns.
-- For docs-only PRs, testsToCheck should focus on documentation correctness: build/render the docs, inspect the changed page/section, and capture screenshot or rendered HTML evidence when possible. Do not suggest generic commands like \`git diff --check\` unless the PR specifically changes whitespace, line endings, or formatting rules.
-- If an integration behavior is important but not currently covered, write it as an automatable item such as "Add/run automated test: ..." or "Add/run TCK coverage: ...", with the behavior and pass/fail assertion. Do not turn it into manual work just because no command exists yet.
-- Only write "Manual verification:" items when automation is not realistic, such as requiring real cloud resources, external credentials/accounts, paid services, release permissions, visual/UX judgment, or infrastructure that cannot be provisioned locally. Manual items must include pass/fail criteria.
+- For feature PRs, check the authoritative documentation of the APIs the change relies on only when a finding depends on it, and cite the URL in that finding. Do not collect reference links for their own sake.
 - Look deliberately for these pitfalls, which structured reviews tend to skip: (a) logic duplicated from an existing path (a fast path, a fallback, a copy of a switch) that can drift from the original; (b) a cheap guard placed after expensive work it could have skipped (ordering of checks, work done before an early return); (c) behavior changes hidden inside an "optimization" (a scope, a conversion, a callback or side effect that is no longer executed); (d) conversions or wrappers the new path skips (type adaptation, null handling, error mapping) that the old path still performs; (e) version or state compatibility (persisted formats, cache keys, STATE_VERSION-style markers) left unchanged while recorded data changed; (f) caller assumptions about ordering, threading or identity (the same instance returned, no extra wrapping). Report each as a risk, assumption or edge case with its location.
-- readingGuide: the order a human should read this diff to understand it fastest. 3-8 steps for a typical PR, 1-2 for a tiny one. Start from the entry point or the behavior change, not from file order. Each step: path (must be a file in the diff), lines (a "start-end" range in the new file, or "" for the whole file), a short title, a plain-language explanation of what that code does, and whyItMatters for the review.
-- assumptions: every default value, default behavior, implicit contract or environmental assumption this PR introduces or relies on: configuration defaults, null/empty handling, ordering, timeouts and limits, encodings, feature flags, "callers always pass X", threading, compatibility with existing data or older versions. For each: title; observation = the assumption and where it lives; perspective = what breaks or who is affected if it is wrong; recommendation = the fastest way for the reviewer to verify it (a test to read, a call site to grep, a question for the author); location = "path:line" in the diff; severity by blast radius. Leave the array empty rather than inventing assumptions.
-- edgeCases: boundary, empty/null, error-path, concurrency, ordering, compatibility and resource scenarios the changed code can actually hit. For each: title; observation = the scenario and the code path involved; perspective = the expected behavior and what the current code appears to do; recommendation = how to check it (an existing test name, a test to add, a command); location = "path:line"; covered = "yes" when an existing test exercises it, "partial", "no", or "unknown". Uncovered high-severity edge cases must also appear in testAssessment.gaps.
-- Be explicit when evidence is missing. Do not invent docs or source links.
-- Prefer concise, review-useful language over broad summaries.
-${context.repoRules && context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}${repoGuidancePromptBlock(context.repoGuidance)}
+
+${analysisFieldRules()}
+${policyBlocks(context)}${repoGuidancePromptBlock(context.repoGuidance)}
 PR packet:
 ${JSON.stringify(payload, null, 2)}
 `;

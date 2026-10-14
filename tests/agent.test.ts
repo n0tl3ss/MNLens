@@ -18,7 +18,9 @@ describe("agent settings", () => {
     expect(resolveTierModel(settings, "claude", "quick-answer").model).toBe("haiku");
     expect(resolveTierModel(settings, "claude", "fix-implementation").model).toBe("sonnet");
     expect(resolveTierModel(settings, "codex", "ci-explain").model).toBe("gpt-6-luna");
-    expect(resolveTierModel(settings, "codex", "deep-analysis").model).toBe("gpt-6.1-sol");
+    // Deep Analyze: the reading pass judges, the extraction pass rewrites the notes into the schema; both standard (haiku was no cheaper and 4x slower on the extraction).
+    expect(resolveTierModel(settings, "codex", "analysis-reading").model).toBe("gpt-6.1-sol");
+    expect(resolveTierModel(settings, "claude", "deep-analysis").model).toBe("sonnet");
     expect(Object.values(settings.taskTiers)).not.toContain("premium");
   });
 
@@ -50,7 +52,7 @@ describe("agent invocations", () => {
   it("builds a read-only Claude Code invocation with structured output and no edit tools", async () => {
     process.env.MNLENS_AGENT_SETTINGS_JSON = JSON.stringify({ agent: "claude" });
     const invocation = await prepareAgentRun({
-      task: "deep-analysis",
+      task: "acceptance-contract",
       prompt: "hello",
       access: "read-only",
       cwd: "/tmp",
@@ -65,6 +67,23 @@ describe("agent invocations", () => {
     expect(invocation.args).toContain("--no-session-persistence");
     expect(invocation.input).toBe("hello");
     expect(invocation.label).toBe("Claude (sonnet)");
+  });
+
+  it("streams the transcript of a read-only run on request, unless structured output needs the single envelope", async () => {
+    process.env.MNLENS_AGENT_SETTINGS_JSON = JSON.stringify({ agent: "claude" });
+    const reading = await prepareAgentRun({ task: "analysis-reading", prompt: "read", access: "read-only", cwd: "/tmp", streamTranscript: true, outputLastMessagePath: "/tmp/notes.md" });
+    expect(reading.args).toEqual(expect.arrayContaining(["--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--no-session-persistence"]));
+    expect(reading.args).not.toContain("--json-schema");
+    expect(reading.args).toContain("Edit");
+    const structured = await prepareAgentRun({ task: "deep-analysis", prompt: "x", access: "read-only", cwd: "/tmp", streamTranscript: true, outputSchema: { type: "object" } });
+    expect(structured.args).toEqual(expect.arrayContaining(["--output-format", "json", "--json-schema", '{"type":"object"}']));
+    expect(structured.args).not.toContain("stream-json");
+    // Codex writes the final message to the file and prints its own progress; no schema flag without a schema.
+    resetAgentSettingsCache();
+    process.env.MNLENS_AGENT_SETTINGS_JSON = JSON.stringify({ agent: "codex" });
+    const codex = await prepareAgentRun({ task: "analysis-reading", prompt: "read", access: "read-only", cwd: "/tmp", streamTranscript: true, outputLastMessagePath: "/tmp/notes.md" });
+    expect(codex.args).toEqual(expect.arrayContaining(["--output-last-message", "/tmp/notes.md"]));
+    expect(codex.args).not.toContain("--output-schema");
   });
 
   it("hands the reviewer's MCP servers to Claude and pre-approves them for read-only runs", async () => {

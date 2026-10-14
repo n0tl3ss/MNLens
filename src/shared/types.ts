@@ -173,6 +173,10 @@ export interface AnalysisResult {
   edgeCases?: EdgeCaseInsight[];
   /** Files the agent opened in the PR checkout beyond the diff (callers, defaults, tests); empty when it only saw the diff. */
   inspectedFiles?: string[];
+  /** The reading pass's plain-text review notes (what the change does, pitfalls, assumptions, edge cases, tests, the review it would post). */
+  readingNotes?: string;
+  /** The agent runs that produced this analysis, in order; absent on analyses made by a single schema-constrained call. */
+  passes?: AnalysisPass[];
   draftComment: string;
   generatedAt: string;
   modelNote?: string;
@@ -186,6 +190,18 @@ export interface AnalysisResult {
   secondOpinion?: SecondOpinion;
   /** What changed versus the previous analysis of a different diff; see server/analysisDelta.ts. */
   delta?: AnalysisDelta;
+}
+
+/** One agent run of a Deep Analyze: the reading pass that inspects the checkout, or the extraction pass that writes the schema JSON. */
+export interface AnalysisPass {
+  task: AgentTask;
+  agent: AgentId;
+  model: string;
+  tier: ModelTier;
+  costUsd?: number;
+  durationMs: number;
+  /** Reading pass only: files it opened in the checkout, changed files included. */
+  filesRead?: number;
 }
 
 /** Finding kinds the analysis-to-analysis delta is computed over. */
@@ -340,6 +356,7 @@ export type AgentId = "codex" | "claude";
 export type ModelTier = "economy" | "standard" | "premium";
 
 export type AgentTask =
+  | "analysis-reading"
   | "deep-analysis"
   | "quick-answer"
   | "ci-explain"

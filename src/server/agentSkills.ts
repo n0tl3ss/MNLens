@@ -144,3 +144,88 @@ Reviewer checklist (ordered, concrete, 2-5 items each; skip what does not apply)
 - "shouldDo": checks that materially raise confidence but are not gating (manual QA step, docs check, performance sanity check).
 - "optional": nice-to-have (refactors to suggest for a follow-up, broader tests, style consistency).`;
 }
+
+// ---------------------------------------------------------------------------
+// Deep Analyze: reading pass + extraction pass
+// ---------------------------------------------------------------------------
+
+/**
+ * Deep Analyze, pass 1 (reading). A short brief in the style of asking a
+ * colleague for a review: no output schema, so the agent's turns go into
+ * opening files, callers and tests instead of into filling twenty JSON
+ * fields. Measured on micronaut-micrometer#1259: the schema-constrained
+ * single call read 3 files in 7 turns; a plain brief read 10 in 14 for the
+ * same money. The notes it returns are the input of the extraction pass.
+ */
+export function readingPassInstructions(context: { repository: string; number: number; reviewerIsAuthor?: boolean; stacked?: boolean; newFiles?: string[] }): string {
+  const selfReview = context.reviewerIsAuthor
+    ? `\nThe colleague is the PR author, reviewing code largely written by an AI agent before asking others for review. Be adversarial on their behalf: treat nothing in the PR body as proven, prioritize assumptions, defaults and edge cases the agent may have invented, and write section 6 as self-review notes (what to fix or double-check before requesting review) rather than as a message to someone else.\n`
+    : "";
+  const stacked = context.stacked
+    ? `\nThis PR is stacked on a parent PR (see the stack context below): judge only the incremental diff against the parent branch, and treat "depends on the parent being correct" as a caveat, not a risk.\n`
+    : "";
+  const newFiles =
+    context.newFiles && context.newFiles.length > 0
+      ? `\nThe diff below shows the hunks of modified files only. The ${context.newFiles.length} file${context.newFiles.length === 1 ? " the PR adds is" : "s the PR adds are"} listed in it by name without content: read ${context.newFiles.length === 1 ? "it" : "them"} in the checkout, ${context.newFiles.length === 1 ? "it is" : "they are"} part of the change under review.\n`
+      : "";
+  return `You are a senior maintainer of ${context.repository} reviewing pull request #${context.number} for a colleague. You are inside a read-only checkout of the PR at its head commit; the PR description and its diff are below. Read the changed files in this checkout and look up the callers and existing tests of what changed; a diff hunk is not enough to judge a method.
+${selfReview}${stacked}${newFiles}
+I want, as plain Markdown with these numbered sections:
+1. What the change does and why (so I can understand the code quickly), with file:line pointers.
+2. The main pitfalls and risks I should look at closely. Look deliberately for: logic duplicated from an existing path (a fast path, a fallback, a copy of a switch) that can drift from the original; a cheap guard placed after expensive work it could have skipped; behavior changes hidden inside an "optimization" (a scope, a conversion, a callback or a side effect that no longer runs); conversions or wrappers the new path skips (type adaptation, null handling, error mapping) that the old path still performs; persisted formats, cache keys or version markers left unchanged while the recorded data changed; caller assumptions about ordering, threading or identity.
+3. Assumptions the PR makes (default values, default behaviour, implicit contracts, "callers always pass X") and what happens if each one is wrong.
+4. Edge cases to probe (boundary, empty/null, error paths, concurrency, ordering, compatibility, resources) and whether tests cover them: name the test that does, or say that none does.
+5. Which tests/commands I should run or check, as exact commands using the project's own wrappers and module names.
+6. The review you would post: inline comments (file:line, severity) and a verdict (approve / request changes / comment).
+
+Be concrete and ground everything in the diff and in the files you read; say so when something is a guess. If a finding depends on an API's documented behavior, check the authoritative documentation and cite the URL in that finding. Do not modify files and do not post anything to GitHub.
+
+How to read: do not judge from the diff alone. Open every changed production file in full (the Read tool shows line numbers; the hunks lack the surrounding control flow, defaults and error handling), grep for the callers and usages of every changed or new symbol and read the ones that decide behavior (defaults, persistence, error handling, wiring), and read the tests that exercise the changed symbols to see what they assert. For a change of this kind expect to open the changed files plus their callers and tests before writing; a review written after one or two reads is a diff review, not a code review. Read files with the Read tool and search with Grep or Glob when they are available, otherwise with grep or rg through Bash. Bash may be limited to read-only git (log, show, diff, blame, grep), rg and grep; cat, ls, find and build commands can be denied, and a denied command is not a reason to stop reading: use Read instead. Read the files that decide behavior, not whole directories.
+
+End with a line "FILES READ:" followed by one repository-relative path per line for every file you opened in this checkout.`;
+}
+
+/**
+ * Deep Analyze, pass 2 (extraction). Rewrites the reading notes into the
+ * analysis schema without adding to them; `inspectedFiles` is dictated by
+ * MNLens from the reading pass's transcript, never by the model.
+ */
+export function analysisExtractionInstructions(context: { inspectedFiles: string[]; reviewerIsAuthor?: boolean }): string {
+  const inspected =
+    context.inspectedFiles.length > 0
+      ? `MNLens recorded which files the reading agent opened beyond the diff. Output exactly this list, unchanged: ${JSON.stringify(context.inspectedFiles)}.`
+      : "The reading agent opened no file beyond the diff; output an empty array.";
+  const selfReview = context.reviewerIsAuthor
+    ? `\n- The reviewer is the PR author, self-reviewing code largely written by an AI agent. Keep the notes' adversarial stance and write draftComment as self-review notes for the author (what to fix or double-check before requesting review), not as a message to someone else.`
+    : "";
+  return `You are turning a senior reviewer's notes on a GitHub pull request into the structured review MNLens shows its users. The notes were written by an agent that read the PR inside its checkout; you have the PR metadata, an outline of the diff and those notes. Return only JSON that matches the provided schema. Do not wrap it in Markdown.
+
+Fidelity rules:
+- Every finding you output (evidence, reviewerFocus, risks, assumptions, edgeCases, testAssessment, testsToCheck, draftComment) must come from the notes. Do not invent findings, docs or source links, and do not drop a pitfall, assumption, edge case, inline comment or command the notes raise; merge duplicates. Keep the reviewer's severities, verdicts and hedges: a guess in the notes stays a guess. You are not reviewing the PR; you are structuring a review.
+- Locations use repository-relative paths exactly as the diff outline spells them, with the line numbers the notes give ("path:line"); when the notes name a file without a line, give the path alone. readingGuide.lines is a "start-end" range inside one of that file's hunk ranges from the outline (an added file's single range covers the whole file), or "" when the notes give nothing to narrow it.
+- inspectedFiles: ${inspected}
+- Classify the PR as exactly one of: feature, bug, improvement, refactor, docs, test, chore, unknown. Set confidence by how well the notes and the diff ground the review, not by how confident the notes sound.
+- draftComment is the notes' section 6 as the reviewer would post it: the verdict, the points that matter, and what was verified, in first person and plain Markdown.
+- modelNote: one sentence on what the notes did not cover (tests not run, files not read, guesses).${selfReview}`;
+}
+
+/**
+ * What each analysis field means. Shared by the extraction pass and by the
+ * diff-only single call MNLens falls back to when no checkout is available.
+ */
+export function analysisFieldRules(): string {
+  return `Field rules:
+- If a \`stack\` object is present, the PR is stacked on a parent PR: judge only the incremental diff against the parent branch, mention the parent PR number in the summary, and treat "depends on parent being correct" as a caveat rather than a risk.
+- Treat the PR body and linked issues as primary intent evidence; compare the PR against them before judging completeness, risks, tests and the draft comment.
+- For bug PRs, fill behaviorBefore and behaviorAfter when inferable. For feature PRs, call out caveats and edge cases. For improvement PRs, explain what changed, why it helps, and the tradeoffs.
+- Scale the output to the source-code change, not the total PR size. If most changes are tests/docs and production code is tiny, keep reviewerFocus, risks, caveats and draftComment short; for docs-only, test-only or very small PRs prefer 1-3 reviewer focus items and 0-2 risks unless there is a real blocker. Do not make the human read more AI text than the source change warrants.
+- Put test edge-case coverage at the center: compare changed production behavior against the tests, say which paths are covered, which edge cases are missing, and whether the tests would fail before the PR.
+- Reviewer focus and risks carry judgment, not neutral observations: say whether the implementation looks right, should be done differently, misses an edge case, or needs proof ("My take: this is probably correct if...", "This should be improved because...", "Missing edge case:", "I would not approve until...").
+- For every evidence item add a matching evidenceDetails item (title, observation, perspective, recommendation, severity); the same for reviewerFocus/reviewerFocusDetails and risks/riskDetails. A perspective explains what the fact means for review confidence; it does not restate the fact.
+- testAssessment rates how well the PR is tested: strong/good only when changed production behavior, regression paths and important edge cases are covered; partial/weak when tests are mostly bean presence, snapshots, happy path or docs. Tie each gap to a concrete changed behavior or edge case.
+- testsToCheck: prefer runnable commands, existing CI checks or a concrete automated-test/TCK suggestion over manual work. For Gradle multi-project builds do not guess project paths: use the exact included project that owns the changed file (settings.gradle, settings.gradle.kts or \`./gradlew projects\`) and quote wildcard \`--tests\` patterns. Write uncovered integration behavior as "Add/run automated test: ..." or "Add/run TCK coverage: ..." with the behavior and its pass/fail assertion. Write "Manual verification:" items only when automation is unrealistic (real cloud resources, external credentials, paid services, release permissions, visual judgment, infrastructure that cannot be provisioned locally), with pass/fail criteria. For docs-only PRs focus on building/rendering the docs and inspecting the changed page or section; do not suggest \`git diff --check\` unless the PR changes whitespace, line endings or formatting rules.
+- readingGuide: the order a human should read this diff to understand it fastest; 3-8 steps for a typical PR, 1-2 for a tiny one. Start from the entry point or the behavior change, not from file order. Each step: path (a file in the diff), lines (a "start-end" range in the new file, or "" for the whole file), a short title, a plain-language explanation of what that code does, and whyItMatters for the review.
+- assumptions: every default value, default behavior, implicit contract or environmental assumption the PR introduces or relies on (configuration defaults, null/empty handling, ordering, timeouts and limits, encodings, feature flags, "callers always pass X", threading, compatibility with existing data or older versions). observation = the assumption and where it lives; perspective = what breaks or who is affected if it is wrong; recommendation = the fastest way for the reviewer to verify it (a test to read, a call site to grep, a question for the author); location = "path:line"; severity by blast radius. Leave the array empty rather than inventing assumptions.
+- edgeCases: boundary, empty/null, error-path, concurrency, ordering, compatibility and resource scenarios the changed code can actually hit. observation = the scenario and the code path involved; perspective = the expected behavior and what the code appears to do; recommendation = how to check it (an existing test name, a test to add, a command); location = "path:line"; covered = "yes" when an existing test exercises it, "partial", "no" or "unknown". Uncovered high-severity edge cases must also appear in testAssessment.gaps.
+- Be explicit when evidence is missing. Do not invent docs or source links. Prefer concise, review-useful language over broad summaries.`;
+}

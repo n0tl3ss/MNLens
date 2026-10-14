@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { budgetDiff } from "../src/server/diffBudget";
-import { analysisJsonSchema, buildPrompt, extractJson, parseCodexOutput, readRepoGuidance, repoGuidancePromptBlock, rewriteGradleProjectPathsInText } from "../src/server/codex";
+import { budgetDiff, diffOutline } from "../src/server/diffBudget";
+import { analysisJsonSchema, buildExtractionPrompt, buildPrompt, buildReadingPrompt, extractJson, parseCodexOutput, readRepoGuidance, repoGuidancePromptBlock, rewriteGradleProjectPathsInText } from "../src/server/codex";
 import type { PrDetail } from "../src/shared/types";
 
 describe("codex output parsing", () => {
@@ -54,48 +54,83 @@ describe("codex output parsing", () => {
     expect(parsed.inspectedFiles).toEqual([]);
   });
 
-  it("asks for the reading guide, assumptions and edge cases, and switches to self-review for the author", () => {
-    const detail = {
-      key: "o__r__1",
-      owner: "o",
-      repo: "r",
-      number: 1,
-      title: "t",
-      body: "",
-      url: "",
-      repository: "o/r",
-      author: "me",
-      labels: [],
-      queues: [],
-      state: "OPEN",
-      isDraft: false,
-      createdAt: "",
-      updatedAt: "",
-      commentsCount: 0,
-      linkedIssues: [],
-      baseRefName: "main",
-      headRefName: "x",
-      additions: 1,
-      deletions: 0,
-      changedFiles: 1,
-      reviewers: [],
-      files: [],
-      commits: [],
-      conversationComments: [],
-      reviewSummaries: [],
-      reviewComments: [],
-      diff: "diff --git a/a b/a",
-      diffHash: "h"
-    } as unknown as PrDetail;
-    const prompt = buildPrompt(detail, undefined, { reviewerIsAuthor: true, hasCheckout: true });
+  const detail = {
+    key: "o__r__1",
+    owner: "o",
+    repo: "r",
+    number: 1,
+    title: "t",
+    body: "",
+    url: "",
+    repository: "o/r",
+    author: "me",
+    labels: [],
+    queues: [],
+    state: "OPEN",
+    isDraft: false,
+    createdAt: "",
+    updatedAt: "",
+    commentsCount: 0,
+    linkedIssues: [],
+    baseRefName: "main",
+    headRefName: "x",
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    reviewers: [],
+    files: [{ path: "src/a.ts", additions: 1, deletions: 0 }],
+    commits: [],
+    conversationComments: [],
+    reviewSummaries: [],
+    reviewComments: [],
+    diff: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,2 @@\n const a = 1;\n+const b = 2;\n",
+    diffHash: "h"
+  } as unknown as PrDetail;
+
+  it("briefs the reading pass like a colleague: numbered questions, read-only tool hints, a FILES READ list, no JSON schema", () => {
+    const prompt = buildReadingPrompt(detail, undefined, { reviewerIsAuthor: true, repoRules: ["No wildcard imports: keep imports explicit."] });
+    expect(prompt).toContain("senior maintainer of o/r reviewing pull request #1");
+    expect(prompt).toContain("1. What the change does and why");
+    expect(prompt).toContain("6. The review you would post");
+    expect(prompt).toContain("Read files with the Read tool and search with Grep or Glob");
+    expect(prompt).toContain('End with a line "FILES READ:"');
+    expect(prompt).toContain("The colleague is the PR author");
+    expect(prompt).toContain("No wildcard imports");
+    expect(prompt).toContain("+const b = 2;");
+    expect(prompt).not.toContain("files the PR adds");
+    const withNew = buildReadingPrompt({ ...detail, diff: `${detail.diff}diff --git a/src/n.ts b/src/n.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/n.ts\n@@ -0,0 +1,1 @@\n+export const n = 1;\n` } as PrDetail);
+    expect(withNew).toContain("The 1 file the PR adds is listed in it by name without content");
+    expect(withNew).toContain("[new file, 1 lines: not shown here, read it in the checkout]");
+    expect(withNew).not.toContain("export const n = 1;");
+    expect(prompt).not.toContain("readingGuide:");
+    expect(prompt).not.toContain("JSON");
+    expect(buildReadingPrompt(detail)).not.toContain("The colleague is the PR author");
+  });
+
+  it("asks the extraction pass for the schema fields from the notes, with the recorded inspectedFiles and a diff outline instead of the hunks", () => {
+    const prompt = buildExtractionPrompt(detail, undefined, { readingNotes: "## 1. What it does\nAdds b at src/a.ts:2.", inspectedFiles: ["src/b.ts", "test/a.test.ts"] });
+    expect(prompt).toContain("Return only JSON that matches the provided schema");
     expect(prompt).toContain("readingGuide:");
     expect(prompt).toContain("assumptions:");
     expect(prompt).toContain("edgeCases:");
+    expect(prompt).toContain('Output exactly this list, unchanged: ["src/b.ts","test/a.test.ts"]');
+    expect(prompt).toContain("Adds b at src/a.ts:2.");
+    expect(prompt).toContain("src/a.ts (modified, +1 -0): R1-2");
+    expect(prompt).not.toContain("+const b = 2;");
+    expect(prompt).not.toContain("The reviewer is the PR author");
+    const empty = buildExtractionPrompt(detail, undefined, { readingNotes: "n", inspectedFiles: [], reviewerIsAuthor: true });
+    expect(empty).toContain("output an empty array");
+    expect(empty).toContain("The reviewer is the PR author");
+  });
+
+  it("keeps the diff-only single call for runs without a checkout", () => {
+    const prompt = buildPrompt(detail, undefined, { reviewerIsAuthor: true });
+    expect(prompt).toContain("No checkout of the repository is available");
+    expect(prompt).toContain("readingGuide:");
+    expect(prompt).toContain("edgeCases:");
     expect(prompt).toContain("The reviewer is the PR author");
-    expect(prompt).toContain("read-only checkout of the PR");
-    expect(prompt).toContain("inspectedFiles");
+    expect(prompt).toContain("leave inspectedFiles empty");
     expect(buildPrompt(detail)).not.toContain("The reviewer is the PR author");
-    expect(buildPrompt(detail)).not.toContain("read-only checkout of the PR");
   });
 });
 
@@ -148,7 +183,29 @@ describe("diff budget", () => {
     expect(budget.text).not.toContain("diff --git a/src/test/ASpec.groovy");
     expect(budget.text).toContain("1 file omitted");
     expect(budget.text).toContain("Read them from the checkout");
-    expect(budgetDiff(diff, diff.length)).toEqual({ text: diff, omitted: [] });
+    expect(budgetDiff(diff, diff.length)).toEqual({ text: diff, omitted: [], stubbed: [] });
+  });
+
+  it("outlines a diff as one line per file with change kind, counts and hunk ranges", () => {
+    const modified = "diff --git a/src/A.java b/src/A.java\n--- a/src/A.java\n+++ b/src/A.java\n@@ -10,4 +10,6 @@ class A {\n context\n-old\n+new\n+newer\n context\n+more\n@@ -40 +42 @@\n-x\n+y\n";
+    const added = "diff --git a/src/New.java b/src/New.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/New.java\n@@ -0,0 +1,2 @@\n+class New {}\n+// end\n";
+    const deleted = "diff --git a/src/Old.java b/src/Old.java\ndeleted file mode 100644\n--- a/src/Old.java\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-class Old {}\n-// end\n";
+    expect(diffOutline(modified + added + deleted).split("\n")).toEqual([
+      "src/A.java (modified, +4 -2): R10-15 (class A {); R42-42",
+      "src/New.java (added, +2 -0): R1-2",
+      "src/Old.java (deleted, +0 -2)"
+    ]);
+  });
+
+  it("stubs newly added files for a run that can read them in the checkout", () => {
+    const added = `diff --git a/src/New.java b/src/New.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/New.java\n@@ -0,0 +1,2 @@\n+class New {}\n+// end\n`;
+    const diff = file("src/A.java", 3) + added;
+    const budget = budgetDiff(diff, 10_000, { stubAddedFiles: true });
+    expect(budget.stubbed).toEqual(["src/New.java"]);
+    expect(budget.text).toContain("diff --git a/src/A.java");
+    expect(budget.text).toContain("diff --git a/src/New.java b/src/New.java\n[new file, 2 lines: not shown here, read it in the checkout]");
+    expect(budget.text).not.toContain("class New {}");
+    expect(budgetDiff(diff, 10_000).text).toContain("class New {}");
   });
 
   it("keeps the head of a single oversized file", () => {

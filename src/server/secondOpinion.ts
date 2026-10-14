@@ -93,7 +93,8 @@ export async function secondOpinionFor(detail: PrDetail, hooks: { onStatus?: (me
   } catch (error) {
     // The other vendor's CLI is missing or signed out. A different model from the same vendor is still an
     // independent sample of the diff, so audit with it rather than leaving the reviewer without a check.
-    const analysisTier = resolveTierModel(settings, primary, "deep-analysis").tier;
+    // The reading pass is the run that judged the PR, so its tier is the one to differ from.
+    const analysisTier = resolveTierModel(settings, primary, "analysis-reading").tier;
     const fallbackTier: ModelTier = analysisTier === "premium" ? "standard" : "premium";
     fallbackReason = `${agentDisplayName(reviewer)} is not available (${compactError(error)}); ${agentDisplayName(primary)} audited on the ${fallbackTier} tier instead.`;
     hooks.onStatus?.(fallbackReason);
