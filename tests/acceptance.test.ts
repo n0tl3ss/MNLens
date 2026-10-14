@@ -55,6 +55,15 @@ describe("acceptance contract", () => {
     expect(contractTotals({ criteria: [{ ...proven, verification: undefined }] }, [rerun])).toMatchObject({ ran: 1 });
   });
 
+  it("upgrades an unproven criterion to proven when its named test ran green, but not without a named test", () => {
+    const green: VerificationJob = { id: "g", status: "done", prKey: "k", command: "./gradlew :a:test --tests '*FooSpec'", createdAt: "2026-10-14T10:00:00.000Z", updatedAt: "", stdout: "", stderr: "", exitCode: 0, outcome: "passed" };
+    const withTest = { ...criterion("unproven"), command: "./gradlew :a:test --tests '*FooSpec'", evidence: [{ kind: "test" as const, ref: "FooSpec: it does the thing" }] };
+    const withoutTest = { ...withTest, evidence: [{ kind: "file" as const, ref: "src/Foo.java:12" }] };
+    expect(effectiveStatus(withTest, [green])).toBe("proven");
+    expect(effectiveStatus(withoutTest, [green])).toBe("unproven");
+    expect(contractTotals({ criteria: [withTest] }, [green])).toMatchObject({ proven: 1, unproven: 0, ran: 1 });
+  });
+
   it("skips a test command whose filters another command already covers", () => {
     const withCommand = (command: string): AcceptanceCriterion => ({ ...criterion("proven"), id: command, command });
     const criteria = [withCommand("./gradlew :core:test --tests '*TimedSpec'"), withCommand("./gradlew :core:test --tests '*TimedSpec' --tests '*CountedSpec'"), withCommand("./gradlew :kotlin:test"), withCommand("./gradlew :core:test --tests '*OtherSpec'")];

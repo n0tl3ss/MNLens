@@ -4,14 +4,18 @@ import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, Verifica
  * Effective status of an acceptance criterion, shared by server and client.
  *
  * Precedence: the reviewer's override, then a failed local run of the command
- * that exercises the criterion, then the agent's verdict. A green run does not
- * upgrade "unproven" to "proven" on its own: proven requires a test that encodes
- * the criterion (the agent's evidence) *and* that test passing. A run that never
- * started (wrong JDK, offline) says nothing about the PR and leaves the verdict alone.
+ * that exercises the criterion, then the agent's verdict. Proven requires a test
+ * that encodes the criterion (the agent's test evidence) *and* that test passing:
+ * a green run of the criterion's command upgrades "unproven" only when the agent
+ * named such a test (agents often write "unproven" to mean "I could not run it",
+ * and running it is MNLens's job). A run that never started (wrong JDK, offline)
+ * says nothing about the PR and leaves the verdict alone.
  */
-export function effectiveCriterionStatus(criterion: Pick<AcceptanceCriterion, "status" | "humanStatus" | "command" | "verification">, jobs: VerificationJob[] = []): CriterionStatus {
+export function effectiveCriterionStatus(criterion: Pick<AcceptanceCriterion, "status" | "humanStatus" | "command" | "verification"> & { evidence?: AcceptanceCriterion["evidence"] }, jobs: VerificationJob[] = []): CriterionStatus {
   if (criterion.humanStatus) return criterion.humanStatus;
-  if (criterionRunState(criterion, jobs) === "failed") return "failed";
+  const run = criterionRunState(criterion, jobs);
+  if (run === "failed") return "failed";
+  if (run === "passed" && criterion.status === "unproven" && (criterion.evidence ?? []).some((item) => item.kind === "test")) return "proven";
   return criterion.status;
 }
 
