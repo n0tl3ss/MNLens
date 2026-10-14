@@ -1,3 +1,4 @@
+import { budgetDiff } from "./diffBudget.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -10,7 +11,7 @@ import { agentDisplayName, agentScratchDir, codexSchemaPathFor, runAgent } from 
 import { reviewDraftInstructions } from "./agentSkills.js";
 import { readAnalysis, readVerificationJobsForPr } from "./cache.js";
 import { listRepoRules } from "./repoRules.js";
-import { extractJson, readRepoGuidance, repoGuidancePromptBlock, type RepoGuidance } from "./codex.js";
+import { ensureAnalysisWorktree, extractJson, readRepoGuidance, repoGuidancePromptBlock, type RepoGuidance } from "./codex.js";
 import { cacheDir } from "./paths.js";
 import { calibrationPromptBlock } from "./reviewMemory.js";
 
@@ -116,7 +117,10 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
     calibrationPromptBlock(detail.repository).catch(() => ""),
     readVerificationJobsForPr(detail.key).catch(() => [] as VerificationJob[])
   ]);
-  const annotated = annotateDiff(detail.diff);
+  // Whole files within the budget, omitted files listed by path; the annotation adds line numbers, so its own cap sits above the budget.
+  // The draft runs in the same read-only checkout as Deep Analyze, so it can open the files behind a comment before anchoring it.
+  const repoDir = await ensureAnalysisWorktree(detail).catch(() => undefined);
+  const annotated = annotateDiff(budgetDiff(detail.diff, 100_000, { hasCheckout: Boolean(repoDir) }).text, { maxChars: 150_000 });
   // Reuse the analysis checkout when it exists (no git operations here); the draft then follows the repo's own conventions.
   const worktree = join(cacheDir, "analysis-worktrees", detail.key);
   const repoGuidance = existsSync(worktree) ? await readRepoGuidance(worktree).catch(() => [] as RepoGuidance[]) : [];
@@ -136,10 +140,11 @@ export async function generateReviewDraft(detail: PrDetail, options: { force?: b
         repoRules: rules.filter((rule) => rule.enabled).map((rule) => `${rule.title}: ${rule.body}`),
         calibration,
         repoGuidance,
-        verificationJobs
+        verificationJobs,
+        hasCheckout: Boolean(repoDir)
       }),
       access: "read-only",
-      cwd: await agentScratchDir(),
+      cwd: repoDir ?? (await agentScratchDir()),
       outputSchema: schema,
       outputLastMessagePath: outputPath
     },
@@ -213,7 +218,7 @@ function cleanList(items: string[]): string[] {
 export function buildReviewDraftPrompt(
   detail: PrDetail,
   annotated: Pick<AnnotatedDiff, "text" | "files">,
-  context: { analysis?: AnalysisResult; acceptance?: AcceptanceContract; repoRules: string[]; calibration: string; repoGuidance?: RepoGuidance[]; verificationJobs?: VerificationJob[] }
+  context: { analysis?: AnalysisResult; acceptance?: AcceptanceContract; repoRules: string[]; calibration: string; repoGuidance?: RepoGuidance[]; verificationJobs?: VerificationJob[]; hasCheckout?: boolean }
 ): string {
   const analysis = context.analysis
     ? {
@@ -234,13 +239,22 @@ export function buildReviewDraftPrompt(
     ? context.acceptance.criteria.map((criterion) => ({ text: criterion.text, status: effectiveStatus(criterion, context.verificationJobs ?? []), humanOverride: Boolean(criterion.humanStatus), evidence: criterion.evidence.map((item) => `${item.kind}:${item.ref}`), command: criterion.command, note: criterion.humanNote ?? criterion.note }))
     : undefined;
   const existingThreads = (detail.reviewComments ?? []).slice(0, 30).map((comment) => ({ path: comment.path, line: comment.line, side: comment.side, author: comment.author, resolved: comment.isResolved, body: comment.body.slice(0, 300) }));
-  return `${reviewDraftInstructions()}
+  const localRuns = (context.verificationJobs ?? [])
+    .filter((job) => job.status === "done" || job.status === "failed")
+    .slice(-10)
+    .reverse()
+    .map((job) => ({ command: job.command, outcome: job.outcome ?? (job.exitCode === 0 ? "passed" : "failed"), blockedReason: job.blockedReason, completedAt: job.completedAt }));
+  const checkout = context.hasCheckout
+    ? "\nYou are working inside a read-only checkout of the PR at its head commit. Open files with the Read tool and search with Grep or Glob (Bash is limited to read-only git, rg and grep; cat, ls and build commands are denied, and a denied command is not a reason to stop). Before anchoring a comment, read the surrounding code so the line and the claim are right; read any file the diff lists as omitted.\n"
+    : "";
+  return `${reviewDraftInstructions()}${checkout}
 ${context.repoRules.length > 0 ? `\nRepository review rules set by the maintainers (follow them):\n${context.repoRules.map((rule) => `- ${rule}`).join("\n")}\n` : ""}${context.calibration ? `\n${context.calibration}\n` : ""}${repoGuidancePromptBlock(context.repoGuidance)}
 Pull request:
 ${JSON.stringify({ repository: detail.repository, number: detail.number, title: detail.title, author: detail.author, body: detail.body, baseRefName: detail.baseRefName, isDraft: detail.isDraft, files: detail.files, linkedIssues: (detail.linkedIssues ?? []).map((issue) => ({ number: issue.number, title: issue.title, body: (issue.body ?? "").slice(0, 3000) })) }, null, 2)}
 
 ${analysis ? `Prior analysis of this PR (use it, but verify against the diff):\n${JSON.stringify(analysis, null, 2)}\n` : "No prior analysis is available; work from the diff."}
 ${acceptance ? `Acceptance criteria and their current status (human overrides are authoritative):\n${JSON.stringify(acceptance, null, 2)}\n` : "No acceptance contract exists yet."}
+${localRuns.length > 0 ? `Local verification runs MNLens already executed in a checkout of this PR, newest first. A run that passed is evidence: cite it in the final comment and never ask the human to run it again. A blocked run never started and proves nothing either way:\n${JSON.stringify(localRuns, null, 2)}\n` : ""}
 ${existingThreads.length > 0 ? `Existing review threads (do not repeat points already raised unless unresolved and still wrong):\n${JSON.stringify(existingThreads, null, 2)}\n` : ""}
 Files in the diff: ${annotated.files.join(", ") || "(none)"}
 

@@ -482,9 +482,10 @@ test("Overview explains the change: reading guide opens the diff, assumptions an
 
 test("acceptance criteria show whether their test command actually ran", async ({ page }) => {
   const greenJob = { ...interruptedVerification, id: "verification-green", status: "done", exitCode: 0, resumable: false, interruptedAt: undefined, recoveryMessage: undefined, statusMessage: "Passed.", command: "./gradlew :tracing-opentelemetry-ucp:test --tests '*UcpMetricsSpec'" };
-  const redJob = { ...greenJob, id: "verification-red", status: "failed", exitCode: 1, statusMessage: "1 test failed.", command: "./gradlew :tracing-opentelemetry-ucp:test --tests '*PoolLifecycleSpec'" };
+  const redJob = { ...greenJob, id: "verification-red", status: "failed", exitCode: 1, outcome: "test-failed", statusMessage: "1 test failed.", command: "./gradlew :tracing-opentelemetry-ucp:test --tests '*PoolLifecycleSpec'" };
+  const blockedJob = { ...redJob, id: "verification-blocked", outcome: "blocked", blockedReason: "the build needs JDK 25 and ran on JDK 21", statusMessage: "Could not run here.", command: "./gradlew :test-suite-kotlin:test" };
   await mockApi(page, {
-    verificationJobs: [greenJob, redJob],
+    verificationJobs: [greenJob, redJob, blockedJob],
     acceptance: {
       prKey,
       diffHash: detail.diffHash,
@@ -496,7 +497,8 @@ test("acceptance criteria show whether their test command actually ran", async (
       criteria: [
         { id: "c1", text: "Pool metrics are registered when a UCP bean starts", source: "linked-issue", status: "proven", evidence: [{ kind: "test", ref: "UcpMetricsSpec" }], command: greenJob.command, verification: { jobId: greenJob.id, command: greenJob.command, startedAt: now } },
         { id: "c2", text: "Metrics are unregistered when the pool closes", source: "linked-issue", status: "proven", evidence: [{ kind: "test", ref: "PoolLifecycleSpec" }], command: redJob.command, verification: { jobId: redJob.id, command: redJob.command, startedAt: now } },
-        { id: "c3", text: "Configuration key is documented", source: "pr-body", status: "unproven", evidence: [] }
+        { id: "c3", text: "Configuration key is documented", source: "pr-body", status: "unproven", evidence: [] },
+        { id: "c4", text: "Kotlin suspend functions are timed", source: "linked-issue", status: "proven", evidence: [{ kind: "test", ref: "SuspendMetricsTest" }], command: blockedJob.command, verification: { jobId: blockedJob.id, command: blockedJob.command, startedAt: now } }
       ]
     }
   });
@@ -511,6 +513,12 @@ test("acceptance criteria show whether their test command actually ran", async (
   await expect(card.locator(".acceptance-item").nth(1)).toHaveClass(/failed/);
   await expect(card.locator(".acceptance-item").nth(0).getByRole("button", { name: /Run again/ })).toBeVisible();
   await expect(card.locator(".acceptance-item").nth(2).getByRole("button", { name: /Run/ })).toHaveCount(0);
+  // A run that never started (wrong JDK) is reported, not counted against the PR.
+  const blocked = card.locator(".acceptance-item").nth(3);
+  await expect(blocked.getByText("could not run", { exact: true })).toBeVisible();
+  await expect(blocked.getByText(/needs JDK 25/)).toBeVisible();
+  await expect(blocked).toHaveClass(/proven/);
+  await expect(card.getByText("1 could not run")).toBeVisible();
 });
 
 test("Overview shows what changed since the previous analysis and links new findings to their section", async ({ page }) => {

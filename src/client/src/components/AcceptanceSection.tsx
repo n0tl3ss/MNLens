@@ -1,6 +1,6 @@
 import { ClipboardCheck, Loader2, Play } from "lucide-react";
 import type { AcceptanceContract, AcceptanceCriterion, CriterionStatus, VerificationJob } from "../../../shared/types";
-import { acceptanceTotals, criterionRunState, effectiveCriterionStatus } from "../../../shared/acceptance";
+import { acceptanceTotals, criterionRunJob, criterionRunState, effectiveCriterionStatus } from "../../../shared/acceptance";
 import { Badge } from "./uiBits";
 import "./acceptance.css";
 
@@ -64,6 +64,7 @@ export function AcceptanceSection({
             {totals.ran > 0 && <Badge tone="added">{totals.ran} ran green</Badge>}
             {totals.running > 0 && <Badge tone="queue">{totals.running} running</Badge>}
             {totals.failed > 0 && <Badge tone="danger">{totals.failed} failed</Badge>}
+            {totals.blocked > 0 && <Badge tone="neutral">{totals.blocked} could not run</Badge>}
             {totals.unproven > 0 && <Badge tone="review-needed">{totals.unproven} unproven</Badge>}
             {totals.notApplicable > 0 && <Badge tone="neutral">{totals.notApplicable} n/a</Badge>}
             <span className="muted">
@@ -79,7 +80,7 @@ export function AcceptanceSection({
             {contract.criteria.map((criterion) => {
               const status = effectiveCriterionStatus(criterion, verificationJobs);
               const run = criterionRunState(criterion, verificationJobs);
-              const job = criterion.verification ? verificationJobs.find((item) => item.id === criterion.verification?.jobId) : undefined;
+              const job = criterionRunJob(criterion, verificationJobs);
               return (
                 <li key={criterion.id} className={`acceptance-item ${status}`}>
                   <div className="acceptance-item-head">
@@ -111,6 +112,11 @@ export function AcceptanceSection({
                       )}
                       {job?.error && run === "failed" && <span className="muted acceptance-run-error">{job.error.split("\n")[0].slice(0, 140)}</span>}
                     </div>
+                  )}
+                  {run === "blocked" && (
+                    <p className="muted acceptance-note">
+                      Could not run here{job?.blockedReason ? `: ${job.blockedReason}` : ""}. The agent's verdict stands; fix the environment and run again.
+                    </p>
                   )}
                   {(criterion.note || criterion.humanNote) && <p className="muted acceptance-note">{criterion.humanNote ?? criterion.note}</p>}
                   <div className="acceptance-actions">
@@ -150,6 +156,7 @@ export function AcceptanceSection({
 function RunBadge({ state }: { state: NonNullable<ReturnType<typeof criterionRunState>> }) {
   if (state === "passed") return <Badge tone="added">ran green</Badge>;
   if (state === "failed") return <Badge tone="danger">run failed</Badge>;
+  if (state === "blocked") return <Badge tone="neutral">could not run</Badge>;
   return (
     <Badge tone="queue">
       <Loader2 size={11} className="spin" /> {state === "queued" ? "queued" : "running"}

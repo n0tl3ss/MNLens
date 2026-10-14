@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JobStatus, PrRef, VerificationArtifact, VerificationJob } from "../shared/types.js";
 import { prKey, readPrDetail, readVerificationJob, readVerificationJobs, readVerificationJobsForPr, writeVerificationJob } from "./cache.js";
@@ -15,6 +15,7 @@ import { assertGithubRateLimitAvailable, noteGithubRateLimit } from "./githubRat
 import { missingGithubTokenMessage, readGithubToken } from "./keychain.js";
 import { cacheDir } from "./paths.js";
 import { clearRecoveryPatch, interruptedJobPatch, parsePrKey } from "./recovery.js";
+import { classifyVerificationOutcome, findJavaHome, requiredJavaVersion } from "./verificationEnvironment.js";
 
 const verificationJobs = new Map<string, VerificationJob>();
 const verificationQueue: Array<{ job: VerificationJob; pr: PrRef; manualItem?: string }> = [];
@@ -234,12 +235,7 @@ async function drainVerificationQueue(): Promise<void> {
         if (!parsed) throw new Error("Unsupported command.");
         const resolved = await resolveGradleProjectCommand(item.job, repoDir, parsed, token);
         updateVerificationJob(item.job, { phase: "running", statusMessage: `Running ${resolved.display}` });
-        result = await runStreamingCommand(item.job, resolved.command, resolved.args, {
-          cwd: repoDir,
-          env: githubCliEnv(token),
-          timeoutMs: verificationCommandTimeoutMs,
-          redact: [token]
-        });
+        result = await runWithJavaFallback(item.job, repoDir, resolved, token);
       }
       updateVerificationJob(item.job, {
         status: "done",
@@ -248,6 +244,7 @@ async function drainVerificationQueue(): Promise<void> {
         stdout: trimLog(result.stdout),
         stderr: trimLog(result.stderr),
         exitCode: result.exitCode,
+        outcome: item.manualItem ? undefined : "passed",
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - started
       });
@@ -264,17 +261,57 @@ async function drainVerificationQueue(): Promise<void> {
         });
         continue;
       }
+      const failure = verificationError(error);
+      const verdict = item.manualItem ? undefined : classifyVerificationOutcome(failure.exitCode, failure.stdout, failure.stderr);
       updateVerificationJob(item.job, {
         status: "failed",
         phase: "completed",
-        statusMessage: "Verification failed.",
-        ...verificationError(error),
+        statusMessage: verdict?.outcome === "blocked" ? `Could not run here: ${verdict.blockedReason}.` : "Verification failed.",
+        ...failure,
+        outcome: verdict?.outcome,
+        blockedReason: verdict?.blockedReason,
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - started
       });
     }
   }
   running = false;
+}
+
+const javaHomeByJob = new Map<string, { home: string; version: number }>();
+
+/**
+ * Runs a build command; when the build tool refuses because it needs a newer
+ * JDK than the default one, finds an installed JDK that satisfies it and runs
+ * again with JAVA_HOME pointed there. The JDK is remembered for the rest of the
+ * job (project discovery and the real run share it). Nothing is downloaded;
+ * without a matching JDK the original failure stands and is classified as blocked.
+ */
+async function runBuildCommand(job: VerificationJob, repoDir: string, command: string, args: string[], token: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  const javaEnv = (jdk: { home: string } | undefined): NodeJS.ProcessEnv => (jdk ? { JAVA_HOME: jdk.home, PATH: `${join(jdk.home, "bin")}${delimiter}${process.env.PATH ?? ""}` } : {});
+  const run = (jdk: { home: string } | undefined) => runStreamingCommand(job, command, args, { cwd: repoDir, env: githubCliEnv(token, javaEnv(jdk)), timeoutMs, redact: [token] });
+  const known = javaHomeByJob.get(job.id);
+  try {
+    return await run(known);
+  } catch (error) {
+    if (known || !(error instanceof CommandError)) throw error;
+    const required = requiredJavaVersion(`${error.result.stderr}\n${error.result.stdout}`);
+    if (!required) throw error;
+    const jdk = await findJavaHome(required);
+    if (!jdk) throw error;
+    javaHomeByJob.set(job.id, jdk);
+    const note = `MNLens: the build needs JDK ${required}; retrying with JDK ${jdk.version} at ${jdk.home}`;
+    updateVerificationJob(job, { statusMessage: `${note}.`, stdout: trimLog(`${job.stdout}\n\n${note}\n`) });
+    return run(jdk);
+  }
+}
+
+async function runWithJavaFallback(job: VerificationJob, repoDir: string, resolved: ParsedVerificationCommand, token: string): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  try {
+    return await runBuildCommand(job, repoDir, resolved.command, resolved.args, token, verificationCommandTimeoutMs);
+  } finally {
+    javaHomeByJob.delete(job.id);
+  }
 }
 
 export function manualVerificationCommand(id: string): string {
@@ -732,12 +769,7 @@ async function resolveGradleProjectCommand(
 async function discoverGradleProjects(job: VerificationJob, repoDir: string, gradleCommand: string, token: string): Promise<Set<string>> {
   const projects = new Set<string>();
   try {
-    const result = await runStreamingCommand(job, gradleCommand, ["projects", "--quiet"], {
-      cwd: repoDir,
-      env: githubCliEnv(token),
-      timeoutMs: 3 * 60_000,
-      redact: [token]
-    });
+    const result = await runBuildCommand(job, repoDir, gradleCommand, ["projects", "--quiet"], token, 3 * 60_000);
     for (const match of result.stdout.matchAll(/Project '(:[^']+)'/g)) projects.add(match[1]);
   } catch {
     // Keep the original command if Gradle cannot report the resolved project model.
@@ -921,7 +953,10 @@ function verificationError(error: unknown): Pick<VerificationJob, "stdout" | "st
 function trimLog(value: string): string {
   const max = 24_000;
   if (value.length <= max) return value;
-  return `${value.slice(0, max)}\n\n[Output truncated from ${value.length} characters.]`;
+  // Keep the tail: build tools print the cause of a failure last.
+  const head = 8_000;
+  const tail = max - head;
+  return `${value.slice(0, head)}\n\n[Output truncated from ${value.length} characters; showing the first ${head} and the last ${tail}.]\n\n${value.slice(-tail)}`;
 }
 
 function redact(value: string, secrets: string[] = []): string {

@@ -140,7 +140,7 @@ Decision ("decision"):
 - COMMENT when you cannot decide without information the human has (unverified criteria, product judgment, external systems). Explain in "decisionRationale".
 
 Reviewer checklist (ordered, concrete, 2-5 items each; skip what does not apply):
-- "mustDo": things the human must personally confirm before submitting (run or read a specific test, confirm a behavior change is intended, check a migration against production data, verify a security-sensitive path). Name the exact file, test or command.
+- "mustDo": things the human must personally confirm before submitting (run or read a specific test, confirm a behavior change is intended, check a migration against production data, verify a security-sensitive path). Name the exact file, test or command. Never list a command that already ran green locally (see the local verification runs when given): cite it as evidence instead.
 - "shouldDo": checks that materially raise confidence but are not gating (manual QA step, docs check, performance sanity check).
 - "optional": nice-to-have (refactors to suggest for a follow-up, broader tests, style consistency).`;
 }

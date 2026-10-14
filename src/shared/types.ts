@@ -752,6 +752,10 @@ export interface VerificationJob {
   stderr: string;
   exitCode?: number | null;
   durationMs?: number;
+  /** What a finished run says: ran green, ran and found a problem, or never got to run (wrong JDK, offline). */
+  outcome?: "passed" | "test-failed" | "blocked";
+  /** Why a blocked run could not start, in one sentence. */
+  blockedReason?: string;
   interruptedAt?: string;
   resumable?: boolean;
   recoveryMessage?: string;

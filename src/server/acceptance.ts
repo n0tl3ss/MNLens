@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { AcceptanceContract, AcceptanceCriterion, CiCheck, CriterionStatus, PrDetail, UpdateCriterionRequest, VerificationJob } from "../shared/types.js";
 import { acceptanceTotals, effectiveCriterionStatus } from "../shared/acceptance.js";
 import { enqueueVerification, parseVerificationCommand } from "./verification.js";
+import { budgetDiff } from "./diffBudget.js";
+import { commandCovers } from "../shared/acceptance.js";
 import { agentDisplayName, codexSchemaPathFor, runAgent } from "./agent.js";
 import { readAnalysis, readVerificationJobsForPr } from "./cache.js";
 import { ensureAnalysisWorktree, extractJson } from "./codex.js";
@@ -167,18 +169,20 @@ export async function generateAcceptanceContract(
   return contract;
 }
 
-/** Up to three distinct, runnable commands the contract names, in order of first appearance. */
+/**
+ * Up to three distinct, runnable commands the contract names, in order of first
+ * appearance. A Gradle/Maven test command whose `--tests` filters are a subset of
+ * another command's (same project and task) is covered by that one and skipped,
+ * so three criteria that name overlapping specs cost one build, not three.
+ */
 export function acceptanceCommands(contract: Pick<AcceptanceContract, "criteria">, limit = 3): string[] {
   const commands: string[] = [];
-  const seen = new Set<string>();
   for (const criterion of contract.criteria) {
     const parsed = criterion.command ? parseVerificationCommand(criterion.command) : undefined;
-    if (!parsed || seen.has(parsed.display)) continue;
-    seen.add(parsed.display);
-    commands.push(parsed.display);
-    if (commands.length >= limit) break;
+    if (parsed && !commands.includes(parsed.display)) commands.push(parsed.display);
   }
-  return commands;
+  const covered = commands.filter((command, index) => !commands.some((other, otherIndex) => otherIndex !== index && other !== command && commandCovers(other, command)));
+  return covered.slice(0, limit);
 }
 
 /**
@@ -196,7 +200,7 @@ export async function scheduleAcceptanceVerification(contract: AcceptanceContrac
       const job = await enqueueVerification({ owner: pr.owner, repo: pr.repo, number: pr.number }, command);
       for (const criterion of contract.criteria) {
         const parsed = criterion.command ? parseVerificationCommand(criterion.command) : undefined;
-        if (parsed?.display === command) criterion.verification = { jobId: job.id, command, startedAt: job.createdAt };
+        if (parsed && commandCovers(command, parsed.display)) criterion.verification = { jobId: job.id, command, startedAt: job.createdAt };
       }
     } catch (error) {
       contract.limitations.push(`Could not run \`${command}\`: ${error instanceof Error ? error.message : String(error)}`);
@@ -236,7 +240,7 @@ export function buildAcceptancePrompt(
   detail: PrDetail,
   context: { analysisSummary?: string; testsToCheck: string[]; ciChecks: CiCheck[]; verificationJobs: VerificationJob[]; hasCheckout: boolean }
 ): string {
-  const diff = detail.diff.length > 60_000 ? `${detail.diff.slice(0, 60_000)}\n\n[Diff truncated from ${detail.diff.length} characters.]` : detail.diff;
+  const { text: diff } = budgetDiff(detail.diff, 90_000, { hasCheckout: context.hasCheckout });
   const verification = context.verificationJobs.slice(0, 10).map((job) => ({ command: job.command, status: job.status, exitCode: job.exitCode, completedAt: job.completedAt }));
   const ci = context.ciChecks.map((check) => ({ name: check.name, workflow: check.workflow, state: check.state, bucket: check.bucket }));
   return `You are producing an acceptance-criteria contract for a GitHub pull request so a human reviewer can see, item by item, whether the PR does what was asked and what proves it.
@@ -249,7 +253,7 @@ Step 1 — extract criteria:
 - Include non-functional expectations that are explicit in the issue/PR (performance, compatibility, docs, migration) as criteria.
 
 Step 2 — judge each criterion against the code:
-${context.hasCheckout ? "- You have a read-only checkout of the PR. Open the changed source and the tests; do not rely on the diff alone. Use grep to find tests that exercise the changed symbols." : "- No checkout is available; judge from the diff, file list and CI/verification data, and say so in limitations."}
+${context.hasCheckout ? "- You have a read-only checkout of the PR. Open the changed source and the tests with the Read tool and find tests for the changed symbols with Grep; do not rely on the diff alone. Bash is limited to read-only git, rg and grep (cat, ls and build commands are denied), and you do not run tests yourself: MNLens runs the `command` you name on each criterion after you answer and reports the result next to it." : "- No checkout is available; judge from the diff, file list and CI/verification data, and say so in limitations."}
 - "proven": there is a test, CI check, or local verification run that exercises exactly this behavior and would fail without the change, OR the code path is trivially inspectable and you cite path:line. Every proven item needs at least one evidence entry.
 - "failed": the code or tests show the criterion is NOT met.
 - "unproven": the change looks intended to meet it but nothing exercises it; say what test would prove it in the note.

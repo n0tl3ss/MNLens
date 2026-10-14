@@ -258,6 +258,7 @@ export function ReviewTab({
               {totals.ran > 0 && <Badge tone="added">{totals.ran} ran green</Badge>}
               {totals.running > 0 && <Badge tone="queue">{totals.running} running</Badge>}
               {totals.failed > 0 && <Badge tone="danger">{totals.failed} failed</Badge>}
+              {totals.blocked > 0 && <Badge tone="neutral">{totals.blocked} could not run</Badge>}
               {totals.unproven > 0 && <Badge tone="review-needed">{totals.unproven} unproven — verify or ask</Badge>}
               <button type="button" className="link-button" onClick={() => onGoToTab("overview")}>
                 Open contract

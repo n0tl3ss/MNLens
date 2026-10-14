@@ -6,6 +6,7 @@ import type { AnalysisResult, AnalysisType, CiCheck, PrDetail, PrStack, ReviewIn
 import { agentDisplayName, agentScratchDir, codexSchemaPathFor, runAgent } from "./agent.js";
 import { readAnalysis, writeAnalysis } from "./cache.js";
 import { deltaAgainstPrevious } from "./analysisDelta.js";
+import { budgetDiff } from "./diffBudget.js";
 import { runCommand } from "./command.js";
 import { githubCliEnv, hardenWorktreeCredentials } from "./githubHost.js";
 import { readGithubToken } from "./keychain.js";
@@ -18,7 +19,7 @@ import { listRepoRules } from "./repoRules.js";
 // Re-exported for modules that still import the Codex home from here.
 export { codexHome, ensureCodexHome } from "./agent.js";
 
-const maxDiffChars = 70_000;
+const maxDiffChars = 100_000;
 
 const insightSchema = z.object({
   title: z.string().default(""),
@@ -247,10 +248,7 @@ export function buildPrompt(
   stack?: PrStack,
   context: { calibration?: string; repoRules?: string[]; reviewerIsAuthor?: boolean; hasCheckout?: boolean; repoGuidance?: RepoGuidance[] } = {}
 ): string {
-  const diff =
-    detail.diff.length > maxDiffChars
-      ? `${detail.diff.slice(0, maxDiffChars)}\n\n[Diff truncated from ${detail.diff.length} characters.]`
-      : detail.diff;
+  const { text: diff } = budgetDiff(detail.diff, maxDiffChars, { hasCheckout: context.hasCheckout });
   const payload = {
     pr: {
       repository: detail.repository,
@@ -281,7 +279,7 @@ The reviewer is the PR author, reviewing code that was largely written by an AI 
     : "";
   const checkout = context.hasCheckout
     ? `
-You are working inside a read-only checkout of the PR at its head commit. Do not judge from the diff alone. Before writing the JSON, do all of the following and cite what you read as path:line:
+You are working inside a read-only checkout of the PR at its head commit. Do not judge from the diff alone. Open files with the Read tool and search with Grep or Glob; Bash is limited to read-only git (log, show, diff, blame, grep), rg and grep, so cat, ls, find and build commands are denied. A denied command is not a reason to stop inspecting: use Read and Grep instead. Before writing the JSON, do all of the following and cite what you read as path:line:
 1. Open every changed production (non-test) file around each hunk so you see the surrounding control flow, defaults and error handling, not just the changed lines.
 2. For each changed or newly introduced symbol (method, class, constant, configuration key), grep the repository for its callers and usages, and read the ones that decide how the change behaves: where defaults are set, where state is persisted or versioned, where errors are handled, where the symbol is wired in.
 3. Find the tests that exercise the changed symbols (grep for their names) and check what they actually assert.

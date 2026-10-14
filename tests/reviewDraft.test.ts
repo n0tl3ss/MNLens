@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateDiff, parseDiffLines, resolveAnchor } from "../src/shared/diffLines.js";
 import { buildReviewDraftPrompt, kindRank, normalizeComments, reviewDraftJsonSchema } from "../src/server/reviewDraft.js";
+import { buildReviewDraftPrompt } from "../src/server/reviewDraft.js";
 import type { PrDetail } from "../src/shared/types.js";
 
 const diff = `diff --git a/src/app.ts b/src/app.ts
@@ -136,5 +137,17 @@ describe("review draft", () => {
     expect(prompt).toContain("Reviewer calibration");
     expect(prompt).toContain("Already asked about naming");
     expect(prompt).toContain("Return only JSON");
+  });
+});
+
+describe("review draft prompt", () => {
+  it("tells the agent which commands already ran locally so it cites them instead of assigning them", () => {
+    const detail = { repository: "acme/app", number: 1, title: "t", author: "a", body: "", baseRefName: "main", isDraft: false, files: [], linkedIssues: [], reviewComments: [] } as unknown as Parameters<typeof buildReviewDraftPrompt>[0];
+    const job = { id: "v1", status: "done", prKey: "acme__app__1", command: "./gradlew :core:test --tests *FooSpec", createdAt: "", updatedAt: "", stdout: "", stderr: "", exitCode: 0, outcome: "passed", completedAt: "2026-10-14T13:43:00.000Z" } as const;
+    const prompt = buildReviewDraftPrompt(detail, { text: "", files: [] }, { repoRules: [], calibration: "", verificationJobs: [job] });
+    expect(prompt).toContain("Local verification runs MNLens already executed");
+    expect(prompt).toContain("./gradlew :core:test --tests *FooSpec");
+    expect(prompt).toContain('"outcome": "passed"');
+    expect(buildReviewDraftPrompt(detail, { text: "", files: [] }, { repoRules: [], calibration: "" })).not.toContain("Local verification runs");
   });
 });

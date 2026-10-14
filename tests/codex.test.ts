@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { budgetDiff } from "../src/server/diffBudget";
 import { analysisJsonSchema, buildPrompt, extractJson, parseCodexOutput, readRepoGuidance, repoGuidancePromptBlock, rewriteGradleProjectPathsInText } from "../src/server/codex";
 import type { PrDetail } from "../src/shared/types";
 
@@ -134,5 +135,26 @@ describe("Gradle test command normalization", () => {
     const corrected = rewriteGradleProjectPathsInText(item, new Set([":micronaut-oraclecloud-logging"]));
     expect(corrected).toContain("./gradlew :micronaut-oraclecloud-logging:test");
     expect(corrected).toContain("MNLens verified the runnable Gradle project path");
+  });
+});
+
+describe("diff budget", () => {
+  const file = (path: string, lines: number) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${"+x\n".repeat(lines)}`;
+  it("keeps whole files in order and names the ones it left out", () => {
+    const diff = file("src/A.java", 10) + file("src/B.java", 10) + file("src/test/ASpec.groovy", 10);
+    const budget = budgetDiff(diff, file("src/A.java", 10).length + file("src/B.java", 10).length + 5, { hasCheckout: true });
+    expect(budget.omitted).toEqual(["src/test/ASpec.groovy"]);
+    expect(budget.text).toContain("diff --git a/src/B.java");
+    expect(budget.text).not.toContain("diff --git a/src/test/ASpec.groovy");
+    expect(budget.text).toContain("1 file omitted");
+    expect(budget.text).toContain("Read them from the checkout");
+    expect(budgetDiff(diff, diff.length)).toEqual({ text: diff, omitted: [] });
+  });
+
+  it("keeps the head of a single oversized file", () => {
+    const diff = file("src/Huge.java", 500);
+    const budget = budgetDiff(diff, 200);
+    expect(budget.omitted).toEqual([]);
+    expect(budget.text).toContain("src/Huge.java truncated");
   });
 });
