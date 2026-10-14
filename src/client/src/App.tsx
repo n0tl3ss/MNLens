@@ -205,7 +205,8 @@ export function App() {
   const [collapsedRepos, setCollapsedRepos] = useState<Record<string, boolean>>({});
   const [openingEditor, setOpeningEditor] = useState<EditorKind | undefined>();
   const [askingFixId, setAskingFixId] = useState<string | undefined>();
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("pra-theme") === "dark" ? "dark" : "light"));
+  // New storage key: the old default was dark and got auto-saved under "pra-theme", so honouring it would keep everyone in dark mode.
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("mnlens-theme") === "dark" ? "dark" : "light"));
   const [bulkAnalyzeMode, setBulkAnalyzeMode] = useState<BulkAnalyzeMode>(() => (localStorage.getItem("mnlens-bulk-analyze-mode") === "deep" ? "deep" : "fast"));
   const [attentionMode, setAttentionMode] = useState(() => localStorage.getItem("pra-attention-mode") === "true");
   const [mobileQueueOpen, setMobileQueueOpen] = useState(false);
@@ -251,7 +252,7 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("pra-theme", theme);
+    localStorage.setItem("mnlens-theme", theme);
   }, [theme]);
 
   useEffect(() => {

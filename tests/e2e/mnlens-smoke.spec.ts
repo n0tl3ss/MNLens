@@ -392,11 +392,11 @@ test("Overview keeps secondary sections collapsed and opens them on demand", asy
   await expect(page.getByText("Review Summary")).toBeVisible();
   if (process.env.MNLENS_E2E_SHOTS) {
     await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-top.png` });
-    await page.evaluate(() => localStorage.setItem("pra-theme", "dark"));
+    await page.evaluate(() => localStorage.setItem("mnlens-theme", "dark"));
     await page.reload();
     await expect(page.getByText("Review Summary")).toBeVisible();
     await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-dark.png` });
-    await page.evaluate(() => localStorage.setItem("pra-theme", "light"));
+    await page.evaluate(() => localStorage.setItem("mnlens-theme", "light"));
     await page.reload();
     await expect(page.getByText("Review Summary")).toBeVisible();
   }
@@ -439,7 +439,7 @@ test("Review tab turns the agent's draft into the reviewer's own comments", asyn
 test("supports dark theme and the mobile review queue layout", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 820 });
   await page.addInitScript(() => {
-    localStorage.setItem("pra-theme", "dark");
+    localStorage.setItem("mnlens-theme", "dark");
   });
   await page.goto("/");
 
