@@ -73,7 +73,7 @@
   padding: 7px 10px;
   border: 1px solid transparent;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(246, 245, 241, 0.7);
   text-align: left;
   cursor: pointer;
 }
@@ -84,7 +84,7 @@
 
 .stack-node.current .stack-node-select {
   border-color: #5b4bd6;
-  background: #fff;
+  background: #f6f5f1;
   cursor: default;
 }
 
@@ -92,7 +92,7 @@
   grid-area: number;
   align-self: center;
   font-weight: 750;
-  color: #4438a0;
+  color: #4a4690;
 }
 
 .stack-node-title {
@@ -118,13 +118,13 @@
 }
 
 [data-theme="dark"] .stack-panel {
-  border-color: #34404a;
+  border-color: #3b454b;
   border-left-color: #8f82ff;
   background: #1a1b26;
 }
 
 [data-theme="dark"] .stack-node-select {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(246, 245, 241, 0.04);
 }
 
 [data-theme="dark"] .stack-node.current .stack-node-select {
@@ -163,7 +163,7 @@
 
 .stack-merge-head select {
   padding: 3px 6px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 6px;
   font: inherit;
   font-size: 12px;
@@ -195,7 +195,7 @@
 }
 
 .stack-merge-error {
-  color: #9a2e3f;
+  color: #8f3140;
 }
 
 [data-theme="dark"] .stack-merge-error {
@@ -203,7 +203,7 @@
 }
 
 [data-theme="dark"] .stack-merge-head select {
-  border-color: #34404a;
+  border-color: #3b454b;
   background: #1a1b26;
   color: inherit;
 }

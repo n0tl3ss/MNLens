@@ -64,9 +64,9 @@
   grid-template-areas: "radio name" "radio desc";
   gap: 2px 10px;
   padding: 10px 12px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 8px;
-  background: #fff;
+  background: #f6f5f1;
   cursor: pointer;
 }
 
@@ -127,7 +127,7 @@
 .budget-row input {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 6px;
   font: inherit;
   font-size: 13px;
@@ -172,10 +172,10 @@
 .agent-settings-error {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid #e997aa;
+  border: 1px solid #d9b0b4;
   border-radius: 6px;
-  background: #fff0f2;
-  color: #9a2e3f;
+  background: #f0e4e2;
+  color: #8f3140;
   font-size: 13px;
 }
 
@@ -185,7 +185,7 @@
 }
 
 [data-theme="dark"] .agent-settings {
-  border-color: #34404a;
+  border-color: #3b454b;
   background: #15161f;
 }
 
@@ -194,7 +194,7 @@
 }
 
 [data-theme="dark"] .agent-option {
-  border-color: #34404a;
+  border-color: #3b454b;
   background: #1a1b26;
 }
 
@@ -202,7 +202,7 @@
 [data-theme="dark"] .tier-cell select,
 [data-theme="dark"] .task-row select,
 [data-theme="dark"] .budget-row input {
-  border-color: #34404a;
+  border-color: #3b454b;
   background: #1a1b26;
   color: inherit;
 }

@@ -30,12 +30,12 @@
 }
 
 .detail-meta {
-  color: #637174;
+  color: #606b6e;
   font-size: 13px;
 }
 
 .detail-meta strong {
-  color: #263538;
+  color: #2a3437;
   font-weight: 800;
 }
 
@@ -71,7 +71,7 @@
 }
 
 .target-branch-hint {
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -81,7 +81,7 @@
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 9px;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -100,8 +100,8 @@
   padding: 4px 8px;
   border: 1px solid #d8e3e6;
   border-radius: 999px;
-  background: #f7fbfc;
-  color: #263538;
+  background: #f0f0ec;
+  color: #2a3437;
   text-decoration: none;
 }
 
@@ -116,7 +116,7 @@
   flex: 0 0 auto;
   font-style: normal;
   font-weight: 850;
-  color: #637174;
+  color: #606b6e;
 }
 
 .reviewer-status.approved {
@@ -147,17 +147,16 @@
 }
 
 .detail-action-buttons .branch-work-suggested {
-  border-color: #cf4b42;
+  border-color: #b5463d;
   background:
-    radial-gradient(circle at 90% 10%, rgba(207, 75, 66, 0.16), transparent 42%),
-    linear-gradient(180deg, #fff7f5, #fff1ee);
-  color: #8d2a25;
+    #f2e9e7;
+  color: #8b2f2b;
   font-weight: 850;
   box-shadow: 0 0 0 3px rgba(207, 75, 66, 0.09);
 }
 
 .branch-link {
-  color: #155f78;
+  color: #1d5a6c;
   font-weight: 850;
   text-decoration: none;
 }
@@ -193,19 +192,18 @@
 
 .detail-action-buttons button.active {
   border-color: #80cdf0;
-  background: linear-gradient(180deg, #e8f7ff, #f0edff);
+  background: #e6ebe9;
   color: #095f91;
-  box-shadow: inset 0 0 0 1px rgba(102, 87, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(93, 90, 168, 0.16);
 }
 
 .detail-action-buttons .deep-analyze-suggested {
-  border-color: #6657ff;
+  border-color: #5d5aa8;
   background:
-    radial-gradient(circle at 90% 10%, rgba(102, 87, 255, 0.16), transparent 42%),
-    linear-gradient(180deg, #eefbff, #f3efff);
+    #eeeeea;
   color: #25227e;
   font-weight: 850;
-  box-shadow: 0 0 0 3px rgba(102, 87, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(93, 90, 168, 0.1);
 }
 
 .status-strip {
@@ -214,40 +212,38 @@
 
 [data-theme="dark"] .detail-action-buttons button.active {
   border-color: #286486;
-  background: #102c42;
-  color: #bcecff;
+  background: #2b3238;
+  color: #cfe3ea;
 }
 
 [data-theme="dark"] .detail-action-buttons .deep-analyze-suggested {
-  border-color: #7668ff;
+  border-color: #9a95d6;
   background:
-    radial-gradient(circle at 90% 10%, rgba(118, 104, 255, 0.22), transparent 42%),
-    linear-gradient(180deg, #102c42, #171d3b);
+    #2b3238;
   color: #e1ddff;
-  box-shadow: 0 0 0 3px rgba(118, 104, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(154, 149, 214, 0.16);
 }
 
 [data-theme="dark"] .detail-action-buttons .branch-work-suggested {
-  border-color: #e0665c;
+  border-color: #c9625a;
   background:
-    radial-gradient(circle at 90% 10%, rgba(224, 102, 92, 0.24), transparent 42%),
-    linear-gradient(180deg, #321c1c, #251718);
+    #352726;
   color: #ffd7d3;
   box-shadow: 0 0 0 3px rgba(224, 102, 92, 0.14);
 }
 
 [data-theme="dark"] .detail-meta {
-  color: #9fb4bf;
+  color: #9aa4a9;
 }
 
 [data-theme="dark"] .reviewer-status-list {
-  color: #9fb4bf;
+  color: #9aa4a9;
 }
 
 [data-theme="dark"] .reviewer-status {
-  border-color: #284557;
-  background: #101d28;
-  color: #e4edef;
+  border-color: #3a4146;
+  background: #24282c;
+  color: #e2e3dd;
 }
 
 [data-theme="dark"] .reviewer-status.approved {
@@ -261,7 +257,7 @@
 
 [data-theme="dark"] .reviewer-status.changes {
   border-color: #8e403b;
-  background: #321c1c;
+  background: #352726;
 }
 
 [data-theme="dark"] .reviewer-status.changes em {
@@ -270,7 +266,7 @@
 
 [data-theme="dark"] .reviewer-status.waiting {
   border-color: #76591e;
-  background: #2b2415;
+  background: #302a1c;
 }
 
 [data-theme="dark"] .reviewer-status.waiting em {

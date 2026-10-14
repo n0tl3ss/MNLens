@@ -31,7 +31,7 @@
 
 .review-error {
   margin: 0;
-  color: #9a2e3f;
+  color: #8f3140;
   font-size: 13px;
 }
 
@@ -43,8 +43,8 @@
   padding: 8px 0 0;
   list-style: none;
   font-size: 12.5px;
-  color: var(--mn-muted, #60717c);
-  border-top: 1px dashed var(--mn-border, #c6d9df);
+  color: var(--mn-muted, #5f6a6e);
+  border-top: 1px dashed var(--mn-border, #cfd1c8);
 }
 
 .review-legend li {
@@ -67,15 +67,15 @@
 }
 
 .review-tier-must {
-  color: #8b1d2c;
-  background: #fde7ea;
-  border-color: #f3b7bf;
+  color: #8b2f2b;
+  background: #f0e4e2;
+  border-color: #dfc0c3;
 }
 
 .review-tier-should {
-  color: #0f4f7a;
-  background: #e2f1fb;
-  border-color: #a9d3ee;
+  color: #245f68;
+  background: #e6eaec;
+  border-color: #b9cbd3;
 }
 
 .review-tier-optional {
@@ -104,18 +104,18 @@
   display: grid;
   gap: 8px;
   padding: 12px 14px 12px 12px;
-  border: 1px solid var(--mn-border, #c6d9df);
+  border: 1px solid var(--mn-border, #cfd1c8);
   border-left-width: 5px;
   border-radius: 10px;
-  background: var(--mn-surface, #fff);
+  background: var(--mn-surface, #f6f5f1);
 }
 
 .review-step.tier-must {
-  border-left-color: #d9544d;
+  border-left-color: #b9483f;
 }
 
 .review-step.tier-should {
-  border-left-color: #159bd3;
+  border-left-color: #2a7a93;
 }
 
 .review-step.tier-optional {
@@ -123,20 +123,20 @@
 }
 
 .review-step.tier-decide {
-  border-left-color: #6657ff;
-  background: linear-gradient(180deg, rgba(102, 87, 255, 0.06), transparent 60%);
+  border-left-color: #5d5aa8;
+  background: rgba(93, 90, 168, 0.06);
 }
 
 .review-step.done {
-  border-left-color: #1f9d7a;
+  border-left-color: #2e8a6c;
 }
 
 .review-step.done .review-step-index {
-  color: #1f9d7a;
+  color: #2e8a6c;
 }
 
 .review-step.warn .review-step-index {
-  color: #d9544d;
+  color: #b9483f;
 }
 
 .review-step-head {
@@ -157,12 +157,12 @@
 
 .review-step-index {
   display: inline-flex;
-  color: var(--mn-muted, #60717c);
+  color: var(--mn-muted, #5f6a6e);
 }
 
 .review-step-icon {
   display: inline-flex;
-  color: var(--mn-primary-deep, #176aa7);
+  color: var(--mn-primary-deep, #1f5f73);
 }
 
 .review-step-body {
@@ -187,7 +187,7 @@
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--mn-muted, #60717c);
+  color: var(--mn-muted, #5f6a6e);
 }
 
 .review-behavior dd {
@@ -206,7 +206,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  color: #1f9d7a;
+  color: #2e8a6c;
 }
 
 .review-actions {
@@ -225,7 +225,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--mn-primary-deep, #176aa7);
+  color: var(--mn-primary-deep, #1f5f73);
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
@@ -233,7 +233,7 @@
 }
 
 .link-button:hover {
-  color: var(--mn-primary, #159bd3);
+  color: var(--mn-primary, #2a7a93);
 }
 
 /* Suggested comments */
@@ -249,26 +249,26 @@
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-left-width: 4px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(246, 245, 241, 0.7);
 }
 
 .review-comment.kind-blocking {
-  border-left-color: #d9544d;
+  border-left-color: #b9483f;
 }
 
 .review-comment.kind-important {
-  border-left-color: #c1841c;
+  border-left-color: #9c6f1e;
 }
 
 .review-comment.kind-question {
-  border-left-color: #6657ff;
+  border-left-color: #5d5aa8;
 }
 
 .review-comment.kind-suggestion {
-  border-left-color: #159bd3;
+  border-left-color: #2a7a93;
 }
 
 .review-comment.kind-nit {
@@ -276,7 +276,7 @@
 }
 
 .review-comment.kind-praise {
-  border-left-color: #1f9d7a;
+  border-left-color: #2e8a6c;
 }
 
 .review-comment.added {
@@ -292,7 +292,7 @@
 
 .review-comment-anchor {
   font-size: 12px;
-  color: var(--mn-muted, #60717c);
+  color: var(--mn-muted, #5f6a6e);
   overflow-wrap: anywhere;
   word-break: break-all;
 }
@@ -306,7 +306,7 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: 6px;
-  background: var(--mn-surface-soft, #f4fbfd);
+  background: var(--mn-surface-soft, #eeeeea);
   font: inherit;
   font-size: 13.5px;
   white-space: pre-wrap;
@@ -314,7 +314,7 @@
 }
 
 .review-final-comment {
-  border: 1px solid var(--mn-border, #c6d9df);
+  border: 1px solid var(--mn-border, #cfd1c8);
 }
 
 .review-comment-rationale {
@@ -344,45 +344,45 @@
 
 .rt-checklist li.checked span {
   text-decoration: line-through;
-  color: var(--mn-muted, #60717c);
+  color: var(--mn-muted, #5f6a6e);
 }
 
 /* Dark theme */
 [data-theme="dark"] .review-step {
-  background: var(--mn-surface, #101d28);
+  background: var(--mn-surface, #24282c);
 }
 
 [data-theme="dark"] .review-comment {
-  border-color: #284557;
-  background: rgba(255, 255, 255, 0.03);
+  border-color: #3a4146;
+  background: rgba(246, 245, 241, 0.03);
 }
 
 [data-theme="dark"] .review-tier-must {
-  color: #ffb3bb;
+  color: #e2a2a8;
   background: rgba(217, 84, 77, 0.18);
   border-color: rgba(217, 84, 77, 0.45);
 }
 
 [data-theme="dark"] .review-tier-should {
-  color: #a9ddfb;
-  background: rgba(21, 155, 211, 0.18);
-  border-color: rgba(21, 155, 211, 0.45);
+  color: #b9d2dc;
+  background: rgba(42, 122, 147, 0.18);
+  border-color: rgba(42, 122, 147, 0.45);
 }
 
 [data-theme="dark"] .review-tier-optional {
-  color: #c6d3d9;
+  color: #c3cbcf;
   background: rgba(159, 176, 184, 0.16);
   border-color: rgba(159, 176, 184, 0.4);
 }
 
 [data-theme="dark"] .review-tier-decide {
-  color: #cfc8ff;
-  background: rgba(102, 87, 255, 0.2);
-  border-color: rgba(102, 87, 255, 0.5);
+  color: #d4d1e8;
+  background: rgba(93, 90, 168, 0.2);
+  border-color: rgba(93, 90, 168, 0.5);
 }
 
 [data-theme="dark"] .review-error {
-  color: #ff9aa6;
+  color: #e2a2a8;
 }
 
 @media (max-width: 720px) {

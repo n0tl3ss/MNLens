@@ -10,9 +10,9 @@
   margin: 0 0 16px;
   padding: 14px;
   border: 1px solid #b8c9ce;
-  border-left: 4px solid #1f6f78;
+  border-left: 4px solid #245f68;
   border-radius: 8px;
-  background: #f7fbfc;
+  background: #f0f0ec;
 }
 
 .rebase-preview .prepared-diff-review {
@@ -20,9 +20,9 @@
 }
 
 .rebase-preview details {
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
 }
 
 .rebase-preview summary {
@@ -36,13 +36,13 @@
   margin: 0;
   overflow: auto;
   padding: 10px;
-  border-top: 1px solid #d3dbdd;
+  border-top: 1px solid #d2d4cc;
   font-size: 12px;
 }
 
 [data-theme="dark"] .rebase-preview,
 [data-theme="dark"] .rebase-preview details {
-  border-color: #284557;
-  background: #101d28;
-  color: #dceaf0;
+  border-color: #3a4146;
+  background: #24282c;
+  color: #d3d8da;
 }

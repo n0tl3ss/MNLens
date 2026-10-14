@@ -50,20 +50,20 @@
 }
 
 .handoff-card {
-  border-top: 5px solid #1f6f78;
+  border-top: 5px solid #245f68;
 }
 
 .handoff-card.added {
-  border-top-color: #11bfa5;
+  border-top-color: #2f9f86;
 }
 
 .handoff-card.queue,
 .handoff-card.improvement {
-  border-top-color: #b7791f;
+  border-top-color: #a0741f;
 }
 
 .handoff-card.danger {
-  border-top-color: #cf4b42;
+  border-top-color: #b5463d;
 }
 
 .handoff-highlights {
@@ -75,14 +75,14 @@
 
 .handoff-highlights article {
   padding: 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: rgba(244, 251, 253, 0.82);
 }
 
 .handoff-highlights span {
   display: block;
-  color: #637174;
+  color: #606b6e;
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -96,7 +96,7 @@
 
 .handoff-highlights p {
   margin: 5px 0 0;
-  color: #536164;
+  color: #525d60;
   font-size: 13px;
 }
 
@@ -125,7 +125,7 @@
 
 .pr-context-card {
   grid-column: 1 / -1;
-  border-top: 4px solid #27b7f2;
+  border-top: 4px solid #6fb3cc;
 }
 
 .pr-context-grid {
@@ -136,7 +136,7 @@
 }
 
 .project-assignment-card {
-  border-top: 4px solid #11bfa5;
+  border-top: 4px solid #2f9f86;
 }
 
 .project-assignment-controls {
@@ -154,7 +154,7 @@
 }
 
 .project-assignment-controls label span {
-  color: #536164;
+  color: #525d60;
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -188,7 +188,7 @@
   gap: 10px;
   min-width: 0;
   padding: 12px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: rgba(244, 251, 253, 0.82);
 }
@@ -198,18 +198,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #536164;
+  color: #525d60;
   font-size: 12px;
 }
 
 .context-subtitle strong {
-  color: #263538;
+  color: #2a3437;
   font-size: 13px;
 }
 
 .context-subtitle a,
 .linked-issue-list a {
-  color: #155f78;
+  color: #1d5a6c;
   font-weight: 750;
   text-decoration: none;
 }
@@ -223,10 +223,10 @@
   display: grid;
   gap: 7px;
   padding: 10px;
-  border: 1px solid #d8e1e3;
-  border-left: 4px solid #1f6f78;
+  border: 1px solid #d6d8d0;
+  border-left: 4px solid #245f68;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
 }
 
 .linked-issue-list article > div {
@@ -234,7 +234,7 @@
   gap: 7px;
   align-items: center;
   flex-wrap: wrap;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -274,29 +274,29 @@
 
 .readiness-card {
   grid-column: 1 / -1;
-  border-top: 4px solid #1f6f78;
+  border-top: 4px solid #245f68;
 }
 
 .final-recommendation-card {
   grid-column: 1 / -1;
-  border-top: 5px solid #1f6f78;
-  background: linear-gradient(180deg, #f7fbfb 0%, #ffffff 64%);
+  border-top: 5px solid #245f68;
+  background: #f1f1ed;
 }
 
 .final-recommendation-card.added {
-  border-top-color: #11bfa5;
-  background: linear-gradient(180deg, #f2fbf6 0%, #ffffff 68%);
+  border-top-color: #2f9f86;
+  background: #e9efea;
 }
 
 .final-recommendation-card.queue,
 .final-recommendation-card.improvement {
-  border-top-color: #b7791f;
-  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 68%);
+  border-top-color: #a0741f;
+  background: #f1ede2;
 }
 
 .final-recommendation-card.danger {
-  border-top-color: #cf4b42;
-  background: linear-gradient(180deg, #fff5f2 0%, #ffffff 68%);
+  border-top-color: #b5463d;
+  background: #f1e7e3;
 }
 
 .recommendation-hero {
@@ -316,7 +316,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
-  color: #536164;
+  color: #525d60;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -334,7 +334,7 @@
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #536164;
+  color: #525d60;
 }
 
 .recommendation-evidence {
@@ -346,41 +346,41 @@
   display: grid;
   gap: 7px;
   padding: 10px;
-  border: 1px solid #d8e1e3;
-  border-left: 4px solid #89979a;
+  border: 1px solid #d6d8d0;
+  border-left: 4px solid #8a9599;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
 }
 
 .recommendation-evidence article.added {
-  border-left-color: #11bfa5;
+  border-left-color: #2f9f86;
 }
 
 .recommendation-evidence article.queue,
 .recommendation-evidence article.improvement {
-  border-left-color: #b7791f;
+  border-left-color: #a0741f;
 }
 
 .recommendation-evidence article.danger {
-  border-left-color: #cf4b42;
+  border-left-color: #b5463d;
 }
 
 .recommendation-evidence p {
   margin: 0;
-  color: #425155;
+  color: #434d50;
   font-size: 13px;
 }
 
 .recommendation-blockers {
   margin: 0 0 10px;
   padding-left: 18px;
-  color: #425155;
+  color: #434d50;
   font-size: 13px;
 }
 
 .recommendation-draft {
   padding: 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: rgba(244, 251, 253, 0.82);
 }
@@ -392,7 +392,7 @@
 
 .recommendation-draft p {
   white-space: pre-wrap;
-  color: #425155;
+  color: #434d50;
 }
 
 .score-explanation {
@@ -400,7 +400,7 @@
   gap: 12px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #d8e1e3;
+  border-top: 1px solid #d6d8d0;
 }
 
 .score-explanation h4,
@@ -428,12 +428,12 @@
 
 .score-explanation > summary p {
   margin: 0;
-  color: #425155;
+  color: #434d50;
   font-size: 13px;
 }
 
 [data-theme="dark"] .score-explanation > summary p {
-  color: #9fb4bf;
+  color: #9aa4a9;
 }
 
 .score-adjustment-columns {
@@ -453,23 +453,23 @@
   gap: 10px;
   align-items: start;
   padding: 9px;
-  border: 1px solid #d8e1e3;
-  border-left: 4px solid #89979a;
+  border: 1px solid #d6d8d0;
+  border-left: 4px solid #8a9599;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
 }
 
 .score-adjustments article > strong {
   font-variant-numeric: tabular-nums;
-  color: #cf4b42;
+  color: #b5463d;
 }
 
 .score-adjustments article.queue {
-  border-left-color: #b7791f;
+  border-left-color: #a0741f;
 }
 
 .score-adjustments article.danger {
-  border-left-color: #cf4b42;
+  border-left-color: #b5463d;
 }
 
 .score-adjustments article b {
@@ -478,7 +478,7 @@
 
 .score-adjustments article p {
   margin: 3px 0 0;
-  color: #536164;
+  color: #525d60;
   font-size: 12px;
 }
 
@@ -487,7 +487,7 @@
   gap: 7px;
   margin: 0;
   padding-left: 18px;
-  color: #425155;
+  color: #434d50;
   font-size: 13px;
 }
 
@@ -500,24 +500,24 @@
 
 .review-delta-card {
   grid-column: 1 / -1;
-  border-top: 4px solid #1f6f78;
+  border-top: 4px solid #245f68;
 }
 
 .review-delta-card.queue {
-  border-top-color: #b7791f;
+  border-top-color: #a0741f;
 }
 
 .review-delta-card.danger {
-  border-top-color: #cf4b42;
+  border-top-color: #b5463d;
 }
 
 .review-delta-card.added {
-  border-top-color: #11bfa5;
+  border-top-color: #2f9f86;
 }
 
 .delta-baseline {
   margin: 8px 0 0;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -528,14 +528,14 @@
   align-items: start;
   margin-top: 10px;
   padding: 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: rgba(244, 251, 253, 0.82);
 }
 
 .delta-empty {
   grid-template-columns: 18px minmax(0, 1fr);
-  color: #425155;
+  color: #434d50;
 }
 
 .delta-list {
@@ -550,17 +550,17 @@
 
 .delta-list article.added {
   border-color: #a8d8b8;
-  background: #f0faf4;
+  background: #e9efea;
 }
 
 .delta-list article.queue {
   border-color: #e3bd60;
-  background: #fffaf0;
+  background: #f1ede2;
 }
 
 .delta-list article.danger {
   border-color: #efb2aa;
-  background: #fff6f4;
+  background: #f1e7e3;
 }
 
 .delta-list strong {
@@ -570,12 +570,12 @@
 
 .delta-list p {
   margin: 4px 0 0;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
 .delta-list article > span:last-child {
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
   white-space: nowrap;
 }
@@ -585,25 +585,25 @@
   gap: 8px;
   margin-top: 12px;
   padding: 10px;
-  border: 1px solid #d8e1e3;
-  border-left: 4px solid #89979a;
+  border: 1px solid #d6d8d0;
+  border-left: 4px solid #8a9599;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
 }
 
 .review-replay.added {
-  border-left-color: #11bfa5;
-  background: #f0faf4;
+  border-left-color: #2f9f86;
+  background: #e9efea;
 }
 
 .review-replay.queue {
-  border-left-color: #b7791f;
-  background: #fffaf0;
+  border-left-color: #a0741f;
+  background: #f1ede2;
 }
 
 .review-replay.danger {
-  border-left-color: #cf4b42;
-  background: #fff6f4;
+  border-left-color: #b5463d;
+  background: #f1e7e3;
 }
 
 .review-replay > div:first-child {
@@ -616,7 +616,7 @@
 .review-replay p,
 .review-replay li {
   margin: 0;
-  color: #536164;
+  color: #525d60;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -635,7 +635,7 @@
 .attention-card,
 .policy-card {
   grid-column: 1 / -1;
-  border-top: 4px solid #b7791f;
+  border-top: 4px solid #a0741f;
 }
 
 .attention-list,
@@ -651,24 +651,24 @@
   display: grid;
   gap: 5px;
   padding: 9px 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: rgba(244, 251, 253, 0.82);
 }
 
 .attention-list article.danger {
   border-color: #efb2aa;
-  background: #fff6f4;
+  background: #f1e7e3;
 }
 
 .attention-list article.queue {
   border-color: #e3bd60;
-  background: #fffaf0;
+  background: #f1ede2;
 }
 
 .attention-list article.added {
   border-color: #a8d8b8;
-  background: #f0faf4;
+  background: #e9efea;
 }
 
 .policy-list label {
@@ -719,7 +719,7 @@
   gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #d8e1e3;
+  border-top: 1px solid #d6d8d0;
 }
 
 .learning-header {
@@ -730,13 +730,13 @@
 }
 
 .policy-suggestions strong {
-  color: #263538;
+  color: #2a3437;
   font-size: 12px;
 }
 
 .policy-suggestions p {
   margin: 0;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
   line-height: 1.4;
 }
@@ -752,14 +752,14 @@
   align-items: start;
   gap: 9px;
   padding: 8px 9px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
 }
 
 .learning-candidates label.saved {
   border-color: #a8d8b8;
-  background: #f0faf4;
+  background: #e9efea;
 }
 
 .learning-candidates label > span {
@@ -771,7 +771,7 @@
 .policy-list em,
 .learning-candidates em,
 .fix-session-context span {
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
   font-style: normal;
   line-height: 1.35;
@@ -779,7 +779,7 @@
 
 .fix-session-context {
   margin-top: 10px;
-  border-left: 4px solid #1f6f78;
+  border-left: 4px solid #245f68;
 }
 
 .fix-session-context > div {
@@ -800,21 +800,21 @@
 
 .readiness-card.added,
 .readiness-card.improvement {
-  border-top-color: #11bfa5;
+  border-top-color: #2f9f86;
 }
 
 .readiness-card.queue {
-  border-top-color: #b7791f;
+  border-top-color: #a0741f;
   background: #fffdf7;
 }
 
 .readiness-card.danger {
-  border-top-color: #cf4b42;
+  border-top-color: #b5463d;
   background: #fff8f6;
 }
 
 .readiness-card ul {
-  color: #536164;
+  color: #525d60;
   font-size: 13px;
 }
 
@@ -822,7 +822,7 @@
   margin: 8px 0 0;
   padding: 8px 10px;
   border: 1px solid #e3c98a;
-  border-left: 4px solid #c9962a;
+  border-left: 4px solid #b58a2e;
   border-radius: 6px;
   background: #fff8e6;
   color: #6b4e08;
@@ -839,9 +839,9 @@
 /* Collapsible secondary groups (context/readiness, rules/memory) */
 .overview-group {
   margin-top: 14px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(246, 245, 241, 0.5);
 }
 
 .overview-group-head {
@@ -901,15 +901,15 @@
 }
 
 [data-theme="dark"] .overview-group {
-  border-color: #284557;
-  background: rgba(255, 255, 255, 0.02);
+  border-color: #3a4146;
+  background: rgba(246, 245, 241, 0.02);
 }
 
 /* First-run guidance on the Overview before an analysis exists */
 .start-here {
   display: grid;
   gap: 10px;
-  border-left: 4px solid var(--mn-primary, #159bd3);
+  border-left: 4px solid var(--mn-primary, #2a7a93);
 }
 
 .start-here ol {
@@ -927,4 +927,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.recommendation-evidence-title {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12.5px;
 }

@@ -5,7 +5,7 @@
   flex: 0 0 auto;
   min-height: 22px;
   padding: 3px 7px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 999px;
   background: #eaf5f8;
   color: #263d4a;
@@ -29,9 +29,9 @@
 }
 
 .badge.danger {
-  border-color: #e997aa;
-  background: linear-gradient(180deg, #fff0f2, #ffe6e9);
-  color: #9a2e3f;
+  border-color: #d9b0b4;
+  background: #f0e4e2;
+  color: #8f3140;
 }
 
 .badge.added {
@@ -47,15 +47,15 @@
 }
 
 .badge.queue {
-  background: linear-gradient(180deg, #f0edff, #e8f7ff);
+  background: #e9e8ef;
   color: #40379c;
   border-color: #b6adff;
 }
 
 .badge.label {
-  background: #eeeaff;
-  color: #4438a0;
-  border: 1px solid #b9afff;
+  background: #e9e8ef;
+  color: #4a4690;
+  border: 1px solid #bcb9dc;
   font-style: italic;
 }
 
@@ -65,29 +65,29 @@
   gap: 3px;
   min-width: 128px;
   padding: 10px 12px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-top: 4px solid #8ca7b2;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
   text-align: right;
 }
 
 .pr-score-card.added {
-  border-top-color: #11bfa5;
+  border-top-color: #2f9f86;
 }
 
 .pr-score-card.improvement {
-  border-top-color: #159bd3;
+  border-top-color: #2a7a93;
 }
 
 .pr-score-card.queue {
-  border-top-color: #6657ff;
-  background: linear-gradient(180deg, #f7f5ff, #f4fbff);
+  border-top-color: #5d5aa8;
+  background: #ecebf0;
 }
 
 .pr-score-card.danger {
-  border-top-color: #d9544d;
-  background: linear-gradient(180deg, #fff7f8, #fff2f2);
+  border-top-color: #b9483f;
+  background: #f2e9e7;
 }
 
 .pr-score-card div {
@@ -98,14 +98,14 @@
 }
 
 .pr-score-card strong {
-  color: #142231;
+  color: #20292d;
   font-size: 28px;
   line-height: 1;
 }
 
 .pr-score-card span,
 .pr-score-card small {
-  color: #60717c;
+  color: #5f6a6e;
   font-size: 11px;
   font-weight: 800;
 }
@@ -117,7 +117,7 @@
 }
 
 .pr-score-card em {
-  color: #60717c;
+  color: #5f6a6e;
   font-size: 12px;
   font-style: italic;
 }
@@ -134,11 +134,11 @@
 .summary-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid #c6d9df;
+  border: 1px solid #cfd1c8;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(246, 245, 241, 0.92);
   box-shadow:
-    0 1px 0 rgba(21, 155, 211, 0.06),
+    0 1px 0 rgba(42, 122, 147, 0.06),
     0 16px 48px rgba(21, 75, 104, 0.045);
 }
 
@@ -153,17 +153,17 @@
 }
 
 .insight-section {
-  border-top: 4px solid #159bd3;
+  border-top: 4px solid #2a7a93;
 }
 
 .insight-section.evidence {
-  border-top-color: #11bfa5;
+  border-top-color: #2f9f86;
 }
 
 .insight-section.risk {
-  border-top-color: #d9544d;
+  border-top-color: #b9483f;
 }
 
 .insight-section.tests {
-  border-top-color: #6657ff;
+  border-top-color: #5d5aa8;
 }

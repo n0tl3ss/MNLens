@@ -5,15 +5,15 @@
 }
 
 .acceptance-card.all-proven {
-  border-left-color: #1f9d7a;
+  border-left-color: #2e8a6c;
 }
 
 .acceptance-card.has-unproven {
-  border-left-color: #c9962a;
+  border-left-color: #b58a2e;
 }
 
 .acceptance-card.has-failed {
-  border-left-color: #c43c5a;
+  border-left-color: #b04455;
 }
 
 .acceptance-score {
@@ -38,7 +38,7 @@
 }
 
 .acceptance-error {
-  color: #9a2e3f;
+  color: #8f3140;
 }
 
 .acceptance-list {
@@ -53,13 +53,13 @@
   display: grid;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(246, 245, 241, 0.6);
 }
 
 .acceptance-item.failed {
-  border-color: #e997aa;
+  border-color: #d9b0b4;
 }
 
 .acceptance-item-head {
@@ -108,8 +108,8 @@
 }
 
 [data-theme="dark"] .acceptance-item {
-  border-color: #34404a;
-  background: rgba(255, 255, 255, 0.03);
+  border-color: #3b454b;
+  background: rgba(246, 245, 241, 0.03);
 }
 
 [data-theme="dark"] .acceptance-stale {
@@ -150,8 +150,8 @@
 }
 
 .finding-feedback button.active.dismissed {
-  background: #ffe6e9;
-  color: #9a2e3f;
+  background: #ecdcd9;
+  color: #8f3140;
 }
 
 [data-theme="dark"] .finding-feedback button.active.kept {

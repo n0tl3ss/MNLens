@@ -13,7 +13,7 @@
   padding: 18px;
   border: 1px solid #b9c3c6;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
   box-shadow: 0 24px 80px rgba(16, 27, 30, 0.22);
 }
 
@@ -33,8 +33,8 @@
 }
 
 [data-theme="dark"] .review-modal {
-  border-color: #315268;
-  background: #101d28;
+  border-color: #455058;
+  background: #24282c;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
 

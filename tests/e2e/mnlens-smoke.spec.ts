@@ -390,7 +390,16 @@ test("Overview keeps secondary sections collapsed and opens them on demand", asy
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Add Oracle UCP telemetry" })).toBeVisible();
   await expect(page.getByText("Review Summary")).toBeVisible();
-  if (process.env.MNLENS_E2E_SHOTS) await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-top.png` });
+  if (process.env.MNLENS_E2E_SHOTS) {
+    await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-top.png` });
+    await page.evaluate(() => localStorage.setItem("pra-theme", "dark"));
+    await page.reload();
+    await expect(page.getByText("Review Summary")).toBeVisible();
+    await page.screenshot({ path: `${process.env.MNLENS_E2E_SHOTS}/overview-dark.png` });
+    await page.evaluate(() => localStorage.setItem("pra-theme", "light"));
+    await page.reload();
+    await expect(page.getByText("Review Summary")).toBeVisible();
+  }
   const rulesGroup = page.getByRole("button", { name: /Repository rules & review memory/ });
   await expect(rulesGroup).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("Repo Review Memory")).toHaveCount(0);
@@ -442,7 +451,7 @@ test("supports dark theme and the mobile review queue layout", async ({ page }) 
   await expect(page.getByRole("heading", { name: "MNLens" })).toBeVisible();
   const selectedQueueRow = page.locator(".pr-row.selected.queue").first();
   await expect(selectedQueueRow).toBeVisible();
-  await expect(selectedQueueRow).toHaveCSS("border-left-color", "rgb(118, 104, 255)");
+  await expect(selectedQueueRow).toHaveCSS("border-left-color", "rgb(154, 149, 214)");
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(2);

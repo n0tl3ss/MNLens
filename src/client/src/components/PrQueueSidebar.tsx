@@ -38,7 +38,6 @@ export function PrQueueSidebar({
   authTokenInput,
   savingAuthToken,
   busy,
-  cacheText,
   collapsedRepos,
   expandedPrRows,
   fixJobs,
@@ -53,7 +52,6 @@ export function PrQueueSidebar({
   sortDirection,
   sortField,
   theme,
-  typeFilter,
   unanalyzedVisibleCount,
   bulkAnalyzeMode,
   visibleAnalysisBatch,
@@ -87,7 +85,6 @@ export function PrQueueSidebar({
   onTogglePrRow,
   onToggleRepoGroup,
   onTokenChange,
-  onTypeFilterChange,
   readinessForPr,
   scoreForPrList,
 }: {
@@ -95,7 +92,6 @@ export function PrQueueSidebar({
   authTokenInput: string;
   savingAuthToken: boolean;
   busy: boolean;
-  cacheText: string;
   collapsedRepos: Record<string, boolean>;
   expandedPrRows: Record<string, boolean>;
   fixJobs: Record<string, FixJob>;
@@ -110,7 +106,6 @@ export function PrQueueSidebar({
   sortDirection: SortDirection;
   sortField: PrSortField;
   theme: "light" | "dark";
-  typeFilter: PrTypeFilter;
   unanalyzedVisibleCount: number;
   bulkAnalyzeMode: BulkAnalyzeMode;
   visibleAnalysisBatch: PrListItem[];
@@ -144,7 +139,6 @@ export function PrQueueSidebar({
   onTogglePrRow: (key: string) => void;
   onToggleRepoGroup: (repository: string) => void;
   onTokenChange: (token: string) => void;
-  onTypeFilterChange: (type: PrTypeFilter) => void;
   readinessForPr: (pr: PrListItem, context?: { job?: Job; fixJobs?: FixJob[] }) => { label: string; tone: string };
   scoreForPrList: (pr: PrListItem) => { score: ReviewScore; estimated: boolean; available: boolean };
 }) {
@@ -155,7 +149,7 @@ export function PrQueueSidebar({
           <img src="/mnlens-logo.png?v=5" alt="" />
           <div>
             <h1>MNLens</h1>
-            <p>{cacheText || "Human-led GitHub review queue"}</p>
+            <p>Human-led GitHub review</p>
           </div>
         </div>
         <div className="header-actions">
@@ -210,29 +204,24 @@ export function PrQueueSidebar({
             </option>
           ))}
         </select>
-        <select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value as PrTypeFilter)}>
-          {typeLabels.map((type) => (
-            <option key={type} value={type}>
-              {type === "all" ? "All AI types" : type}
-            </option>
-          ))}
+        <select
+          className="sort-select"
+          value={`${sortField}:${sortDirection}`}
+          aria-label="Sort PRs"
+          onChange={(event) => {
+            const [field, direction] = event.target.value.split(":") as [PrSortField, SortDirection];
+            onSortFieldChange(field);
+            onSortDirectionChange(direction);
+          }}
+        >
+          {sortFields.flatMap((field) =>
+            sortDirections.map((direction) => (
+              <option key={`${field}:${direction}`} value={`${field}:${direction}`}>
+                {sortFieldLabel(field)}: {sortDirectionLabel(field, direction).toLowerCase()}
+              </option>
+            ))
+          )}
         </select>
-        <div className="sort-controls">
-          <select value={sortField} onChange={(event) => onSortFieldChange(event.target.value as PrSortField)} aria-label="Sort PRs by">
-            {sortFields.map((field) => (
-              <option key={field} value={field}>
-                Sort by {sortFieldLabel(field)}
-              </option>
-            ))}
-          </select>
-          <select value={sortDirection} onChange={(event) => onSortDirectionChange(event.target.value as SortDirection)} aria-label="Sort direction">
-            {sortDirections.map((direction) => (
-              <option key={direction} value={direction}>
-                {sortDirectionLabel(sortField, direction)}
-              </option>
-            ))}
-          </select>
-        </div>
         <label className="check-control">
           <input type="checkbox" checked={includeMine} onChange={(event) => onIncludeMineChange(event.target.checked)} />
           Include my PRs

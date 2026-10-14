@@ -9,10 +9,10 @@
 }
 
 .commit-card {
-  border: 1px solid #d3dbdd;
-  border-left: 4px solid #1f6f78;
+  border: 1px solid #d2d4cc;
+  border-left: 4px solid #245f68;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
   overflow: hidden;
 }
 
@@ -47,7 +47,7 @@
 }
 
 .commit-main a {
-  color: #155f78;
+  color: #1d5a6c;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   font-weight: 850;
@@ -59,7 +59,7 @@
 }
 
 .commit-main > span {
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -76,7 +76,7 @@
 
 .commit-file-change {
   display: grid;
-  border-top: 1px solid #edf1f2;
+  border-top: 1px solid #e9eae5;
 }
 
 .commit-file-change:first-child {
@@ -91,7 +91,7 @@
   padding: 9px 14px;
   border: 0;
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
   font-size: 12px;
   text-align: left;
 }
@@ -113,14 +113,14 @@
 }
 
 .commit-file-row small {
-  color: #637174;
+  color: #606b6e;
 }
 
 .commit-file-row em {
   align-self: start;
   padding: 2px 6px;
   border-radius: 999px;
-  background: #edf1f2;
+  background: #e9eae5;
   color: #465457;
   font-style: normal;
   font-weight: 750;
@@ -130,7 +130,7 @@
   display: grid;
   min-height: 0;
   padding: 0 12px 12px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
 }
 
 .commit-file-patch .prepared-diff {

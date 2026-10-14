@@ -63,7 +63,6 @@ import {
   getStackMergePlan,
   mergeStackStep,
   getAnalysis,
-  getCacheStats,
   getCiChecks,
   getCiLog,
   getFixJob,
@@ -151,14 +150,13 @@ export function App() {
   const [analysis, setAnalysis] = useState<AnalysisResult | undefined>();
   const [jobs, setJobs] = useState<Record<string, Job>>({});
   const [tab, setTab] = useState<Tab>("overview");
-  const [typeFilter, setTypeFilter] = useState<PrTypeFilter>("all");
+  const [typeFilter] = useState<PrTypeFilter>("all");
   const [repoFilter, setRepoFilter] = useState("all");
   const [sortField, setSortField] = useState<PrSortField>(() => (localStorage.getItem("mnlens-pr-sort-field") as PrSortField) || "date");
   const [sortDirection, setSortDirection] = useState<SortDirection>(() => (localStorage.getItem("mnlens-pr-sort-direction") as SortDirection) || "desc");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [cacheText, setCacheText] = useState("");
   const [agentSettings, setAgentSettings] = useState<AgentSettingsResponse | undefined>();
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [agentSettingsSaving, setAgentSettingsSaving] = useState(false);
@@ -207,7 +205,7 @@ export function App() {
   const [collapsedRepos, setCollapsedRepos] = useState<Record<string, boolean>>({});
   const [openingEditor, setOpeningEditor] = useState<EditorKind | undefined>();
   const [askingFixId, setAskingFixId] = useState<string | undefined>();
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("pra-theme") === "light" ? "light" : "dark"));
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("pra-theme") === "dark" ? "dark" : "light"));
   const [bulkAnalyzeMode, setBulkAnalyzeMode] = useState<BulkAnalyzeMode>(() => (localStorage.getItem("mnlens-bulk-analyze-mode") === "deep" ? "deep" : "fast"));
   const [attentionMode, setAttentionMode] = useState(() => localStorage.getItem("pra-attention-mode") === "true");
   const [mobileQueueOpen, setMobileQueueOpen] = useState(false);
@@ -363,8 +361,6 @@ export function App() {
       void getStackSummaries(Array.from(new Set(next.map((pr) => pr.repository))))
         .then(setStackSummaries)
         .catch(() => undefined);
-      const stats = await getCacheStats();
-      setCacheText(`${stats.prCount} PR snapshots, ${stats.analysisCount} analyses`);
       if (refreshSelected && selectedKey) {
         const freshSelected = next.find((pr) => pr.key === selectedKey);
         if (freshSelected) await loadDetail(freshSelected, true, true);
@@ -469,10 +465,9 @@ export function App() {
     setError(undefined);
     setNotice(undefined);
     try {
-      const [nextPrs, stats] = await Promise.all([getPrs(queue, includeMine), getCacheStats()]);
+      const nextPrs = await getPrs(queue, includeMine);
       setPrs(nextPrs);
       setSelectedFallbackPr((current) => (current && nextPrs.some((pr) => pr.key === current.key) ? undefined : current));
-      setCacheText(`${stats.prCount} PR snapshots, ${stats.analysisCount} analyses`);
       const freshSelected = nextPrs.find((pr) => pr.key === selected.key) ?? selected;
       await loadDetail(freshSelected, true);
       setNotice("PR data refreshed.");
@@ -1293,7 +1288,6 @@ export function App() {
       setFixJobs({});
       setCiChecks({});
       setRepoRules([]);
-      setCacheText("Local review data cleared");
       setNotice("Cleared local review data.");
     } catch (err) {
       setError(messageOf(err));
@@ -1405,7 +1399,6 @@ export function App() {
         authTokenInput={authTokenInput}
         savingAuthToken={savingAuthToken}
         busy={busy}
-        cacheText={cacheText}
         collapsedRepos={collapsedRepos}
         expandedPrRows={expandedPrRows}
         fixJobs={fixJobs}
@@ -1420,7 +1413,6 @@ export function App() {
         sortDirection={sortDirection}
         sortField={sortField}
         theme={theme}
-        typeFilter={typeFilter}
         unanalyzedVisibleCount={unanalyzedVisibleCount}
         bulkAnalyzeMode={bulkAnalyzeMode}
         visibleAnalysisBatch={visibleAnalysisBatch}
@@ -1477,7 +1469,6 @@ export function App() {
         onTogglePrRow={togglePrRow}
         onToggleRepoGroup={toggleRepoGroup}
         onTokenChange={setAuthTokenInput}
-        onTypeFilterChange={setTypeFilter}
         readinessForPr={readinessForPr}
         scoreForPrList={scoreForPrList}
       />

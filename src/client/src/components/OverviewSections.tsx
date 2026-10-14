@@ -37,7 +37,7 @@ export function FinalRecommendationSection({ recommendation }: { recommendation:
           <div className="recommendation-evidence">
             {recommendation.evidence.map((item) => (
               <article key={`${item.title}:${item.body}`} className={item.tone}>
-                <Badge tone={item.tone}>{item.title}</Badge>
+                <strong className="recommendation-evidence-title">{item.title}</strong>
                 <p>{item.body}</p>
               </article>
             ))}

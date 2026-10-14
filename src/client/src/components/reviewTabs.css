@@ -4,7 +4,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
-  border-bottom: 1px solid #c6d9df;
+  border-bottom: 1px solid #cfd1c8;
 }
 
 .tab-list {
@@ -24,7 +24,7 @@
 
 .tab-group + .tab-group {
   padding-left: 10px;
-  border-left: 1px dashed #c6d9df;
+  border-left: 1px dashed #cfd1c8;
 }
 
 .tab-group-label {
@@ -35,7 +35,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #60717c;
+  color: #5f6a6e;
 }
 
 .tab-group + .tab-group .tab-group-label {
@@ -56,7 +56,7 @@
 }
 
 .tabs .active .tab-badge {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(246, 245, 241, 0.28);
 }
 
 .tabs button {
@@ -66,10 +66,10 @@
 }
 
 .tabs .active {
-  border-color: #159bd3;
-  background: linear-gradient(135deg, #159bd3, #6657ff);
-  color: #fff;
-  box-shadow: 0 -2px 0 rgba(17, 191, 165, 0.22) inset;
+  border-color: #2a7a93;
+  background: #2a7a93;
+  color: #f6f5f1;
+  box-shadow: 0 -2px 0 rgba(47, 159, 134, 0.22) inset;
 }
 
 .tab-refresh {
@@ -77,24 +77,24 @@
 }
 
 [data-theme="dark"] .tabs {
-  border-color: #233846;
+  border-color: #3a4146;
 }
 
 [data-theme="dark"] .tab-group + .tab-group {
-  border-color: #284557;
+  border-color: #3a4146;
 }
 
 [data-theme="dark"] .tab-group-label {
-  color: #9fb4bf;
+  color: #9aa4a9;
 }
 
 [data-theme="dark"] .tab-badge {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(246, 245, 241, 0.14);
 }
 
 [data-theme="dark"] .tabs .active {
-  background: #166f93;
-  color: #fff;
+  background: #2a7a93;
+  color: #f6f5f1;
 }
 
 @media (max-width: 720px) {

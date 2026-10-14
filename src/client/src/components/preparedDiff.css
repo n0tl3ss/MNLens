@@ -3,7 +3,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   align-content: start;
   min-height: 0;
-  border-top: 4px solid #1f6f78;
+  border-top: 4px solid #245f68;
 }
 
 .prepared-diff-review {
@@ -75,9 +75,9 @@
 }
 
 .prepared-file-tabs button.active {
-  border-color: #1f6f78;
+  border-color: #245f68;
   background: #eef8fa;
-  box-shadow: inset 3px 0 0 #1f6f78;
+  box-shadow: inset 3px 0 0 #245f68;
 }
 
 .prepared-tree-group {
@@ -111,7 +111,7 @@
 }
 
 .prepared-file-row small {
-  color: #637174;
+  color: #606b6e;
   font-size: 11px;
   line-height: 1.25;
   overflow-wrap: anywhere;
@@ -185,7 +185,7 @@
 }
 
 .prepared-code-line:hover {
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(246, 245, 241, 0.055);
 }
 
 .prepared-line-no,
@@ -197,7 +197,7 @@
 }
 
 .prepared-line-no {
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(246, 245, 241, 0.08);
   background: rgba(0, 0, 0, 0.16);
   text-align: right;
 }

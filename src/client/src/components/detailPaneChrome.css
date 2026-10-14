@@ -2,9 +2,7 @@
   min-width: 0;
   padding: 24px;
   background:
-    radial-gradient(circle at 82% 0%, rgba(102, 87, 255, 0.08), transparent 26%),
-    radial-gradient(circle at 12% 14%, rgba(21, 155, 211, 0.08), transparent 30%),
-    linear-gradient(135deg, #eef7fb, #fbfdfe);
+    #e7e8e3;
   overflow: auto;
 }
 
@@ -28,7 +26,7 @@
 
 .running {
   background: #e6f4f6;
-  color: #155f78;
+  color: #1d5a6c;
 }
 
 .notice-banner {
@@ -38,13 +36,11 @@
 
 [data-theme="dark"] .detail-pane {
   background:
-    radial-gradient(circle at 82% 0%, rgba(118, 104, 255, 0.1), transparent 26%),
-    radial-gradient(circle at 12% 14%, rgba(39, 183, 242, 0.09), transparent 30%),
-    linear-gradient(135deg, #08131d, #101d28);
+    #1b1e21;
 }
 
 [data-theme="dark"] .notice-banner {
-  background: #0e332d;
+  background: #233a33;
   color: #a9f5e7;
 }
 
@@ -54,7 +50,7 @@
 }
 
 [data-theme="dark"] .running {
-  background: #102c42;
+  background: #2b3238;
   color: #bdeef4;
 }
 
@@ -76,9 +72,9 @@
   padding-left: 22px;
   text-align: left;
   font-size: 13.5px;
-  color: var(--mn-muted, #60717c);
+  color: var(--mn-muted, #5f6a6e);
 }
 
 .empty-state-steps strong {
-  color: var(--mn-ink, #142231);
+  color: var(--mn-ink, #20292d);
 }

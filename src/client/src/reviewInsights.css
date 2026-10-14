@@ -40,28 +40,28 @@
   gap: 8px;
   padding: 10px;
   border: 1px solid #e0e6e8;
-  border-left: 4px solid #89979a;
+  border-left: 4px solid #8a9599;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(246, 245, 241, 0.76);
 }
 
 .insight-section.evidence .insight-list article {
-  border-left-color: #11bfa5;
-  background: #f0faf4;
+  border-left-color: #2f9f86;
+  background: #e9efea;
 }
 
 .insight-section.focus .insight-list article {
-  border-left-color: #1f6f78;
+  border-left-color: #245f68;
   background: #eef8fa;
 }
 
 .insight-section.risk .insight-list article {
-  border-left-color: #cf4b42;
-  background: #fff6f4;
+  border-left-color: #b5463d;
+  background: #f1e7e3;
 }
 
 .insight-section.tests .verification-item {
-  border-left-color: #8960c4;
+  border-left-color: #7a6bb0;
   background: #f7f2ff;
 }
 
@@ -85,30 +85,30 @@
   height: 24px;
   border-radius: 999px;
   background: #203538;
-  color: #fff;
+  color: #f6f5f1;
   font-size: 12px;
   font-weight: 850;
 }
 
 .insight-section.evidence .insight-rank {
-  background: #11bfa5;
+  background: #2f9f86;
 }
 
 .insight-section.focus .insight-rank {
-  background: #1f6f78;
+  background: #245f68;
 }
 
 .insight-section.risk .insight-rank {
-  background: #cf4b42;
+  background: #b5463d;
 }
 
 .insight-section.tests .verification-item > div:first-child > span {
-  background: #8960c4;
+  background: #7a6bb0;
 }
 
 .insight-list p,
 .verification-item p {
-  color: #263538;
+  color: #2a3437;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -162,7 +162,7 @@
   padding: 2px 7px;
   border: 1px solid #ccd7da;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(246, 245, 241, 0.65);
   color: #415155;
   font-size: 12px;
   font-weight: 750;
@@ -181,7 +181,7 @@
   padding: 7px 8px;
   border: 1px solid #cfe0e4;
   border-radius: 6px;
-  background: #eef8fb;
+  background: #e8ebec;
 }
 
 .reviewer-recommendation {
@@ -227,7 +227,7 @@
 .risk-answer {
   padding: 8px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
 }
 
 .risk-answer.error-text {

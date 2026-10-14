@@ -2,36 +2,36 @@
   color-scheme: dark;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #e7f7fb;
-  background: #07131c;
-  --mn-ink: #142231;
-  --mn-muted: #60717c;
-  --mn-surface: #ffffff;
-  --mn-surface-soft: #f4fbfd;
-  --mn-border: #c6d9df;
-  --mn-primary: #159bd3;
-  --mn-primary-deep: #176aa7;
-  --mn-teal: #11bfa5;
-  --mn-violet: #6657ff;
-  --mn-amber: #c1841c;
-  --mn-danger: #d9544d;
+  color: #e4e7e8;
+  background: #1b1e21;
+  --mn-ink: #20292d;
+  --mn-muted: #5f6a6e;
+  --mn-surface: #f6f5f1;
+  --mn-surface-soft: #eeeeea;
+  --mn-border: #cfd1c8;
+  --mn-primary: #2a7a93;
+  --mn-primary-deep: #1f5f73;
+  --mn-teal: #2f9f86;
+  --mn-violet: #5d5aa8;
+  --mn-amber: #9c6f1e;
+  --mn-danger: #b9483f;
 }
 
 [data-theme="light"] {
   color-scheme: light;
-  color: #142231;
-  background: #eef7fb;
-  --mn-ink: #142231;
-  --mn-muted: #60717c;
-  --mn-surface: #ffffff;
-  --mn-surface-soft: #f4fbfd;
-  --mn-border: #c6d9df;
-  --mn-primary: #159bd3;
-  --mn-primary-deep: #176aa7;
-  --mn-teal: #11bfa5;
-  --mn-violet: #6657ff;
-  --mn-amber: #c1841c;
-  --mn-danger: #d9544d;
+  color: #20292d;
+  background: #e7e8e3;
+  --mn-ink: #20292d;
+  --mn-muted: #5f6a6e;
+  --mn-surface: #f6f5f1;
+  --mn-surface-soft: #eeeeea;
+  --mn-border: #cfd1c8;
+  --mn-primary: #2a7a93;
+  --mn-primary-deep: #1f5f73;
+  --mn-teal: #2f9f86;
+  --mn-violet: #5d5aa8;
+  --mn-amber: #9c6f1e;
+  --mn-danger: #b9483f;
 }
 
 * {
@@ -41,19 +41,13 @@
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 18% 12%, rgba(21, 155, 211, 0.24), transparent 30%),
-    radial-gradient(circle at 82% 18%, rgba(102, 87, 255, 0.18), transparent 28%),
-    radial-gradient(circle at 58% 84%, rgba(17, 191, 165, 0.12), transparent 32%),
-    linear-gradient(135deg, #07131c 0%, #0b1d2c 54%, #09151f 100%);
+    #1b1e21;
 }
 
 [data-theme="light"] body {
   background:
-    radial-gradient(circle at 16% 0%, rgba(21, 155, 211, 0.14), transparent 30%),
-    radial-gradient(circle at 88% 6%, rgba(102, 87, 255, 0.1), transparent 26%),
-    radial-gradient(circle at 58% 84%, rgba(17, 191, 165, 0.08), transparent 32%),
-    linear-gradient(135deg, #eef7fb 0%, #fbfdfe 100%);
-  color: #142231;
+    #e7e8e3;
+  color: #20292d;
 }
 
 button,
@@ -80,7 +74,7 @@ button,
 
 button:hover,
 .button-like:hover {
-  border-color: #5aaec8;
+  border-color: #5d9bb0;
 }
 
 button:disabled {
@@ -93,8 +87,7 @@ button:disabled {
   grid-template-columns: 420px minmax(0, 1fr);
   min-height: 100vh;
   background:
-    radial-gradient(circle at 84% 0%, rgba(102, 87, 255, 0.08), transparent 28%),
-    linear-gradient(135deg, #eef7fb, #fbfdfe);
+    #e7e8e3;
 }
 
 .app-header,
@@ -157,8 +150,9 @@ h3 {
 }
 
 .auth.ok {
-  background: #e7faf5;
-  color: #0d685a;
+  border-color: var(--mn-border);
+  background: var(--mn-surface);
+  color: #2e6a5e;
 }
 
 .auth.warn {
@@ -204,9 +198,9 @@ pre {
 }
 
 .segmented .active {
-  background: linear-gradient(135deg, var(--mn-primary), var(--mn-violet));
-  color: #fff;
-  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.22);
+  background: var(--mn-primary);
+  color: #f6f5f1;
+  box-shadow: inset 0 -2px 0 rgba(246, 245, 241, 0.22);
 }
 
 .check-control {
@@ -236,7 +230,7 @@ select {
   padding: 0 10px;
   border: 1px solid var(--mn-border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
 }
 
 .author-link {
@@ -275,7 +269,7 @@ select {
   max-width: 100%;
   overflow: hidden;
   padding: 9px 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: var(--mn-surface-soft);
   color: inherit;
@@ -355,7 +349,7 @@ select {
 .comment-guidance-grid > div {
   min-width: 0;
   padding: 10px;
-  border: 1px solid #d8e1e3;
+  border: 1px solid #d6d8d0;
   border-radius: 7px;
   background: var(--mn-surface-soft);
 }
@@ -394,7 +388,7 @@ select {
 }
 
 .callout.before {
-  border-left-color: #b7791f;
+  border-left-color: #a0741f;
   background: #fff8eb;
 }
 
@@ -403,8 +397,8 @@ select {
 }
 
 .callout.after {
-  border-left-color: #11bfa5;
-  background: #f0faf4;
+  border-left-color: #2f9f86;
+  background: #e9efea;
 }
 
 .callout.after strong {
@@ -416,9 +410,9 @@ textarea {
   min-height: 520px;
   margin-top: 10px;
   padding: 14px;
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(246, 245, 241, 0.9);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -432,7 +426,7 @@ textarea {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  color: #637174;
+  color: #606b6e;
   font-size: 12px;
 }
 
@@ -440,13 +434,13 @@ textarea {
 .conversation-comment p,
 .markdown-body p {
   margin: 0;
-  color: #263538;
+  color: #2a3437;
   line-height: 1.45;
 }
 
 .existing-inline-comment a,
 .conversation-comment a {
-  color: #155f78;
+  color: #1d5a6c;
 }
 
 .conversation-comment-actions {
@@ -463,7 +457,7 @@ textarea {
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-radius: 8px;
   background: #fbfcff;
 }
@@ -472,7 +466,7 @@ textarea {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #d3dbdd;
+  border: 1px solid #d2d4cc;
   border-radius: 8px;
   background: #f3f7f8;
 }
@@ -480,7 +474,7 @@ textarea {
 .conversation-reply-form label {
   font-size: 12px;
   font-weight: 700;
-  color: #263538;
+  color: #2a3437;
 }
 
 .conversation-reply-form textarea {
@@ -515,7 +509,7 @@ textarea {
   place-items: center;
   gap: 10px;
   min-height: 420px;
-  color: #637174;
+  color: #606b6e;
 }
 
 @keyframes spin {
